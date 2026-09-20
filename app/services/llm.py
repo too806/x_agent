@@ -30,11 +30,8 @@ class OpenAILLMService:
         self._model = model or settings.llm_model
         self._timeout = timeout if timeout is not None else settings.llm_timeout_seconds
         self._client = client
-        self._injected_client = client
 
     def _get_client(self) -> AsyncOpenAI:
-        if self._injected_client is not None:
-            return self._injected_client
         if self._client is None:
             self._client = AsyncOpenAI(
                 api_key=self._api_key,

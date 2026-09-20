@@ -55,7 +55,13 @@ class RealXApiClient:
                 raise XApiError(f"X API request failed: {exc}") from exc
             if resp.status_code >= 400:
                 raise XApiError(f"X API returned {resp.status_code}: {resp.text[:200]}")
-            return resp.json()
+            try:
+                return resp.json()
+            except ValueError as exc:
+                # resp.json() 解析失败（非 JSON 响应体，如 HTML/空体）→ 统一为 XApiError
+                raise XApiError(
+                    f"X API returned invalid JSON (status {resp.status_code}): {resp.text[:200]}"
+                ) from exc
         finally:
             if should_close:
                 await client.aclose()

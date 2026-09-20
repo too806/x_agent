@@ -1,3 +1,4 @@
+import httpx
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 
@@ -7,7 +8,7 @@ from app.config import settings
 from app.main import Runtime, app, get_runtime
 from app.models import AgentRun, Draft, ResearchItem
 from app.services.llm import LLMError
-from app.services.x_api import XApiError
+from app.services.x_api import RealXApiClient, XApiError
 from app.services.x_service import XService
 from fakes import FakeLLMService, FakeXApiClient, draft_json
 
@@ -21,10 +22,10 @@ PERSONA = Persona(
 )
 
 
-def _runtime(session_factory, *, x_error=None, llm_error=None):
+def _runtime(session_factory, *, x_service=None, llm_service=None):
     deps = GraphDeps(
-        x_service=XService(FakeXApiClient(error=x_error)),
-        llm_service=FakeLLMService(text=draft_json(), error=llm_error),
+        x_service=x_service or XService(FakeXApiClient()),
+        llm_service=llm_service or FakeLLMService(text=draft_json()),
         persona=PERSONA,
         session_factory=session_factory,
     )
@@ -67,7 +68,8 @@ async def test_create_run_endpoint(session_factory):
 
 
 async def test_create_run_returns_non_2xx_when_x_api_fails(session_factory):
-    resp = await _post_run(session_factory, x_error=XApiError("X API returned 401: unauthorized"))
+    x_service = XService(FakeXApiClient(error=XApiError("X API returned 401: unauthorized")))
+    resp = await _post_run(session_factory, x_service=x_service)
 
     assert resp.status_code == 502
     data = resp.json()
@@ -82,8 +84,23 @@ async def test_create_run_returns_non_2xx_when_x_api_fails(session_factory):
     assert runs[0].finished_at is not None
 
 
+async def test_create_run_returns_502_when_x_api_returns_non_json(session_factory):
+    # 端到端链路：RealXApiClient（非 JSON 响应体）→ XService → Research → HTTP 502
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(200, text="<html>not json</html>")
+    )
+    async with httpx.AsyncClient(transport=transport) as http_client:
+        x_service = XService(RealXApiClient(http_client=http_client))
+        resp = await _post_run(session_factory, x_service=x_service)
+
+    assert resp.status_code == 502
+    assert "invalid JSON" in resp.json()["error"]
+    assert (await _runs(session_factory))[0].status == "failed"
+
+
 async def test_create_run_returns_non_2xx_when_llm_fails(session_factory):
-    resp = await _post_run(session_factory, llm_error=LLMError("LLM call failed: APIConnectionError"))
+    llm_service = FakeLLMService(text=draft_json(), error=LLMError("LLM call failed: APIConnectionError"))
+    resp = await _post_run(session_factory, llm_service=llm_service)
 
     assert resp.status_code == 502
     data = resp.json()
@@ -98,8 +115,37 @@ async def test_create_run_returns_non_2xx_when_llm_fails(session_factory):
     assert runs[0].finished_at is not None
 
 
+async def test_create_run_returns_502_when_llm_returns_invalid_json(session_factory):
+    llm_service = FakeLLMService(text="not-json")
+    resp = await _post_run(session_factory, llm_service=llm_service)
+
+    assert resp.status_code == 502
+    data = resp.json()
+    assert data["status"] == "failed"
+    assert "invalid draft structure" in data["error"]
+    assert data["draft_id"] is None
+
+    runs = await _runs(session_factory)
+    assert runs[0].status == "failed"
+    assert "invalid draft structure" in runs[0].error
+
+    # 非法结构不产生 draft
+    async with session_factory() as session:
+        assert (await session.execute(select(Draft))).scalars().all() == []
+
+
+async def test_create_run_returns_502_when_llm_violates_schema(session_factory):
+    llm_service = FakeLLMService(text='{"content": "hi"}')  # 缺 hook_type / topic
+    resp = await _post_run(session_factory, llm_service=llm_service)
+
+    assert resp.status_code == 502
+    assert resp.json()["status"] == "failed"
+    assert (await _runs(session_factory))[0].status == "failed"
+
+
 async def test_create_run_returns_500_on_unexpected_error(session_factory):
-    resp = await _post_run(session_factory, x_error=RuntimeError("db exploded"))
+    x_service = XService(FakeXApiClient(error=RuntimeError("db exploded")))
+    resp = await _post_run(session_factory, x_service=x_service)
 
     assert resp.status_code == 500
     assert resp.json()["status"] == "failed"
@@ -108,10 +154,10 @@ async def test_create_run_returns_500_on_unexpected_error(session_factory):
 
 async def test_failure_response_does_not_leak_secrets(session_factory, monkeypatch):
     monkeypatch.setattr(settings, "x_api_bearer_token", "super-secret-token")
-    resp = await _post_run(
-        session_factory,
-        x_error=XApiError("X API returned 401: bearer super-secret-token rejected"),
+    x_service = XService(
+        FakeXApiClient(error=XApiError("X API returned 401: bearer super-secret-token rejected"))
     )
+    resp = await _post_run(session_factory, x_service=x_service)
 
     assert resp.status_code == 502
     assert "super-secret-token" not in resp.text

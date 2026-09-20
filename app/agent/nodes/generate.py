@@ -1,12 +1,14 @@
 import logging
 from pathlib import Path
 
+from pydantic import ValidationError
+
 from app.agent.persona import Persona
 from app.agent.state import RunState
 from app.config import settings
 from app.repositories import create_draft
 from app.schemas import GeneratedDraft, ResearchResult
-from app.services.llm import LLMService
+from app.services.llm import LLMError, LLMService
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +56,12 @@ def make_generate_node(llm_service: LLMService, persona: Persona, session_factor
         logger.info("generation started (run_id=%s)", run_id)
         prompt = build_prompt(topic, results, persona)
         raw = await llm_service.complete(prompt, json_mode=True)
-        draft = GeneratedDraft.model_validate_json(raw)
+        try:
+            draft = GeneratedDraft.model_validate_json(raw)
+        except ValidationError as exc:
+            # LLM 返回非法 JSON 或不符合 schema：属于上游输出故障，与 LLM 调用失败同类，
+            # 统一包装为 LLMError（保留原始诊断信息，且不含任何凭据）。
+            raise LLMError(f"LLM returned invalid draft structure: {exc}") from exc
         async with session_factory() as session:
             draft_id = await create_draft(
                 session,

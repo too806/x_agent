@@ -7,6 +7,7 @@ from app.agent.persona import Persona
 from app.models import Draft
 from app.repositories import create_agent_run
 from app.schemas import ResearchResult
+from app.services.llm import LLMError
 from fakes import FakeLLMService, draft_json
 
 PERSONA = Persona(
@@ -58,14 +59,34 @@ async def test_generate_node_validates_persists_and_injects_context(session_fact
         assert d.model_name
 
 
-async def test_generate_node_rejects_invalid_json(session_factory):
+async def test_generate_node_wraps_invalid_json_as_llm_error(session_factory):
     async with session_factory() as session:
         run = await create_agent_run(session, "AI coding agent")
         run_id = str(run.id)
 
     node = make_generate_node(FakeLLMService(text="not-json"), PERSONA, session_factory)
-    with pytest.raises(ValidationError):
+    with pytest.raises(LLMError) as excinfo:
         await node({"run_id": run_id, "topic": "AI coding agent", "research_results": []})
+
+    # 原始 ValidationError 作为 cause 保留，便于诊断
+    assert isinstance(excinfo.value.__cause__, ValidationError)
+
+
+async def test_generate_node_wraps_schema_mismatch_as_llm_error(session_factory):
+    async with session_factory() as session:
+        run = await create_agent_run(session, "AI coding agent")
+        run_id = str(run.id)
+
+    # 合法 JSON，但缺少必填字段 content/hook_type/topic
+    node = make_generate_node(FakeLLMService(text='{"foo": "bar"}'), PERSONA, session_factory)
+    with pytest.raises(LLMError) as excinfo:
+        await node({"run_id": run_id, "topic": "AI coding agent", "research_results": []})
+
+    assert isinstance(excinfo.value.__cause__, ValidationError)
+    assert "content" in str(excinfo.value)  # 诊断信息保留
+
+    async with session_factory() as session:
+        assert (await session.execute(select(Draft))).scalars().all() == []
 
 
 def test_build_prompt_replaces_tokens():

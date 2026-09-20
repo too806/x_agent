@@ -51,3 +51,15 @@ async def test_search_raises_on_network_error():
             await client.search_recent_tweets("ai")
     finally:
         await http_client.aclose()
+
+
+async def test_search_raises_on_invalid_json():
+    def handler(request):
+        return httpx.Response(200, text="<html>not json</html>")
+
+    client, http_client = _make(handler)
+    try:
+        with pytest.raises(XApiError):
+            await client.search_recent_tweets("ai")
+    finally:
+        await http_client.aclose()
