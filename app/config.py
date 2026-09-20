@@ -11,6 +11,11 @@ class Settings(BaseSettings):
     app_name: str = "X AI Content Agent"
     database_url: str = "postgresql+psycopg://xagent:xagent@localhost:5432/xagent"
 
+    # LangGraph Checkpointer 专用连接（libpq conninfo，非 SQLAlchemy URL）。
+    # 留空则回退到 database_url（自动去掉 `+psycopg` 方言后缀）。
+    # V1 与业务库指向同一个 PostgreSQL，但连接池与职责独立。
+    langgraph_checkpoint_database_url: str = ""
+
     # 静态资源路径（相对项目根目录）
     persona_path: str = "config/persona.yaml"
     prompt_path: str = "prompts/generate.txt"

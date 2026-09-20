@@ -11,10 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async
 
 from app import models  # noqa: F401  确保模型注册到 Base.metadata
 from app.db.base import Base
-
-ADMIN_SYNC = "postgresql+psycopg://xagent:xagent@localhost:5432/postgres"
-TEST_URL = "postgresql+psycopg://xagent:xagent@localhost:5432/xagent_test"
-_ALL_TABLES = "account, agent_run, research_item, draft, review, published_post"
+from support import _ALL_TABLES, ADMIN_SYNC, TEST_URL
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -32,6 +29,17 @@ def _prepare_test_db():
 
     sync_eng = create_engine(TEST_URL)
     Base.metadata.create_all(sync_eng)
+    # Phase 3 新增列：表已存在时 create_all 不会补列，显式补齐
+    with sync_eng.begin() as conn:
+        conn.execute(
+            text("ALTER TABLE review ADD COLUMN IF NOT EXISTS original_content TEXT")
+        )
+        conn.execute(
+            text("ALTER TABLE review ADD COLUMN IF NOT EXISTS edited_content TEXT")
+        )
+        conn.execute(
+            text("ALTER TABLE review ADD COLUMN IF NOT EXISTS reject_reason TEXT")
+        )
     sync_eng.dispose()
     yield
 
