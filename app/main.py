@@ -14,11 +14,13 @@ from app.agent.persona import load_persona
 from app.config import settings
 from app.db.checkpointer import create_checkpointer
 from app.db.session import async_session_factory
+from app.redaction import redact
 from app.repositories import (
     claim_run_for_review,
     create_agent_run,
     get_agent_run,
     get_draft_for_run,
+    get_published_post,
     get_review_for_run,
     mark_run_completed,
     mark_run_failed,
@@ -27,6 +29,9 @@ from app.repositories import (
 )
 from app.schemas import (
     REVIEW_ACTION_STATUS,
+    PublishRecord,
+    PublishResolution,
+    PublishResponse,
     ReviewDecision,
     ReviewPayload,
     ReviewRecord,
@@ -35,6 +40,14 @@ from app.schemas import (
     RunResponse,
 )
 from app.services.llm import LLMError, OpenAILLMService
+from app.services.publish import (
+    OUTCOME_CONFLICT,
+    OUTCOME_INVALID,
+    OUTCOME_PUBLISHED,
+    OUTCOME_RESOLVED,
+    PublishResult,
+    PublishService,
+)
 from app.services.x_api import RealXApiClient, XApiError
 from app.services.x_service import XService
 
@@ -48,17 +61,11 @@ _UPSTREAM_ERRORS = (XApiError, LLMError)
 
 
 def _redact(message: str) -> str:
-    """抹掉错误信息中可能出现的凭据，避免写入 DB 或返回给调用方。"""
-    for secret in (
-        settings.x_api_bearer_token,
-        settings.llm_api_key,
-        settings.x_api_key,
-        settings.x_api_secret,
-        settings.x_access_token,
-    ):
-        if secret:
-            message = message.replace(secret, "***")
-    return message
+    """抹掉错误信息中可能出现的凭据，避免写入 DB 或返回给调用方。
+
+    实现在 app/redaction.py：发布服务也要写错误信息到库里，共用同一份脱敏规则。
+    """
+    return redact(message)
 
 
 def _thread_config(run_id: str) -> dict:
@@ -70,17 +77,33 @@ def _thread_config(run_id: str) -> dict:
 class Runtime:
     graph: object
     session_factory: async_sessionmaker[AsyncSession]
+    publish_service: PublishService
 
 
 def build_runtime(checkpointer) -> Runtime:
     session_factory = async_session_factory
+    persona = load_persona()
+    x_service = XService(RealXApiClient())
     deps = GraphDeps(
-        x_service=XService(RealXApiClient()),
+        x_service=x_service,
         llm_service=OpenAILLMService(),
-        persona=load_persona(),
+        persona=persona,
         session_factory=session_factory,
     )
-    return Runtime(graph=build_graph(deps, checkpointer), session_factory=session_factory)
+    graph = build_graph(deps, checkpointer)
+    # 发布刻意不做成 Graph 节点：发生 interrupt() 的节点每次 resume 都会从头重放，
+    # 把"发推文"这种不可幂等的动作放进一个设计上就会重放的执行器里是结构性风险。
+    # 详见 app/services/publish.py 的模块说明。
+    return Runtime(
+        graph=graph,
+        session_factory=session_factory,
+        publish_service=PublishService(
+            x_service=x_service,
+            session_factory=session_factory,
+            graph=graph,
+            persona=persona,
+        ),
+    )
 
 
 _runtime: Runtime | None = None
@@ -203,9 +226,12 @@ async def get_run(
             raise HTTPException(status_code=404, detail="run not found")
         draft = await get_draft_for_run(session, run_id_str)
         review = await get_review_for_run(session, run_id_str)
+        published = await get_published_post(session, run_id_str)
         topic, status, error = run.topic, run.status, run.error
+        finished_at = run.finished_at
         draft_id = str(draft.id) if draft else None
         draft_content = draft.content if draft else None
+        publish_record = _publish_record(published)
         review_record = (
             ReviewRecord(
                 review_id=str(review.id),
@@ -234,8 +260,94 @@ async def get_run(
         human_action=state.get("human_action"),
         final_content=state.get("final_content"),
         review=review_record,
+        publish=publish_record,
+        finished_at=finished_at,
         error=error,
     )
+
+
+def _publish_record(row) -> PublishRecord | None:
+    if row is None:
+        return None
+    return PublishRecord(
+        status=row.status,
+        draft_id=str(row.draft_id),
+        body=row.body,
+        x_post_id=row.x_post_id,
+        published_at=row.published_at,
+        last_error=row.last_error,
+        updated_at=row.updated_at,
+    )
+
+
+async def _publish_payload(
+    runtime: Runtime, run_id: str, result: PublishResult
+) -> JSONResponse:
+    """把发布结果映射成 HTTP。
+
+    **刻意不走 `_failure_response` / `_fail_run`**：那两个会把 agent_run 打成
+    failed 并返回 502。发布失败不是流水线失败——审核结论必须原样保留，
+    发布的状态只记在 published_post 上。
+    """
+    async with runtime.session_factory() as session:
+        row = await get_published_post(session, run_id)
+
+    status_code = {
+        OUTCOME_PUBLISHED: 200,
+        OUTCOME_RESOLVED: 200,  # 人工裁决本身成功了；结果状态看 publish.status
+        OUTCOME_CONFLICT: 409,
+        OUTCOME_INVALID: 422,
+    }.get(result.outcome, 502)  # failed / unknown 都是上游侧的问题 → 502
+
+    body = PublishResponse(
+        run_id=run_id,
+        outcome=result.outcome,
+        publish=_publish_record(row),
+        error=result.detail,
+    )
+    return JSONResponse(status_code=status_code, content=body.model_dump(mode="json"))
+
+
+@app.post("/api/runs/{run_id}/publish", response_model=PublishResponse)
+async def publish_run(
+    run_id: uuid.UUID, runtime: Runtime = Depends(get_runtime)
+) -> JSONResponse:
+    run_id_str = str(run_id)
+    async with runtime.session_factory() as session:
+        run = await get_agent_run(session, run_id_str)
+    if run is None:
+        raise HTTPException(status_code=404, detail="run not found")
+
+    logger.info("publish requested (run_id=%s)", run_id_str)
+    # 不 try/except 包住：X 的各类错误在 PublishService 内部已经分类落库，
+    # 这里再包一层只会把"发布失败"和"服务本身出错"混成同一件事。
+    result = await runtime.publish_service.publish(run_id_str)
+    return await _publish_payload(runtime, run_id_str, result)
+
+
+@app.post("/api/runs/{run_id}/publish/resolve", response_model=PublishResponse)
+async def resolve_publish(
+    run_id: uuid.UUID,
+    decision: PublishResolution,
+    runtime: Runtime = Depends(get_runtime),
+) -> JSONResponse:
+    """人工裁决"结果未知"的发布。
+
+    只纠正状态，不在这里发帖：重发必须另外显式再调一次 POST /publish。
+    """
+    run_id_str = str(run_id)
+    async with runtime.session_factory() as session:
+        run = await get_agent_run(session, run_id_str)
+    if run is None:
+        raise HTTPException(status_code=404, detail="run not found")
+
+    result = await runtime.publish_service.resolve(
+        run_id_str,
+        action=decision.action,
+        x_post_id=getattr(decision, "x_post_id", None),
+    )
+    logger.info("publish resolved (run_id=%s, action=%s)", run_id_str, decision.action)
+    return await _publish_payload(runtime, run_id_str, result)
 
 
 @app.post("/api/runs/{run_id}/review", response_model=RunResponse)

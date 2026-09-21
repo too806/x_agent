@@ -30,10 +30,13 @@ class Settings(BaseSettings):
     x_api_base_url: str = "https://api.x.com"
     x_api_bearer_token: str = ""
 
-    # X OAuth 1.0a 凭据（后续 Publish 阶段使用，本阶段未用）
+    # X OAuth 1.0a 凭据（Publish 阶段使用）。
+    # 四个值缺一不可：access token secret 同样参与 HMAC-SHA1 签名，
+    # 只有 token 没有 secret 是签不出请求的。
     x_api_key: str = ""
     x_api_secret: str = ""
     x_access_token: str = ""
+    x_access_token_secret: str = ""
 
 
 settings = Settings()

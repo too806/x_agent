@@ -8,6 +8,7 @@ from app.agent.graph import GraphDeps, build_graph
 from app.agent.persona import Persona
 from app.db.checkpointer import create_checkpointer, to_libpq_url
 from app.main import Runtime, app, get_runtime
+from app.services.publish import PublishService
 from app.services.x_service import XService
 from fakes import FakeLLMService, FakeXApiClient, draft_json
 
@@ -36,14 +37,23 @@ async def runtime_with_checkpointer(
     进程内状态被复用，因此可以用于验证 checkpoint 恢复。
     """
     async with create_checkpointer(CHECKPOINT_URL) as checkpointer:
+        resolved_x_service = x_service or XService(FakeXApiClient())
         deps = GraphDeps(
-            x_service=x_service or XService(FakeXApiClient()),
+            x_service=resolved_x_service,
             llm_service=llm_service or FakeLLMService(text=draft_json()),
             persona=persona,
             session_factory=session_factory,
         )
+        graph = build_graph(deps, checkpointer)
         yield Runtime(
-            graph=build_graph(deps, checkpointer), session_factory=session_factory
+            graph=graph,
+            session_factory=session_factory,
+            publish_service=PublishService(
+                x_service=resolved_x_service,
+                session_factory=session_factory,
+                graph=graph,
+                persona=persona,
+            ),
         )
 
 

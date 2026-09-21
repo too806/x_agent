@@ -23,6 +23,15 @@ class XService:
         raw = await self._client.search_recent_tweets(topic, max_results)
         return self._map(raw)
 
+    async def publish(self, content: str) -> str:
+        """发布推文，返回 X 侧 post id。
+
+        刻意不做任何异常转换：发布路径需要区分"确定没发出去"（4xx / 连接失败）
+        和"结果未知"（超时 / 5xx），这个区分必须在状态机里做，而且依赖
+        x_api 抛出的具体类型与 status_code，包一层只会把信息磨掉。
+        """
+        return await self._client.create_post(content)
+
     def _map(self, raw: dict) -> list[ResearchResult]:
         data = raw.get("data") or []
         users = {u["id"]: u for u in (raw.get("includes") or {}).get("users", [])}

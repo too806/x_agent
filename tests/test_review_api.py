@@ -53,7 +53,9 @@ async def test_approve_ends_run_as_approved(session_factory):
 
     run = await _run_row(session_factory, started["run_id"])
     assert run.status == "approved"
-    assert run.finished_at is not None
+    # approved 不是终态：这个 Run 还要走发布，finished_at 必须保持为空。
+    # 若这里非空，"流水线跑完了"和"这个 Run 结束了"就再也分不开。
+    assert run.finished_at is None
 
     review = (await _reviews(session_factory))[0]
     assert review.status == "approve"
@@ -119,6 +121,9 @@ async def test_reject_ends_run_without_final_content(session_factory):
 
     run = await _run_row(session_factory, started["run_id"])
     assert run.status == "rejected"
+    # rejected 是终态（不会再走发布）→ finished_at 必须有值。
+    # 与上面 approved 的断言成对：两者一起钉住 finished_at 的语义。
+    assert run.finished_at is not None
 
     review = (await _reviews(session_factory))[0]
     assert review.status == "reject"
@@ -242,7 +247,13 @@ async def test_resume_failure_keeps_run_recoverable(session_factory):
     """
     async with runtime_with_checkpointer(session_factory) as runtime:
         flaky = FlakyGraph(runtime.graph)
-        async with api_for(Runtime(graph=flaky, session_factory=runtime.session_factory)) as api:
+        async with api_for(
+            Runtime(
+                graph=flaky,
+                session_factory=runtime.session_factory,
+                publish_service=runtime.publish_service,
+            )
+        ) as api:
             started = await _start_run(api)
             run_id = started["run_id"]
 
