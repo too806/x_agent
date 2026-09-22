@@ -11,7 +11,7 @@ from app.repositories import (
     create_review,
     mark_run_waiting_for_review,
 )
-from fakes import FakeLLMService, draft_json
+from fakes import FakeLLMService
 from support import FlakyGraph, api_for, runtime_with_checkpointer
 
 
