@@ -205,7 +205,7 @@ PostgreSQL 的事务管不到网络调用，X API v2 **没有幂等键**。
 6. `_revert_run_to_review_outcome` 中 `target is None` 分支**不可达**
    （preflight 已保证 `review.status ∈ {approve, edit}`）。真发生时 `logger.error`
    并**什么都不做** —— Run 停在发布态被 409 挡住，而不是猜一个状态放行一次本不该发生的发布。
-7. Phase 3 遗留：`tests/test_review_api.py:14` 的 `draft_json` 是未使用的 import。
+7. Phase 3 遗留：`tests/test_review_api.py:14` 的 `draft_json` 是未使用的 import —— **已于 commit `3e49aa9` 清理**。
 
 ---
 
