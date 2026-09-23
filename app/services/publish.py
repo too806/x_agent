@@ -66,6 +66,33 @@ OUTCOME_RESOLVED = "resolved"
 # 允许发布的前置审核结论。reject 不在其中——被拒绝的内容绝不允许发布。
 REVIEW_ACTIONS_FOR_PUBLISH = ("approve", "edit")
 
+# 诊断信息沿异常链往下挖的层数上限。链本身应该很浅，设上限只是为了防止
+# 意外的循环引用把一条错误信息撑成一篇日志。
+_MAX_CAUSE_DEPTH = 5
+
+
+def _describe(exc: BaseException) -> str:
+    """把异常连同它的原因链拼成可读诊断，再整体脱敏。
+
+    只看 `str(exc)` 是不够的：httpx 在连接失败时经常抛一个 `str()` 为空的
+    ConnectError，真正的原因（DNS、代理、TLS）藏在 `__cause__` 里。结果是库里
+    留下 `"X API request could not be sent: "` 这种冒号后什么都没有的记录——
+    而这是排障时唯一能拿到的线索（见 2026-09-23 实机验证）。
+
+    空消息退化成类名，保证至少能知道异常类型。链条走完仍然只有类名时，说明
+    上游确实没提供更多信息，此时如实记录比编造更有用。
+    """
+    parts: list[str] = []
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen and len(parts) < _MAX_CAUSE_DEPTH:
+        seen.add(id(current))
+        text = str(current).strip() or type(current).__name__
+        if text not in parts:
+            parts.append(text)
+        current = current.__cause__ or current.__context__
+    return redact(" | ".join(parts))
+
 
 @dataclass(frozen=True)
 class PublishResult:
@@ -180,22 +207,22 @@ class PublishService:
             post_id = await self._x_service.publish(content)
         except XApiConfigError as exc:
             # 在任何 HTTP 请求之前抛出 → 确定没发出去，可以重试
-            return await self._fail(run_id, redact(str(exc)))
+            return await self._fail(run_id, _describe(exc))
         except XApiResponseError as exc:
-            detail = redact(str(exc))
+            detail = _describe(exc)
             if 400 <= exc.status_code < 500:
                 # X 明确拒绝（含 402 / 429）→ 没有创建内容
                 return await self._fail(run_id, detail)
             # 5xx、或 2xx 但拿不到 id：请求已被处理，结果不可判定
             return await self._unknown(run_id, detail)
         except XApiTransportError as exc:
-            detail = redact(str(exc))
+            detail = _describe(exc)
             if exc.may_have_reached_x:
                 return await self._unknown(run_id, detail)
             return await self._fail(run_id, detail)
         except XApiError as exc:
             # 兜底：不认识的 X 错误一律按"可能发出去了"处理。这是唯一安全的方向。
-            return await self._unknown(run_id, redact(str(exc)))
+            return await self._unknown(run_id, _describe(exc))
 
         async with self._session_factory() as session:
             applied = await mark_published(session, agent_run_id=run_id, x_post_id=post_id)

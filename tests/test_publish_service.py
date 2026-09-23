@@ -5,6 +5,8 @@
 """
 import asyncio
 
+import httpx
+
 from app.models.published_post import (
     STATUS_FAILED,
     STATUS_PUBLISHED,
@@ -407,6 +409,77 @@ async def test_errors_are_redacted_before_storage(session_factory, monkeypatch):
     row = await _row(session_factory, run_id)
     assert "SUPER-SECRET-VALUE" not in row.last_error
     assert "***" in row.last_error
+
+
+# ---------- 诊断质量：写进库的信息必须能用来排障 ----------
+
+
+def _transport_error_as_httpx_raises_it() -> XApiTransportError:
+    """还原 2026-09-23 实机遇到的形状。
+
+    httpx 连接失败时抛的是 `ConnectError("")`——`str()` 是空的，真正的原因
+    （DNS / 代理 / TLS）在 `__cause__` 里；x_api 再包一层，于是外层消息变成
+    `"X API request could not be sent: "`，冒号后什么都没有。这里如实重建这条
+    异常链，而不是捏造一个带消息的异常，否则测试就绕开了要修的 bug。
+    """
+    try:
+        try:
+            raise httpx.ConnectError("") from OSError("All connection attempts failed")
+        except httpx.ConnectError as exc:
+            raise XApiTransportError(
+                f"X API request could not be sent: {exc}", may_have_reached_x=False
+            ) from exc
+    except XApiTransportError as exc:
+        return exc
+
+
+async def test_uninformative_transport_error_reports_its_cause(session_factory):
+    """空消息的传输错误必须把底层原因带出来，否则排障时无迹可寻。"""
+    run_id, final_content = await _prepare(session_factory)
+    x = FakePublishingXService(error=_transport_error_as_httpx_raises_it())
+    service = _service(session_factory, x, final_content)
+
+    assert (await service.publish(run_id)).outcome == OUTCOME_FAILED
+
+    error = (await _row(session_factory, run_id)).last_error
+    # 底层原因（凭据之外的网络信息）必须可见
+    assert "All connection attempts failed" in error
+    # 异常类型也要保留：链条断在某一层时至少知道断在哪
+    assert "ConnectError" in error
+
+
+async def test_cause_chain_is_redacted_too(session_factory, monkeypatch):
+    """原因链是新引入的信息来源，凭据脱敏必须跟着一起往下走。"""
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "x_access_token_secret", "SUPER-SECRET-VALUE", raising=False)
+    run_id, final_content = await _prepare(session_factory)
+    x = FakePublishingXService(
+        error=XApiTransportError(
+            "X API request could not be sent: ", may_have_reached_x=False
+        )
+    )
+    x._error.__cause__ = OSError("proxy auth failed with SUPER-SECRET-VALUE")
+    service = _service(session_factory, x, final_content)
+
+    await service.publish(run_id)
+
+    error = (await _row(session_factory, run_id)).last_error
+    assert "SUPER-SECRET-VALUE" not in error
+    assert "***" in error
+
+
+async def test_cause_chain_walk_is_bounded(session_factory):
+    """异常链可能自我循环，诊断不能因此变成死循环。"""
+    run_id, final_content = await _prepare(session_factory)
+    error = XApiTransportError("connect refused", may_have_reached_x=False)
+    # 制造一个自引用链：__context__ 指回自己
+    error.__context__ = error
+    x = FakePublishingXService(error=error)
+    service = _service(session_factory, x, final_content)
+
+    assert (await service.publish(run_id)).outcome == OUTCOME_FAILED
+    assert (await _row(session_factory, run_id)).last_error.count("connect refused") == 1
 
 
 # ---------- 幂等：本阶段唯一不可挽回的错误 ----------
