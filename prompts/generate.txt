@@ -4,11 +4,12 @@
 
 请基于以下研究材料，围绕主题「{{TOPIC}}」撰写一条推文草稿。
 
-研究材料：
+研究材料（可能是英文或其他语言）：
 {{RESEARCH}}
 
 要求：
 1. 直接输出 JSON，不要输出任何解释、前后缀或 Markdown 代码块。
 2. JSON 结构必须严格为：{"content": "<推文正文>", "hook_type": "<钩子类型英文>", "topic": "<主题>"}
-3. content 长度不超过 {{MAX_LENGTH}} 字符。
-4. hook_type 取值示例：question / statistic / statement / list / story，用英文小写。
+3. content 必须用简体中文撰写（研究材料是英文也要写成中文）；不要逐句直译，要用中文母语者的自然表达；产品名、模型名等专有名词可保留英文原文。
+4. content 长度不超过 {{MAX_LENGTH}} 个字符。
+5. hook_type 取值示例：question / statistic / statement / list / story，用英文小写。
