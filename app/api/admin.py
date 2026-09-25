@@ -122,6 +122,10 @@ def create_admin_router(runtime_dep) -> APIRouter:
     @router.get("/published", response_model=PublishedListPage)
     async def list_published(
         status: str | None = Query(None, description="published_post.status 精确匹配"),
+        unresolved: bool = Query(
+            False,
+            description="只看 publishing / publish_unknown（待人工裁决），并按紧急程度排序",
+        ),
         date_from: datetime | None = Query(None, description="含（按 created_at）"),
         date_to: datetime | None = Query(None, description="不含（半开区间右端）"),
         page: int = Query(1, ge=1),
@@ -138,6 +142,7 @@ def create_admin_router(runtime_dep) -> APIRouter:
         """
         return await service.list_published(
             status=status,
+            unresolved=unresolved,
             date_from=date_from,
             date_to=date_to,
             page=page,

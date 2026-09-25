@@ -172,7 +172,8 @@ export function Overview() {
           <section className="section">
             <div className="section__head">
               <h2 className="section__title">Publish resolution queue</h2>
-              <Link to="/published">
+              {/* 直接落到"待裁决"筛选视图，而不是让人到了 Published 再自己挑一遍状态。 */}
+              <Link to="/published?status=__unresolved__">
                 {data.resolution_queue_total > data.resolution_queue.length
                   ? `View all ${data.resolution_queue_total} →`
                   : 'Open Published →'}

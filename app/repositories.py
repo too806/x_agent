@@ -787,12 +787,18 @@ async def list_unresolved_publications(
 def _published_filter_clauses(
     *,
     status: str | None = None,
+    unresolved: bool = False,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
 ) -> list:
     clauses = []
     if status:
         clauses.append(PublishedPost.status == status)
+    if unresolved:
+        # 与 status 是**取交集**而不是互相覆盖：两个条件都是"再收窄一层"，
+        # 传入不冲突的组合（比如 status=published + unresolved）得到空页，
+        # 这比让其中一个悄悄失效要好猜。
+        clauses.append(PublishedPost.status.in_(UNRESOLVED_STATUSES))
     if date_from is not None:
         clauses.append(PublishedPost.created_at >= date_from)
     if date_to is not None:
@@ -804,13 +810,18 @@ async def count_published(
     session: AsyncSession,
     *,
     status: str | None = None,
+    unresolved: bool = False,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
 ) -> int:
     result = await session.execute(
         select(func.count())
         .select_from(PublishedPost)
-        .where(*_published_filter_clauses(status=status, date_from=date_from, date_to=date_to))
+        .where(
+            *_published_filter_clauses(
+                status=status, unresolved=unresolved, date_from=date_from, date_to=date_to
+            )
+        )
     )
     return int(result.scalar() or 0)
 
@@ -819,15 +830,38 @@ async def list_published_page(
     session: AsyncSession,
     *,
     status: str | None = None,
+    unresolved: bool = False,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
     limit: int,
     offset: int,
 ) -> list[PublishedPost]:
+    """发布记录列表。
+
+    默认按创建时间倒序（"最近发生了什么"是列表的常规读法）。`unresolved=True`
+    时改用优先级排序：`publish_unknown` 在最前——它意味着一条推文**可能已经发出去了
+    却没人知道**，是这四种状态里唯一会随时间变得更糟的。`publishing` 次之（可能还在
+    飞行中）。这两种状态都在等同一个人的决定。
+    """
+    order_by = [PublishedPost.created_at.desc(), PublishedPost.id.desc()]
+    if unresolved:
+        # 与 list_unresolved_publications 保持同一套优先级，避免两处"待裁决"队列
+        # 给出的顺序不一样。
+        priority = case(
+            (PublishedPost.status == STATUS_UNKNOWN, 0),
+            (PublishedPost.status == STATUS_PUBLISHING, 1),
+            else_=2,
+        )
+        order_by = [priority, PublishedPost.created_at.asc()]
+
     result = await session.execute(
         select(PublishedPost)
-        .where(*_published_filter_clauses(status=status, date_from=date_from, date_to=date_to))
-        .order_by(PublishedPost.created_at.desc(), PublishedPost.id.desc())
+        .where(
+            *_published_filter_clauses(
+                status=status, unresolved=unresolved, date_from=date_from, date_to=date_to
+            )
+        )
+        .order_by(*order_by)
         .limit(limit)
         .offset(offset)
     )

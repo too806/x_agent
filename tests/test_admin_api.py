@@ -643,6 +643,59 @@ async def test_published_list_includes_unresolved_rows(session_factory):
     assert by_run[fail_run]["last_error"] == "X 明确拒绝"
 
 
+async def test_published_unresolved_filter_orders_by_urgency(session_factory):
+    """`unresolved=true` 只留待裁决的两态，并且 publish_unknown 排在最前。
+
+    排序不是装饰：publish_unknown 意味着"一条推文可能已经发出去了却没人知道"，
+    它是四种状态里唯一会随时间变得更糟的（放着不管，重复发帖的风险就一直挂着）。
+    publishing 次之——可能还在飞行中，结论要等一会儿才明确。
+    """
+    ok_run, ok_draft = await _make_reviewed_run(session_factory, "成功的题")
+    await _publish_as(session_factory, ok_run, ok_draft, "published")
+    fail_run, fail_draft = await _make_reviewed_run(session_factory, "失败的题")
+    await _publish_as(session_factory, fail_run, fail_draft, "failed")
+
+    # 顺序是刻意反着来的：**先造 publish_unknown、后造 publishing**。
+    # 这样"按创建时间倒序"（publishing 在前）与"按紧急度"（publish_unknown 在前）
+    # 给出相反的结果——若把优先级排序删掉，这条测试会立刻红。
+    # 反过来造的话两种排序恰好一致，测试就变成了摆设。
+    unknown_run, unknown_draft = await _make_reviewed_run(session_factory, "未知的题")
+    await _publish_as(session_factory, unknown_run, unknown_draft, "publish_unknown")
+    pub_run, pub_draft = await _make_reviewed_run(session_factory, "在途的题")
+    await _publish_as(session_factory, pub_run, pub_draft, "publishing")
+
+    async with admin_api(session_factory) as api:
+        data = (await api.get("/api/admin/published?unresolved=true")).json()
+
+    assert data["page"]["total"] == 2
+    assert [i["status"] for i in data["items"]] == ["publish_unknown", "publishing"]
+    assert [i["run_id"] for i in data["items"]] == [unknown_run, pub_run]
+
+
+async def test_published_unresolved_filter_intersects_with_status(session_factory):
+    """`unresolved` 与 `status` 是取交集，不是互相覆盖。
+
+    传入互斥的组合（published 且 unresolved）应当得到空页——两个条件都是"再收窄
+    一层"。若实现让其中一个悄悄失效，调用方会拿到一份自己没要的数据。
+    """
+    ok_run, ok_draft = await _make_reviewed_run(session_factory, "成功的题")
+    await _publish_as(session_factory, ok_run, ok_draft, "published")
+    unknown_run, unknown_draft = await _make_reviewed_run(session_factory, "未知的题")
+    await _publish_as(session_factory, unknown_run, unknown_draft, "publish_unknown")
+
+    async with admin_api(session_factory) as api:
+        both_ok = (
+            await api.get("/api/admin/published?status=publish_unknown&unresolved=true")
+        ).json()
+        contradictory = (
+            await api.get("/api/admin/published?status=published&unresolved=true")
+        ).json()
+
+    assert [i["run_id"] for i in both_ok["items"]] == [unknown_run]
+    assert contradictory["items"] == []
+    assert contradictory["page"]["total"] == 0
+
+
 async def test_published_empty_state(session_factory):
     async with admin_api(session_factory) as api:
         data = (await api.get("/api/admin/published")).json()

@@ -59,6 +59,13 @@ export type ReviewStatus = 'approve' | 'edit' | 'reject' | 'pending'
  */
 export type PublishStatus = 'publishing' | 'publish_unknown' | 'published' | 'failed'
 
+export const PUBLISH_STATUSES: readonly PublishStatus[] = [
+  'published',
+  'failed',
+  'publish_unknown',
+  'publishing',
+]
+
 /** 需要人工裁决的发布状态。前端用它来决定"显示 Retry 还是显示 Resolve"。 */
 export const UNRESOLVED_PUBLISH_STATUSES: readonly PublishStatus[] = [
   'publishing',

@@ -19,6 +19,7 @@ import type {
   OverviewResponse,
   PublishCall,
   PublishResolution,
+  PublishResponse,
   PublishedListPage,
   ReviewCallResult,
   ReviewDecision,
@@ -94,7 +95,20 @@ interface RequestOptions {
   acceptStatuses?: readonly number[]
 }
 
-async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+/**
+ * 带状态码的请求。
+ *
+ * 发布类接口需要它：**HTTP 状态码本身是结果的一部分**（200 成功 / 409 冲突 /
+ * 422 内容不合法 / 502 上游失败），只看响应体会丢掉一半信息。
+ *
+ * 4b-1 里这里曾经只返回响应体，而 `publishRun` 声明自己返回 `{httpStatus, body}`，
+ * 于是 `httpStatus` 在运行时是 `undefined` —— 类型检查发现不了，只有真点到发布
+ * 按钮才会暴露。所以这个函数是**唯一**的请求实现，`request` 只是它的薄包装。
+ */
+async function rawRequest<T>(
+  path: string,
+  options: RequestOptions = {},
+): Promise<{ status: number; body: T }> {
   const { method = 'GET', body, acceptStatuses = [] } = options
 
   let response: Response
@@ -118,7 +132,11 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   if (!response.ok && !acceptStatuses.includes(response.status)) {
     throw new ApiError(response.status, describeError(response.status, payload), payload)
   }
-  return payload as T
+  return { status: response.status, body: payload as T }
+}
+
+async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  return (await rawRequest<T>(path, options)).body
 }
 
 function query(params: Record<string, string | number | undefined | null>): string {
@@ -143,6 +161,8 @@ export interface RunListParams {
 
 export interface PublishedListParams {
   status?: string
+  /** 只看 publishing / publish_unknown（待人工裁决），按紧急程度排序。 */
+  unresolved?: boolean
   dateFrom?: string
   dateTo?: string
   page?: number
@@ -181,6 +201,7 @@ export const api = {
     return request(
       `/api/admin/published${query({
         status: params.status,
+        unresolved: params.unresolved ? 'true' : undefined,
         date_from: params.dateFrom,
         date_to: params.dateTo,
         page: params.page,
@@ -214,23 +235,24 @@ export const api = {
    * 失败与冲突都以响应体形式返回（见 `acceptStatuses`），因为 `outcome` 才是界面
    * 要展示的东西：`published` / `unknown` / `conflict` / `invalid` / `failed`。
    */
-  publishRun(runId: string): Promise<PublishCall> {
-    return request<PublishCall>(`/api/runs/${encodeURIComponent(runId)}/publish`, {
-      method: 'POST',
-      acceptStatuses: [409, 422, 502],
-    })
+  async publishRun(runId: string): Promise<PublishCall> {
+    const { status, body } = await rawRequest<PublishResponse>(
+      `/api/runs/${encodeURIComponent(runId)}/publish`,
+      { method: 'POST', acceptStatuses: [409, 422, 502] },
+    )
+    return { httpStatus: status, body }
   },
 
   /**
    * 裁决"结果未知"的发布。**只纠正状态，不发帖**——真正的重发必须另外再调一次
    * `publishRun`。这是 Phase 4a 刻意留的两道确认。
    */
-  resolvePublish(runId: string, decision: PublishResolution): Promise<PublishCall> {
-    return request<PublishCall>(`/api/runs/${encodeURIComponent(runId)}/publish/resolve`, {
-      method: 'POST',
-      body: decision,
-      acceptStatuses: [409, 422, 502],
-    })
+  async resolvePublish(runId: string, decision: PublishResolution): Promise<PublishCall> {
+    const { status, body } = await rawRequest<PublishResponse>(
+      `/api/runs/${encodeURIComponent(runId)}/publish/resolve`,
+      { method: 'POST', body: decision, acceptStatuses: [409, 422, 502] },
+    )
+    return { httpStatus: status, body }
   },
 }
 

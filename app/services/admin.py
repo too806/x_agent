@@ -449,6 +449,7 @@ class AdminService:
         self,
         *,
         status: str | None,
+        unresolved: bool,
         date_from: datetime | None,
         date_to: datetime | None,
         page: int,
@@ -456,11 +457,12 @@ class AdminService:
     ) -> PublishedListPage:
         async with self._session_factory() as session:
             total = await count_published(
-                session, status=status, date_from=date_from, date_to=date_to
+                session, status=status, unresolved=unresolved, date_from=date_from, date_to=date_to
             )
             rows = await list_published_page(
                 session,
                 status=status,
+                unresolved=unresolved,
                 date_from=date_from,
                 date_to=date_to,
                 limit=page_size,

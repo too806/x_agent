@@ -1,10 +1,14 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 
 import { api, xPostUrl } from '../api/client'
 import { useAsync } from '../hooks/useAsync'
+import { useConsole } from '../hooks/useConsole'
 import { Drawer } from './Drawer'
+import { PublishControl } from './PublishAction'
 import { ErrorState, LoadingState } from './States'
 import { StatusBadge } from './StatusBadge'
+import { isUnresolved } from '../types/api'
 import { EMPTY, dateTime, duration, text } from '../utils/format'
 import type { AdminRunDetail, PublishRecord, ResearchItemRecord } from '../types/api'
 
@@ -117,9 +121,24 @@ function PublishBlock({ publish }: { publish: PublishRecord }) {
   )
 }
 
-function DetailBody({ detail }: { detail: AdminRunDetail }) {
+function DetailBody({ detail, onSettled }: { detail: AdminRunDetail; onSettled: () => void }) {
   const [showAllResearch, setShowAllResearch] = useState(false)
   const { draft, review, publish } = detail
+
+  // 可发布 = 审核已通过 且 没有在途/未知的发布记录。`failed` 是允许的：
+  // 明确的失败意味着"确定没发出去"，重发是安全的（后端也会把 Run 退回 approved/edited）。
+  const canPublish =
+    (detail.run_status === 'approved' || detail.run_status === 'edited') &&
+    (publish === null || publish.status === 'failed')
+
+  // 将要发出的正文。**必须与后端的取法一致**：approve 用原稿、其余（edit）用改写稿
+  // （见 app/services/publish.py 里 `review.status == "approve" ? original_content : edited_content`）。
+  // 这里只是为了让人在确认框里核对，权威始终在后端。
+  const publishableBody = review
+    ? review.action === 'approve'
+      ? review.original_content
+      : review.edited_content
+    : null
 
   // 时长只能由 started_at / finished_at 算出。两者缺一就说明这个 Run 还没到终态，
   // 或者根本没有 started_at —— 这时显示 `—`，不用 created_at 凑一个似是而非的数。
@@ -283,6 +302,26 @@ function DetailBody({ detail }: { detail: AdminRunDetail }) {
             The run status above must not be read as a publish result.
           </div>
         )}
+
+        {/* 发布入口只在**确实可以发布**时出现：Run 已通过审核（approved / edited），
+            且没有在途或结果未知的发布记录。
+
+            publishing / publish_unknown 一律不给按钮 —— Phase 4a 的整个设计就是让这
+            两种状态只能由人在 X 上亲眼确认后裁决（去 Published 页），任何"再发一次"
+            的快捷方式都会绕过那道判断，直接变成重复推文。 */}
+        {canPublish ? (
+          <div style={{ marginTop: 12 }}>
+            <PublishControl runId={detail.run_id} body={publishableBody} onSettled={onSettled} />
+          </div>
+        ) : null}
+
+        {isUnresolved(detail.publish_status) ? (
+          <div className="notice notice--warn" style={{ marginTop: 12 }}>
+            This run has an <strong>unresolved publish attempt</strong>. Decide it on the{' '}
+            <Link to="/published?status=__unresolved__">Published page</Link> after checking the
+            account on X — the console will not publish from here.
+          </div>
+        ) : null}
       </Section>
 
       <div className="cell-muted" style={{ marginTop: 16 }}>
@@ -302,6 +341,13 @@ export function RunDetailDrawer({
   onClose: () => void
 }) {
   const { data, loading, error, reload } = useAsync(() => api.getRunDetail(runId), [runId])
+  const { refresh } = useConsole()
+
+  // 发过一次之后要同时刷新：抽屉里的详情、以及侧栏的待裁决计数。
+  function onSettled() {
+    reload()
+    refresh()
+  }
 
   return (
     <Drawer
@@ -315,7 +361,7 @@ export function RunDetailDrawer({
     >
       {loading ? <LoadingState message="Loading run…" /> : null}
       {error ? <ErrorState error={error} what="Failed to load this run." onRetry={reload} /> : null}
-      {data && !loading ? <DetailBody detail={data} /> : null}
+      {data && !loading ? <DetailBody detail={data} onSettled={onSettled} /> : null}
     </Drawer>
   )
 }
