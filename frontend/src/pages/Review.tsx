@@ -24,22 +24,41 @@ import type { ReviewQueueItem } from '../types/api'
 function QueueStatus({ item }: { item: ReviewQueueItem }) {
   if (item.guardrail_passed === null) {
     return (
-      <span className="guard guard--unknown" title="Not readable from the checkpoint">
-        guardrail {EMPTY}
+      <span className="guard guard--unknown" title="无法从 checkpoint 读出结果">
+        规则检查 {EMPTY}
       </span>
     )
   }
   return item.guardrail_passed ? (
-    <span className="guard guard--pass">guardrail pass</span>
+    <span className="guard guard--pass">规则检查通过</span>
   ) : (
-    <span className="guard guard--fail">guardrail fail</span>
+    <span className="guard guard--fail">规则检查未通过</span>
   )
+}
+
+/** 一次决定。`action` 决定提交成功后提示哪一句话（见 `DECISION_MESSAGES`）。 */
+interface Decided {
+  topic: string
+  action: 'approve' | 'edit' | 'reject'
+}
+
+/**
+ * 决定提交成功后的提示。
+ *
+ * 三条路径给三句不同的话，而不是一句通用的"决定已记录"：Edit 的人需要知道**改稿
+ * 被存下来了**，Reject 的人需要知道**这条不会再发出去**——这两件事是操作者按下
+ * 按钮后唯一想确认的结果，用一句通用文案把它们的差别抹掉，等于没提示。
+ */
+const DECISION_MESSAGES: Record<Decided['action'], string> = {
+  approve: '已批准，该内容可以进入发布流程。',
+  edit: '编辑已保存，该内容可以进入发布流程。',
+  reject: '已拒绝，该内容不会进入发布流程。',
 }
 
 export function Review() {
   const [page, setPage] = useState(1)
   const [selected, setSelected] = useState<string | null>(null)
-  const [justDecided, setJustDecided] = useState<string | null>(null)
+  const [justDecided, setJustDecided] = useState<Decided | null>(null)
 
   const queue = useAsync(() => api.listReviews(page), [page])
   const { refresh } = useConsole()
@@ -61,14 +80,14 @@ export function Review() {
   // 而后面的页里还有待审的 Run。
   usePageClamp(page, setPage, items !== undefined && items.length === 0, queue.data !== null)
 
-  function handleDecided() {
+  function handleDecided(action: Decided['action']) {
     const list = items ?? []
     const index = list.findIndex((item) => item.run_id === selected)
     const topic = list[index]?.topic ?? null
     // 下一条：被决定的这条会从队列里消失，所以它后面的那条会顶上来，位置不变。
     const next = index >= 0 ? (list[index + 1]?.run_id ?? null) : null
 
-    setJustDecided(topic)
+    setJustDecided({ topic: topic ?? EMPTY, action })
     setSelected(next)
     queue.reload()
     // 侧栏的待办计数与这里读的是同一份数据，必须一起更新，否则导航上还挂着刚处理掉的那个数。
@@ -81,17 +100,17 @@ export function Review() {
         <div className="card card--flush">
           <div className="card__body" style={{ paddingBottom: 8 }}>
             <div className="row row--between">
-              <strong>Waiting for review</strong>
+              <strong>待审核</strong>
               <span className="cell-muted num">{queue.data?.page.total ?? EMPTY}</span>
             </div>
           </div>
 
-          {queue.loading && !queue.data ? <LoadingState message="Loading queue…" /> : null}
+          {queue.loading && !queue.data ? <LoadingState message="正在加载待审核队列…" /> : null}
           {queue.error ? (
             <div className="card__body">
               <ErrorState
                 error={queue.error}
-                what="Failed to load the queue."
+                what="加载待审核队列失败。"
                 onRetry={queue.reload}
               />
             </div>
@@ -99,8 +118,8 @@ export function Review() {
 
           {queue.data && items && items.length === 0 ? (
             <EmptyState
-              title="Nothing to review"
-              hint="New runs show up here as soon as the agent pauses for a human decision."
+              title="没有待审核的内容"
+              hint="一旦 Agent 停下来等人工决定，新的 Run 就会出现在这里。"
             />
           ) : null}
 
@@ -118,7 +137,7 @@ export function Review() {
                     {item.draft_preview ? (
                       <div className="clamp-2">{item.draft_preview}</div>
                     ) : (
-                      <div>no draft stored</div>
+                      <div>未存草稿</div>
                     )}
                     <div className="row" style={{ gap: 8, marginTop: 4 }}>
                       <span title={item.created_at}>{relativeTime(item.created_at)}</span>
@@ -131,7 +150,7 @@ export function Review() {
           ) : null}
 
           {queue.data && queue.data.page.pages > 1 ? (
-            <Pagination page={queue.data.page} onChange={setPage} itemLabel="runs" />
+            <Pagination page={queue.data.page} onChange={setPage} />
           ) : null}
         </div>
 
@@ -139,14 +158,14 @@ export function Review() {
           <div className="notice notice--ok" style={{ marginTop: 12 }}>
             <div className="row row--between">
               <span>
-                Decision recorded for <strong>{justDecided}</strong>.
+                <strong>{justDecided.topic}</strong>：{DECISION_MESSAGES[justDecided.action]}
               </span>
               <button
                 type="button"
                 className="btn btn--sm"
                 onClick={() => setJustDecided(null)}
               >
-                Dismiss
+                知道了
               </button>
             </div>
           </div>
@@ -164,11 +183,11 @@ export function Review() {
             onDecided={handleDecided}
           />
         ) : queue.loading ? (
-          <LoadingState message="Loading…" />
+          <LoadingState message="加载中…" />
         ) : (
           <EmptyState
-            title="No run selected"
-            hint="Pick a run from the queue on the left to see its research, draft and guardrail result."
+            title="尚未选择 Run"
+            hint="从左侧队列里点选一条 Run，这里会显示它的研究内容、草稿与规则检查结果。"
           />
         )}
       </div>

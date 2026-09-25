@@ -4,11 +4,11 @@ import { useConsole } from '../hooks/useConsole'
 import { EMPTY } from '../utils/format'
 
 const NAV = [
-  { to: '/', label: 'Overview', end: true, title: 'Overview' },
-  { to: '/runs', label: 'Runs', end: false, title: 'Runs' },
-  { to: '/review', label: 'Review', end: false, title: 'Review Workspace' },
-  { to: '/published', label: 'Published', end: false, title: 'Published Posts' },
-  { to: '/analytics', label: 'Analytics', end: false, title: 'System Analytics' },
+  { to: '/', label: '系统总览', end: true, title: '系统总览' },
+  { to: '/runs', label: '运行记录', end: false, title: '运行记录' },
+  { to: '/review', label: '内容审核', end: false, title: '审核工作台' },
+  { to: '/published', label: '发布记录', end: false, title: '发布记录' },
+  { to: '/analytics', label: '数据分析', end: false, title: '数据分析' },
 ]
 
 /**
@@ -30,7 +30,7 @@ export function AppLayout() {
       <aside className="sidebar">
         <div className="sidebar__brand">
           <div className="sidebar__brand-name">X AI Content Agent</div>
-          <div className="sidebar__brand-meta">Operations Console</div>
+          <div className="sidebar__brand-meta">运营控制台</div>
         </div>
 
         <nav className="sidebar__nav">
@@ -64,7 +64,7 @@ export function AppLayout() {
 
         <div className="sidebar__foot">
           <div>Phase 4b</div>
-          <div>Read-only console · writes go through the existing API</div>
+          <div>只读控制台 · 写操作走既有 API</div>
         </div>
       </aside>
 
@@ -73,7 +73,7 @@ export function AppLayout() {
           <h1 className="topbar__title">{current?.title ?? EMPTY}</h1>
           <div className="topbar__actions">
             <span className="cell-muted">
-              {pendingReviews} awaiting review · {pendingResolutions} to resolve
+              {pendingReviews} 条待审核 · {pendingResolutions} 条待裁决
             </span>
           </div>
         </header>

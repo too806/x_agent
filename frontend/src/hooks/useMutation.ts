@@ -33,7 +33,7 @@ export function useMutation<TArgs extends unknown[], TResult>(
         setError(
           cause instanceof ApiError
             ? cause
-            : new ApiError(0, 'Unexpected error while submitting.'),
+            : new ApiError(0, '提交时发生未预期的错误。'),
         )
         return null
       } finally {

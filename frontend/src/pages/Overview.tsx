@@ -7,7 +7,7 @@ import { ErrorState, EmptyState, LoadingState } from '../components/States'
 import { StatusBadge } from '../components/StatusBadge'
 import { TrendChart } from '../components/TrendChart'
 import { useAsync } from '../hooks/useAsync'
-import { EMPTY, relativeTime } from '../utils/format'
+import { EMPTY, publishStatusLabel, relativeTime, runStatusLabel } from '../utils/format'
 import type { ReviewQueueItem, ResolutionQueueItem } from '../types/api'
 
 const WINDOWS = [7, 14, 30, 90]
@@ -27,17 +27,17 @@ const WINDOWS = [7, 14, 30, 90]
 function GuardrailCell({ item }: { item: ReviewQueueItem }) {
   if (item.guardrail_passed === null) {
     return (
-      <span className="guard guard--unknown" title="Not readable from the checkpoint">
+      <span className="guard guard--unknown" title="无法从 checkpoint 读出结果">
         {EMPTY}
       </span>
     )
   }
   if (item.guardrail_passed) {
-    return <span className="guard guard--pass">PASS</span>
+    return <span className="guard guard--pass">通过</span>
   }
   return (
     <span className="guard guard--fail" title={item.guardrail_reasons.join('\n')}>
-      FAIL{item.guardrail_reasons.length ? ` (${item.guardrail_reasons.length})` : ''}
+      未通过{item.guardrail_reasons.length ? ` (${item.guardrail_reasons.length})` : ''}
     </span>
   )
 }
@@ -52,10 +52,10 @@ export function Overview() {
     <>
       <section className="section">
         <div className="section__head">
-          <h2 className="section__title">System snapshot</h2>
+          <h2 className="section__title">系统快照</h2>
           <div className="row">
             <label className="cell-muted" htmlFor="overview-window">
-              Window
+              时间窗口
             </label>
             <select
               id="overview-window"
@@ -66,18 +66,18 @@ export function Overview() {
             >
               {WINDOWS.map((value) => (
                 <option key={value} value={value}>
-                  Last {value} days
+                  最近 {value} 天
                 </option>
               ))}
             </select>
             <button type="button" className="btn btn--sm" onClick={reload} disabled={loading}>
-              Refresh
+              刷新
             </button>
           </div>
         </div>
 
-        {loading && !data ? <LoadingState message="Loading overview…" /> : null}
-        {error ? <ErrorState error={error} what="Failed to load the overview." onRetry={reload} /> : null}
+        {loading && !data ? <LoadingState message="正在加载系统总览…" /> : null}
+        {error ? <ErrorState error={error} what="加载系统总览失败。" onRetry={reload} /> : null}
       </section>
 
       {data ? (
@@ -87,82 +87,81 @@ export function Overview() {
           {data.resolution_queue_total > 0 ? (
             <div className="notice notice--warn" style={{ marginBottom: 20 }}>
               <div className="notice__title">
-                {data.resolution_queue_total} publish attempt
-                {data.resolution_queue_total === 1 ? '' : 's'} need a human decision
+                {data.resolution_queue_total} 次发布尝试需要人工裁决
               </div>
-              These are in <code>publishing</code> or <code>publish_unknown</code>. No automatic
-              path will call X again for them — resolving one is a manual call, and it is not
-              reversible.
+              它们的发布状态是 <strong>{publishStatusLabel('publishing')}</strong> 或{' '}
+              <strong>{publishStatusLabel('publish_unknown')}</strong>
+              。系统不会为它们自动再调一次 X —— 裁决必须由人执行，而且不可撤销。
             </div>
           ) : null}
 
           <section className="section">
             <div className="section__head">
-              <h2 className="section__title">Key figures</h2>
-              <span className="section__hint">all-time counts, not limited to the window</span>
+              <h2 className="section__title">关键指标</h2>
+              <span className="section__hint">全量计数，不受上方窗口限制</span>
             </div>
 
             <div className="kpi-grid">
               <div className="kpi">
-                <div className="kpi__label">Total runs</div>
+                <div className="kpi__label">总运行数</div>
                 <div className="kpi__value">{data.kpis.total_runs}</div>
-                <div className="kpi__sub">every run ever recorded</div>
+                <div className="kpi__sub">历史累计，全部 Run</div>
               </div>
               <div className="kpi kpi--attention">
-                <div className="kpi__label">Awaiting review</div>
+                <div className="kpi__label">待审核</div>
                 <div className="kpi__value">{data.kpis.waiting_for_review}</div>
-                <div className="kpi__sub">sitting in the queue right now</div>
+                <div className="kpi__sub">当前正排在队列里</div>
               </div>
               <div className="kpi">
-                <div className="kpi__label">Published</div>
+                <div className="kpi__label">已发布</div>
                 <div className="kpi__value">{data.kpis.published}</div>
-                <div className="kpi__sub">confirmed on X</div>
+                <div className="kpi__sub">已在 X 上确认</div>
               </div>
               <div className="kpi">
-                <div className="kpi__label">Publish failed</div>
+                <div className="kpi__label">发布失败</div>
                 <div className="kpi__value">{data.kpis.publish_failed}</div>
-                <div className="kpi__sub">known failure, safe to retry</div>
+                <div className="kpi__sub">确定失败，重发是安全的</div>
               </div>
               <div className="kpi kpi--critical">
-                <div className="kpi__label">Publish unknown</div>
+                <div className="kpi__label">发布结果未知</div>
                 <div className="kpi__value">{data.kpis.publish_unknown}</div>
-                <div className="kpi__sub">may or may not be live</div>
+                <div className="kpi__sub">可能已发出，也可能没有</div>
               </div>
               <div className="kpi kpi--attention">
-                <div className="kpi__label">Publishing</div>
+                <div className="kpi__label">发布中</div>
                 <div className="kpi__value">{data.kpis.publishing}</div>
-                <div className="kpi__sub">attempt started, outcome not recorded</div>
+                <div className="kpi__sub">已发起，结果尚未记录</div>
               </div>
             </div>
 
             <p className="cell-muted" style={{ marginBottom: 0 }}>
-              The last four come from publish records, not from run status. A run can sit at{' '}
-              <code>approved</code> while its publish record is <code>failed</code> — the publish
-              record is the one telling the truth.
+              后四项取自<strong>发布记录</strong>，不是 Run 状态。一个 Run 可以停在
+              <strong>{runStatusLabel('approved')}</strong>，而它的发布记录是
+              <strong>{publishStatusLabel('failed')}</strong> —— 说真话的是发布记录。
             </p>
           </section>
 
           <section className="section">
             <div className="section__head">
-              <h2 className="section__title">Daily activity</h2>
-              <span className="section__hint">last {data.window_days} days · UTC days</span>
+              <h2 className="section__title">每日活动</h2>
+              <span className="section__hint">最近 {data.window_days} 天 · 按 UTC 自然日</span>
             </div>
             <div className="chart-grid">
               <div className="card">
                 <div className="card__body">
-                  <div className="section__title">Runs created</div>
+                  <div className="section__title">每日运行量</div>
                   <TrendChart
                     points={data.runs_trend}
-                    emptyHint="No runs were created in this window. Widen the window to look further back."
+                    emptyHint="该窗口内没有创建过 Run。可以把窗口放宽，看得更远一些。"
                   />
                 </div>
               </div>
               <div className="card">
                 <div className="card__body">
-                  <div className="section__title">Publish records created</div>
+                  <div className="section__title">每日发布量</div>
                   <TrendChart
                     points={data.published_trend}
-                    emptyHint="No publish attempts were recorded in this window. This counts attempts, not successes — a failed attempt still appears here."
+                    emptyHint="该窗口内没有发布尝试记录。这里统计的是尝试次数，不是成功次数——失败的尝试同样会出现在图上。"
                   />
                 </div>
               </div>
@@ -171,29 +170,29 @@ export function Overview() {
 
           <section className="section">
             <div className="section__head">
-              <h2 className="section__title">Publish resolution queue</h2>
+              <h2 className="section__title">发布裁决队列</h2>
               {/* 直接落到"待裁决"筛选视图，而不是让人到了 Published 再自己挑一遍状态。 */}
               <Link to="/published?status=__unresolved__">
                 {data.resolution_queue_total > data.resolution_queue.length
-                  ? `View all ${data.resolution_queue_total} →`
-                  : 'Open Published →'}
+                  ? `查看全部 ${data.resolution_queue_total} 条 →`
+                  : '打开发布记录 →'}
               </Link>
             </div>
             <div className="card card--flush">
               {data.resolution_queue.length === 0 ? (
                 <EmptyState
-                  title="Nothing to resolve"
-                  hint="Every publish attempt has a definite outcome. This is the state you want."
+                  title="没有需要裁决的发布"
+                  hint="每一次发布尝试都有确定结果。这是你想要的状态。"
                 />
               ) : (
                 <div className="table-wrap">
                   <table className="table">
                     <thead>
                       <tr>
-                        <th>Topic</th>
-                        <th>Publish</th>
-                        <th>Run status</th>
-                        <th>Last error</th>
+                        <th>主题</th>
+                        <th>发布状态</th>
+                        <th>运行状态</th>
+                        <th>最后错误</th>
                         <th />
                       </tr>
                     </thead>
@@ -216,7 +215,7 @@ export function Overview() {
                               className="btn btn--sm"
                               onClick={() => setOpenRunId(item.run_id)}
                             >
-                              Open
+                              查看
                             </button>
                           </td>
                         </tr>
@@ -230,28 +229,28 @@ export function Overview() {
 
           <section className="section">
             <div className="section__head">
-              <h2 className="section__title">Review queue</h2>
+              <h2 className="section__title">待审核队列</h2>
               <Link to="/review">
                 {data.review_queue_total > data.review_queue.length
-                  ? `View all ${data.review_queue_total} →`
-                  : 'Open Review →'}
+                  ? `查看全部 ${data.review_queue_total} 条 →`
+                  : '打开审核工作台 →'}
               </Link>
             </div>
             <div className="card card--flush">
               {data.review_queue.length === 0 ? (
                 <EmptyState
-                  title="No runs waiting for review"
-                  hint="New runs will appear here as soon as the agent pauses for a human decision."
+                  title="没有待审核的内容"
+                  hint="一旦 Agent 停下来等人工决定，新的 Run 就会出现在这里。"
                 />
               ) : (
                 <div className="table-wrap">
                   <table className="table">
                     <thead>
                       <tr>
-                        <th>Topic</th>
-                        <th>Draft preview</th>
-                        <th>Guardrail</th>
-                        <th>Waiting</th>
+                        <th>主题</th>
+                        <th>草稿预览</th>
+                        <th>规则检查</th>
+                        <th>已等待</th>
                         <th />
                       </tr>
                     </thead>
@@ -259,9 +258,7 @@ export function Overview() {
                       {data.review_queue.map((item) => (
                         <tr key={item.run_id}>
                           <td className="table__topic">{item.topic}</td>
-                          <td className="cell-muted clamp-2">
-                            {item.draft_preview ?? 'no draft stored'}
-                          </td>
+                          <td className="cell-muted clamp-2">{item.draft_preview ?? '未存草稿'}</td>
                           <td>
                             <GuardrailCell item={item} />
                           </td>
@@ -274,7 +271,7 @@ export function Overview() {
                               className="btn btn--sm"
                               onClick={() => setOpenRunId(item.run_id)}
                             >
-                              Open
+                              查看
                             </button>
                           </td>
                         </tr>
@@ -285,8 +282,8 @@ export function Overview() {
               )}
             </div>
             <p className="cell-muted">
-              Guardrail shows {EMPTY} when the result cannot be read from the checkpoint. That means
-              unknown, not passed.
+              当结果无法从 checkpoint 读出时，规则检查一列显示 {EMPTY}。那表示<strong>未知</strong>，
+              不等于通过。
             </p>
           </section>
         </>

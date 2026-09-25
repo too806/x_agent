@@ -66,10 +66,13 @@ function describeError(status: number, payload: unknown): string {
           return [where, msg].filter(Boolean).join(': ')
         })
         .filter((part): part is string => Boolean(part))
-      if (parts.length) return `Invalid request — ${parts.join('; ')}`
+      // 前缀是中文，拼进来的 `msg` 是 FastAPI / Pydantic 自己写的英文文案（比如
+      // "Field required"），改不动也不该改——那是后端的诊断信息，逐字保留才能和
+      // 服务端日志对上。这类错误正常不会出现在控制台上：请求体由前端自己构造。
+      if (parts.length) return `请求不合法 —— ${parts.join('; ')}`
     }
   }
-  return `Request failed with HTTP ${status}.`
+  return `请求失败：HTTP ${status}。`
 }
 
 async function readBody(response: Response): Promise<unknown> {
@@ -124,7 +127,7 @@ async function rawRequest<T>(
   } catch {
     // fetch 只在网络层失败时抛异常。这里**不**把原始异常透出去：它的文案对使用者
     // 没有意义，而"服务没起来"才是真正要传达的信息。
-    throw new ApiError(0, 'Cannot reach the API server. Is the backend running?')
+    throw new ApiError(0, '连不上 API 服务，请确认后端是否在运行。')
   }
 
   const payload = await readBody(response)

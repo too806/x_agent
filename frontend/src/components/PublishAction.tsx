@@ -2,8 +2,9 @@ import { useState } from 'react'
 
 import { api, xPostUrl } from '../api/client'
 import { ConfirmDialog } from './ConfirmDialog'
+import { StatusBadge } from './StatusBadge'
 import { useMutation } from '../hooks/useMutation'
-import { EMPTY, dateTime } from '../utils/format'
+import { EMPTY, dateTime, publishStatusLabel } from '../utils/format'
 import type { PublishCall, PublishRecord } from '../types/api'
 
 /**
@@ -45,50 +46,50 @@ function describeOutcome(call: PublishCall): Outcome {
     case 'published':
       return {
         tone: 'ok',
-        title: 'Published',
-        detail: 'X accepted the post. The id below is the confirmation.',
+        title: '已发布',
+        detail: 'X 已接受这条帖子。下面的 ID 就是凭据。',
         xPostId: postId,
       }
     case 'resolved':
       return {
         tone: 'ok',
-        title: 'Resolution recorded',
-        detail: `The publish record is now "${body.publish?.status ?? 'unknown'}". Nothing was sent to X by this action.`,
+        title: '裁决已记录',
+        detail: `这条发布记录现在是"${publishStatusLabel(body.publish?.status ?? null)}"。本次操作没有向 X 发送任何内容。`,
         xPostId: postId,
       }
     case 'unknown':
       return {
         tone: 'warn',
-        title: 'Result unknown — a post may exist on X',
+        title: '发布结果未知 —— X 上可能已经有这条帖子',
         detail:
-          'The request reached X but the outcome could not be determined. Check the account on X before doing anything else. This is not a failure and it is not a success.',
+          '请求已经到达 X，但结果无法确定。在采取任何其它操作之前，先去 X 上看一下这个账号。这既不是失败，也不是成功。',
         xPostId: postId,
       }
     case 'failed':
       return {
         tone: 'danger',
-        title: 'Publish failed — nothing was sent to X',
-        detail: 'X rejected the request, so no post was created. This can be retried.',
+        title: '发布失败 —— 没有内容发到 X',
+        detail: 'X 拒绝了这次请求，所以没有创建帖子。这一条可以重试。',
         xPostId: postId,
       }
     case 'conflict':
       return {
         tone: 'warn',
-        title: 'Not published — the run is not in a publishable state',
-        detail: 'Nothing was sent to X. The reason is below.',
+        title: '未发布 —— 这个 Run 不在可发布的状态',
+        detail: '没有内容发到 X。原因见下方。',
         xPostId: postId,
       }
     case 'invalid':
       return {
         tone: 'danger',
-        title: 'Not published — the content failed a local check',
-        detail: 'Nothing was sent to X. A local precondition failed, shown below.',
+        title: '未发布 —— 内容没有通过本地检查',
+        detail: '没有内容发到 X。本地前置检查未通过，详情见下方。',
         xPostId: postId,
       }
     default:
       return {
         tone: 'warn',
-        title: `Outcome: ${body.outcome}`,
+        title: `未知结果：${body.outcome}`,
         detail: null,
         xPostId: postId,
       }
@@ -116,7 +117,7 @@ export function PublishOutcomeNotice({ call }: { call: PublishCall }) {
           <>
             {' · '}
             <a href={xPostUrl(outcome.xPostId)} target="_blank" rel="noreferrer noopener">
-              open on X
+              在 X 中打开
             </a>
           </>
         ) : null}
@@ -167,9 +168,9 @@ export function PublishControl({ runId, body, isRetry = false, onSettled }: Publ
           }}
           disabled={publish.busy}
         >
-          {isRetry ? 'Retry publish' : 'Publish to X'}
+          {isRetry ? '重试发布' : '发布到 X'}
         </button>
-        {publish.busy ? <span className="cell-muted">Publishing…</span> : null}
+        {publish.busy ? <span className="cell-muted">正在发布…</span> : null}
       </div>
 
       {result ? (
@@ -180,8 +181,8 @@ export function PublishControl({ runId, body, isRetry = false, onSettled }: Publ
 
       {confirming ? (
         <ConfirmDialog
-          title={isRetry ? 'Retry publishing to X?' : 'Publish to X?'}
-          confirmLabel={isRetry ? 'Retry publish' : 'Publish now'}
+          title={isRetry ? '重试发布到 X？' : '发布到 X？'}
+          confirmLabel={isRetry ? '重试发布' : '立即发布'}
           danger
           busy={publish.busy}
           confirmDisabled={!acknowledged}
@@ -193,8 +194,12 @@ export function PublishControl({ runId, body, isRetry = false, onSettled }: Publ
           onConfirm={submit}
         >
           <p style={{ marginTop: 0 }}>
-            This sends the text below to the <strong>live X account</strong> as a public post. It
-            happens immediately and cannot be taken back from this console.
+            确定要发布到真实 X 账号吗？下面的文字会以<strong>公开帖子</strong>的形式发出去，
+            <strong>该操作会创建一条公开帖子。</strong>
+          </p>
+          <p>
+            它会立刻生效，并且<strong>无法从这个控制台撤销</strong>（要撤回只能去 X 上手动删除，
+            而本系统不会跟着同步）。
           </p>
           <div className="body-block">{body ?? EMPTY}</div>
           <label className="checkbox-row">
@@ -203,7 +208,7 @@ export function PublishControl({ runId, body, isRetry = false, onSettled }: Publ
               checked={acknowledged}
               onChange={(event) => setAcknowledged(event.target.checked)}
             />
-            <span>I understand this will post publicly on X right now.</span>
+            <span>我明白：这一下会立刻在 X 上公开发出这条帖子。</span>
           </label>
         </ConfirmDialog>
       ) : null}
@@ -265,14 +270,20 @@ export function ResolveControl({ runId, publish, onSettled }: ResolveControlProp
   return (
     <div className="stack--tight">
       <div className="notice notice--warn">
-        <div className="notice__title">This publish attempt has no known outcome</div>
-        The status is <code>{publish.status}</code>. Go to X and look at the account: if the post is
-        there, record its id; if it is not, mark it as failed. <strong>No automatic path will call X
-        again for this run.</strong>
+        <div className="notice__title">这次发布尝试没有确定结果</div>
+        <div className="row" style={{ marginTop: 6 }}>
+          <StatusBadge status={publish.status} kind="publish" />
+          <span className="cell-muted">尝试开始于 {dateTime(publish.updated_at)}</span>
+        </div>
+        <div style={{ marginTop: 6 }}>
+          <strong>系统无法确认 X 是否已经创建帖子。自动重试可能导致重复发布。</strong>
+          <br />
+          先到 X 上看一下这个账号：帖子在，就把它记下来；帖子不在，才可以允许重试。
+          在人来裁决之前，<strong>系统不会为这个 Run 自动再调一次 X</strong>。
+        </div>
         {publish.last_error ? (
           <div className="body-block body-block--mono">{publish.last_error}</div>
         ) : null}
-        <div className="cell-muted">Attempt started {dateTime(publish.updated_at)}</div>
       </div>
 
       <div className="row">
@@ -284,8 +295,9 @@ export function ResolveControl({ runId, publish, onSettled }: ResolveControlProp
             setMode('mark_published')
           }}
           disabled={resolve.busy}
+          title="帖子已经在 X 上，把它的帖子 ID 抄回来"
         >
-          It is on X — record the post id
+          标记为已发布
         </button>
         <button
           type="button"
@@ -295,8 +307,9 @@ export function ResolveControl({ runId, publish, onSettled }: ResolveControlProp
             setMode('retry')
           }}
           disabled={resolve.busy}
+          title="帖子不在 X 上，允许这个 Run 重新发布"
         >
-          It is not on X — allow a retry
+          确认可能重复后重试
         </button>
       </div>
 
@@ -304,8 +317,8 @@ export function ResolveControl({ runId, publish, onSettled }: ResolveControlProp
 
       {mode === 'mark_published' ? (
         <ConfirmDialog
-          title="Record the post id from X"
-          confirmLabel="Record as published"
+          title="记录 X 上的帖子 ID"
+          confirmLabel="标记为已发布"
           busy={resolve.busy}
           confirmDisabled={!xPostId.trim()}
           error={resolve.error}
@@ -313,32 +326,31 @@ export function ResolveControl({ runId, publish, onSettled }: ResolveControlProp
           onConfirm={submit}
         >
           <p style={{ marginTop: 0 }}>
-            Open the post on X and copy the numeric id out of its URL — the part after{' '}
-            <code>/status/</code>. This console will not guess it: an id that came from the system
-            itself is exactly what &ldquo;unknown outcome&rdquo; means.
+            在 X 上打开那条帖子，把它网址里 <code>/status/</code> 后面那串数字复制过来。
+            本控制台不会替你猜这个 ID：一个由系统自己产生的 ID，本身就是"结果未知"的含义。
           </p>
           <div className="field">
             <label className="field__label" htmlFor="x-post-id">
-              X post id (required)
+              X 帖子 ID（必填）
             </label>
             <input
               id="x-post-id"
               className="input mono"
               value={xPostId}
               onChange={(event) => setXPostId(event.target.value)}
-              placeholder="e.g. 2102664104339226711"
+              placeholder="例如 2102664104339226711"
             />
           </div>
           <p className="cell-muted" style={{ marginBottom: 0 }}>
-            This only corrects the record. Nothing is sent to X.
+            这一步只修正记录，不会向 X 发送任何内容。
           </p>
         </ConfirmDialog>
       ) : null}
 
       {mode === 'retry' ? (
         <ConfirmDialog
-          title="Allow this run to be published again"
-          confirmLabel="Mark as not published"
+          title="允许这个 Run 重新发布"
+          confirmLabel="确认可能重复后重试"
           danger
           busy={resolve.busy}
           confirmDisabled={!(checkedOnX && acceptDuplicate)}
@@ -347,13 +359,12 @@ export function ResolveControl({ runId, publish, onSettled }: ResolveControlProp
           onConfirm={submit}
         >
           <p style={{ marginTop: 0 }}>
-            This records the attempt as failed so it can be retried. It does{' '}
-            <strong>not</strong> post anything by itself — you will have to press publish
-            afterwards, deliberately.
+            这一步会把这次尝试记为失败，好让它能够重试。它<strong>本身不会</strong>发出任何帖子
+            —— 之后你还需要自己再按一次发布按钮。
           </p>
           <div className="notice notice--danger">
-            If the post <strong>is</strong> actually on X, marking it here makes the system forget
-            that — and the next publish creates a second post. Check the account first.
+            如果那条帖子<strong>确实已经在 X 上</strong>，在这里标记为未发布，就等于让系统忘掉它 ——
+            下一次发布会创建<strong>第二条帖子</strong>。请先去 X 上确认。
           </div>
           <label className="checkbox-row">
             <input
@@ -361,7 +372,7 @@ export function ResolveControl({ runId, publish, onSettled }: ResolveControlProp
               checked={checkedOnX}
               onChange={(event) => setCheckedOnX(event.target.checked)}
             />
-            <span>I checked the X account myself and this post is not there.</span>
+            <span>我亲自查过 X 账号，这条帖子不在上面。</span>
           </label>
           <label className="checkbox-row">
             <input
@@ -369,7 +380,7 @@ export function ResolveControl({ runId, publish, onSettled }: ResolveControlProp
               checked={acceptDuplicate}
               onChange={(event) => setAcceptDuplicate(event.target.checked)}
             />
-            <span>I understand a later retry may create a duplicate post.</span>
+            <span>我明白：之后再重试可能创建出一条重复的帖子。</span>
           </label>
         </ConfirmDialog>
       ) : null}

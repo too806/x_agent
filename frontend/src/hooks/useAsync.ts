@@ -49,7 +49,7 @@ export function useAsync<T>(loader: () => Promise<T>, deps: readonly unknown[]):
         setError(
           cause instanceof ApiError
             ? cause
-            : new ApiError(0, 'Unexpected error while loading data.'),
+            : new ApiError(0, '加载数据时发生未预期的错误。'),
         )
         setLoading(false)
       })

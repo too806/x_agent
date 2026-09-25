@@ -9,7 +9,7 @@ import { useAsync } from '../hooks/useAsync'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
 import { usePageClamp } from '../hooks/usePageClamp'
 import { RUN_STATUSES } from '../types/api'
-import { EMPTY, dateTime } from '../utils/format'
+import { EMPTY, dateTime, runStatusLabel } from '../utils/format'
 
 const TOPIC_DEBOUNCE_MS = 400
 
@@ -79,9 +79,9 @@ export function Runs() {
     <>
       <section className="section">
         <div className="section__head">
-          <h2 className="section__title">Runs</h2>
+          <h2 className="section__title">运行记录</h2>
           <button type="button" className="btn btn--sm" onClick={reload} disabled={loading}>
-            Refresh
+            刷新
           </button>
         </div>
 
@@ -90,7 +90,7 @@ export function Runs() {
             <div className="filter-bar">
               <div className="field">
                 <label className="field__label" htmlFor="run-status">
-                  Run status
+                  运行状态
                 </label>
                 <select
                   id="run-status"
@@ -100,10 +100,12 @@ export function Runs() {
                     setFilters((current) => ({ ...current, status: event.target.value }))
                   }
                 >
-                  <option value="">Any status</option>
+                  <option value="">全部</option>
+                  {/* value 仍然是后端枚举，只有显示文案走中文映射——
+                      筛选发出去的是 status=running，不是 status=运行中。 */}
                   {RUN_STATUSES.map((status) => (
                     <option key={status} value={status}>
-                      {status}
+                      {runStatusLabel(status)}
                     </option>
                   ))}
                 </select>
@@ -111,13 +113,13 @@ export function Runs() {
 
               <div className="field field--grow">
                 <label className="field__label" htmlFor="run-topic">
-                  Topic contains
+                  主题包含
                 </label>
                 <input
                   id="run-topic"
                   className="input"
                   type="search"
-                  placeholder="search the topic text"
+                  placeholder="搜索主题文字"
                   value={filters.topic}
                   onChange={(event) =>
                     setFilters((current) => ({ ...current, topic: event.target.value }))
@@ -127,7 +129,7 @@ export function Runs() {
 
               <div className="field">
                 <label className="field__label" htmlFor="run-from">
-                  Created from
+                  创建时间从
                 </label>
                 <input
                   id="run-from"
@@ -142,7 +144,7 @@ export function Runs() {
 
               <div className="field">
                 <label className="field__label" htmlFor="run-to">
-                  Created to (inclusive)
+                  创建时间到（含当天）
                 </label>
                 <input
                   id="run-to"
@@ -161,7 +163,7 @@ export function Runs() {
                 disabled={!dirty}
                 onClick={() => setFilters(NO_FILTERS)}
               >
-                Clear
+                清除筛选
               </button>
             </div>
           </div>
@@ -169,20 +171,20 @@ export function Runs() {
       </section>
 
       <section className="section">
-        {loading && !data ? <LoadingState message="Loading runs…" /> : null}
+        {loading && !data ? <LoadingState message="正在加载运行记录…" /> : null}
         {error ? (
-          <ErrorState error={error} what="Failed to load runs." onRetry={reload} />
+          <ErrorState error={error} what="加载运行记录失败。" onRetry={reload} />
         ) : null}
 
         {data ? (
           <div className="card card--flush" style={{ opacity: loading ? 0.6 : 1 }}>
             {data.items.length === 0 ? (
               <EmptyState
-                title="No runs match these filters"
+                title="没有符合筛选条件的运行记录"
                 hint={
                   dirty
-                    ? 'Try clearing a filter or widening the date range.'
-                    : 'No runs have been recorded yet.'
+                    ? '可以清除某个筛选条件，或把日期范围放宽一些。'
+                    : '目前还没有任何运行记录。'
                 }
               />
             ) : (
@@ -191,13 +193,15 @@ export function Runs() {
                   <table className="table">
                     <thead>
                       <tr>
-                        <th>Topic</th>
-                        <th>Run</th>
-                        <th>Review</th>
-                        <th>Publish</th>
-                        <th>Created</th>
-                        <th>Finished</th>
-                        <th title="A stored error message exists for this run">Error</th>
+                        <th>主题</th>
+                        <th>运行状态</th>
+                        <th>审核状态</th>
+                        <th>发布状态</th>
+                        <th>创建时间</th>
+                        <th title="该 Run 已到达终态的时间。未结束的 Run 没有这个值。">
+                          完成时间
+                        </th>
+                        <th title="该 Run 存有错误信息">错误</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -243,7 +247,7 @@ export function Runs() {
                     </tbody>
                   </table>
                 </div>
-                <Pagination page={data.page} onChange={setPage} itemLabel="runs" />
+                <Pagination page={data.page} onChange={setPage} />
               </>
             )}
           </div>
@@ -251,7 +255,12 @@ export function Runs() {
       </section>
 
       {openRunId ? (
-        <RunDetailDrawer runId={openRunId} onClose={() => setOpenRunId(null)} />
+        // 抽屉里发布成功后，这一行显示的状态就过期了，要跟着重取当前页。
+        <RunDetailDrawer
+          runId={openRunId}
+          onClose={() => setOpenRunId(null)}
+          onSettled={reload}
+        />
       ) : null}
     </>
   )

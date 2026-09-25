@@ -9,7 +9,7 @@ import { PublishControl } from './PublishAction'
 import { ErrorState, LoadingState } from './States'
 import { StatusBadge } from './StatusBadge'
 import { isUnresolved } from '../types/api'
-import { EMPTY, dateTime, duration, text } from '../utils/format'
+import { EMPTY, dateTime, draftStatusLabel, duration, text } from '../utils/format'
 import type { AdminRunDetail, PublishRecord, ResearchItemRecord } from '../types/api'
 
 /**
@@ -60,9 +60,9 @@ function ResearchRow({ item }: { item: ResearchItemRecord }) {
   return (
     <li className="research-item">
       <div className="row row--between">
-        <strong>{item.author_username ? `@${item.author_username}` : 'unknown author'}</strong>
+        <strong>{item.author_username ? `@${item.author_username}` : '作者未知'}</strong>
         <span className="cell-muted">
-          {item.likes} likes · {item.reposts} reposts · {item.replies} replies
+          {item.likes} 点赞 · {item.reposts} 转发 · {item.replies} 回复
           {item.published_at ? ` · ${dateTime(item.published_at)}` : ''}
         </span>
       </div>
@@ -84,12 +84,12 @@ function PublishBlock({ publish }: { publish: PublishRecord }) {
   return (
     <div className="stack stack--tight">
       <div className="drawer__metagrid">
-        <Field label="Publish status">
+        <Field label="发布状态">
           <StatusBadge status={publish.status} kind="publish" />
         </Field>
-        <Field label="Published at">{dateTime(publish.published_at)}</Field>
-        <Field label="Record updated">{dateTime(publish.updated_at)}</Field>
-        <Field label="X post">
+        <Field label="发布时间">{dateTime(publish.published_at)}</Field>
+        <Field label="记录更新时间">{dateTime(publish.updated_at)}</Field>
+        <Field label="X 帖子 ID">
           {publish.x_post_id ? (
             <a
               href={xPostUrl(publish.x_post_id)}
@@ -108,13 +108,13 @@ function PublishBlock({ publish }: { publish: PublishRecord }) {
 
       {publish.last_error ? (
         <div className="notice notice--danger">
-          <div className="notice__title">Last error</div>
+          <div className="notice__title">最后错误</div>
           <div className="body-block body-block--mono">{publish.last_error}</div>
         </div>
       ) : null}
 
       <div>
-        <div className="meta__label">Body actually sent</div>
+        <div className="meta__label">实际发出的正文</div>
         <div className="body-block">{publish.body ? text(publish.body) : EMPTY}</div>
       </div>
     </div>
@@ -154,19 +154,19 @@ function DetailBody({ detail, onSettled }: { detail: AdminRunDetail; onSettled: 
   return (
     <>
       <div className="drawer__metagrid">
-        <Field label="Run status">
+        <Field label="运行状态">
           <StatusBadge status={detail.run_status} kind="run" />
         </Field>
-        <Field label="Review decision">
+        <Field label="审核决定">
           <StatusBadge status={detail.review_status} kind="review" />
         </Field>
-        <Field label="Publish status">
+        <Field label="发布状态">
           <StatusBadge status={detail.publish_status} kind="publish" />
         </Field>
-        <Field label="Duration">{duration(seconds)}</Field>
-        <Field label="Created">{dateTime(detail.created_at)}</Field>
-        <Field label="Started">{dateTime(detail.started_at)}</Field>
-        <Field label="Finished">{dateTime(detail.finished_at)}</Field>
+        <Field label="运行时长">{duration(seconds)}</Field>
+        <Field label="创建时间">{dateTime(detail.created_at)}</Field>
+        <Field label="开始时间">{dateTime(detail.started_at)}</Field>
+        <Field label="完成时间">{dateTime(detail.finished_at)}</Field>
         <Field label="Run ID">
           <span className="mono">{detail.run_id}</span>
         </Field>
@@ -174,22 +174,22 @@ function DetailBody({ detail, onSettled }: { detail: AdminRunDetail; onSettled: 
 
       {detail.error ? (
         <div className="notice notice--danger" style={{ marginTop: 16 }}>
-          <div className="notice__title">Run error</div>
+          <div className="notice__title">Run 错误</div>
           <div className="body-block body-block--mono">{detail.error}</div>
         </div>
       ) : null}
 
-      <Section title="Guardrail" hint="from the LangGraph checkpoint">
+      <Section title="规则检查" hint="来自 LangGraph checkpoint">
         {detail.guardrail_passed === null ? (
           <div className="notice">
-            Guardrail result could not be read from the checkpoint. This is <strong>not</strong> a
-            pass — the checkpoint is either missing or does not carry this Run&apos;s state.
+            规则检查结果无法从 checkpoint 读出。这<strong>不等于</strong>通过 —— checkpoint
+            要么不存在，要么没有带着这个 Run 的状态。
           </div>
         ) : detail.guardrail_passed ? (
-          <div className="notice notice--ok">Guardrail passed.</div>
+          <div className="notice notice--ok">规则检查通过。</div>
         ) : (
           <div className="notice notice--danger">
-            <div className="notice__title">Guardrail rejected this draft</div>
+            <div className="notice__title">规则检查未通过</div>
             {detail.guardrail_reasons.length ? (
               <ul className="reason-list">
                 {detail.guardrail_reasons.map((reason, index) => (
@@ -197,17 +197,17 @@ function DetailBody({ detail, onSettled }: { detail: AdminRunDetail; onSettled: 
                 ))}
               </ul>
             ) : (
-              <div>No reason text was recorded.</div>
+              <div>后端没有记录原因文本。</div>
             )}
           </div>
         )}
       </Section>
 
-      <Section title="Content">
+      <Section title="内容">
         <div className="stack stack--tight">
           <div>
             <div className="meta__label">
-              Final content <span className="cell-muted">(checkpoint)</span>
+              最终内容 <span className="cell-muted">（来自 checkpoint）</span>
             </div>
             <div className="body-block">{detail.final_content ?? EMPTY}</div>
           </div>
@@ -215,19 +215,19 @@ function DetailBody({ detail, onSettled }: { detail: AdminRunDetail; onSettled: 
           {review ? (
             <div>
               <div className="meta__label row">
-                Human decision
+                人工决定
                 <StatusBadge status={review.action} kind="review" />
                 <span className="cell-muted">{dateTime(review.reviewed_at)}</span>
               </div>
               <div className="meta__label" style={{ marginTop: 6 }}>
-                Original content
+                原始内容
               </div>
               <div className="body-block">{review.original_content}</div>
               {review.edited_content !== null ? (
                 <>
                   <div className="meta__label" style={{ marginTop: 6 }}>
-                    Edited content
-                    {review.action === 'edit' ? ' (this is what was published)' : ''}
+                    编辑后的内容
+                    {review.action === 'edit' ? '（这条才是实际发布的）' : ''}
                   </div>
                   <div className="body-block">{review.edited_content}</div>
                 </>
@@ -235,42 +235,38 @@ function DetailBody({ detail, onSettled }: { detail: AdminRunDetail; onSettled: 
               {review.reject_reason ? (
                 <>
                   <div className="meta__label" style={{ marginTop: 6 }}>
-                    Reject reason
+                    拒绝原因
                   </div>
                   <div className="body-block">{review.reject_reason}</div>
                 </>
               ) : null}
             </div>
           ) : (
-            <div className="cell-muted">No review decision has been recorded for this Run.</div>
+            <div className="cell-muted">这个 Run 还没有人工决定记录。</div>
           )}
 
           {draft ? (
             <div>
               <div className="meta__label">
-                Draft v{draft.version} · {draft.status}
+                草稿 v{draft.version} · {draftStatusLabel(draft.status)}
                 {draft.model_name ? ` · ${draft.model_name}` : ''}
-                {draft.prompt_version ? ` · prompt ${draft.prompt_version}` : ''}
+                {draft.prompt_version ? ` · 提示词 ${draft.prompt_version}` : ''}
                 {draft.generated_at ? ` · ${dateTime(draft.generated_at)}` : ''}
               </div>
               <div className="body-block">{draft.content}</div>
             </div>
           ) : (
-            <div className="cell-muted">No draft is stored for this Run.</div>
+            <div className="cell-muted">这个 Run 没有存下草稿。</div>
           )}
         </div>
       </Section>
 
       <Section
-        title="Research"
-        hint={
-          detail.research_items.length
-            ? `${detail.research_items.length} item${detail.research_items.length === 1 ? '' : 's'}`
-            : undefined
-        }
+        title="研究内容"
+        hint={detail.research_items.length ? `${detail.research_items.length} 条` : undefined}
       >
         {detail.research_items.length === 0 ? (
-          <div className="cell-muted">No research items were stored for this Run.</div>
+          <div className="cell-muted">这个 Run 没有存下研究内容。</div>
         ) : (
           <>
             <ul className="research-list">
@@ -284,22 +280,20 @@ function DetailBody({ detail, onSettled }: { detail: AdminRunDetail; onSettled: 
                 className="btn btn--sm"
                 onClick={() => setShowAllResearch((value) => !value)}
               >
-                {showAllResearch
-                  ? 'Show fewer'
-                  : `Show all ${detail.research_items.length}`}
+                {showAllResearch ? '收起' : `展开全部 ${detail.research_items.length} 条`}
               </button>
             ) : null}
           </>
         )}
       </Section>
 
-      <Section title="Publish">
+      <Section title="发布">
         {publish ? (
           <PublishBlock publish={publish} />
         ) : (
           <div className="notice">
-            This Run has <strong>no publish record</strong>. Nothing has been sent to X for it.
-            The run status above must not be read as a publish result.
+            这个 Run <strong>没有发布记录</strong>，没有内容发到 X。上面的运行状态<strong>不能</strong>
+            当作发布结果来读。
           </div>
         )}
 
@@ -317,17 +311,16 @@ function DetailBody({ detail, onSettled }: { detail: AdminRunDetail; onSettled: 
 
         {isUnresolved(detail.publish_status) ? (
           <div className="notice notice--warn" style={{ marginTop: 12 }}>
-            This run has an <strong>unresolved publish attempt</strong>. Decide it on the{' '}
-            <Link to="/published?status=__unresolved__">Published page</Link> after checking the
-            account on X — the console will not publish from here.
+            这个 Run 有一次<strong>结果未定的发布尝试</strong>。请先到 X 上确认账号，再到
+            <Link to="/published?status=__unresolved__">发布记录</Link>
+            页裁决 —— 这个抽屉不会代你发布。
           </div>
         ) : null}
       </Section>
 
       <div className="cell-muted" style={{ marginTop: 16 }}>
-        This is an audit record, not a live mirror of X — nothing here changes if a post is later
-        deleted on X. Publish status is the authoritative field; the run status above is only a
-        mirrored view of it.
+        这里存的是审计记录，不是 X 的实时镜像 —— 帖子之后在 X 上被删掉，这里也不会跟着变。
+        发布状态才是权威字段，上面的运行状态只是它的一个镜像视图。
       </div>
     </>
   )
@@ -336,17 +329,27 @@ function DetailBody({ detail, onSettled }: { detail: AdminRunDetail; onSettled: 
 export function RunDetailDrawer({
   runId,
   onClose,
+  onSettled: notifyParent,
 }: {
   runId: string
   onClose: () => void
+  /**
+   * 抽屉内发生写操作后额外通知持有这个抽屉的页面。
+   *
+   * 抽屉自己会重取详情、也会刷新侧栏计数，但它**不知道背后那张表的存在**：在发布记录
+   * 页打开抽屉、在里面重发或裁决成功后，那一行背后的列表仍然是旧的。列表的 reload
+   * 只有页面手里才有，所以要由页面传进来。
+   */
+  onSettled?: () => void
 }) {
   const { data, loading, error, reload } = useAsync(() => api.getRunDetail(runId), [runId])
   const { refresh } = useConsole()
 
-  // 发过一次之后要同时刷新：抽屉里的详情、以及侧栏的待裁决计数。
+  // 发过一次之后要同时刷新：抽屉里的详情、侧栏的待裁决计数、以及页面上的列表。
   function onSettled() {
     reload()
     refresh()
+    notifyParent?.()
   }
 
   return (
@@ -354,13 +357,13 @@ export function RunDetailDrawer({
       onClose={onClose}
       title={
         <>
-          <h2 className="drawer__title">{data ? data.topic : 'Run detail'}</h2>
+          <h2 className="drawer__title">{data ? data.topic : 'Run 详情'}</h2>
           <div className="cell-muted mono">{runId}</div>
         </>
       }
     >
-      {loading ? <LoadingState message="Loading run…" /> : null}
-      {error ? <ErrorState error={error} what="Failed to load this run." onRetry={reload} /> : null}
+      {loading ? <LoadingState message="正在加载 Run…" /> : null}
+      {error ? <ErrorState error={error} what="加载该 Run 失败。" onRetry={reload} /> : null}
       {data && !loading ? <DetailBody detail={data} onSettled={onSettled} /> : null}
     </Drawer>
   )

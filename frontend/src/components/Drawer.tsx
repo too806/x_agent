@@ -41,9 +41,9 @@ export function Drawer({ title, onClose, children }: Props) {
             type="button"
             className="btn btn--sm drawer__close"
             onClick={onClose}
-            aria-label="Close"
+            aria-label="关闭"
           >
-            Close
+            关闭
           </button>
           {title}
         </header>

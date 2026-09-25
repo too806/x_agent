@@ -27,6 +27,10 @@ import type {
  * （见 `app/services/admin.py` 的 `analytics()`，那几个查询根本没传 date_from）。
  * 与其在界面上把它们笼统地放进"最近 N 天"，不如每块自带范围标注。混在一起报，
  * 使用者会拿一个含全部历史的分布去解释一个只覆盖 7 天的趋势。
+ *
+ * 口径说明（`publish_outcomes.note` / `*_reason`）后端下发的是**英文常量**，而且被
+ * `tests/test_admin_api.py` 断言着，所以后端一个字节都没动。界面上的中文说明是这里
+ * 按同一份语义写的，不是翻译腔的逐字转写。改后端那几条常量之前，先看那三条断言。
  */
 
 const WINDOWS = [7, 14, 30, 90]
@@ -36,7 +40,13 @@ type Tone = 'green' | 'red' | 'orange' | 'violet' | 'grey'
 
 interface Row {
   key: string
-  /** 徽标里的展示文案。 */
+  /**
+   * **徽标里的原始枚举值**，不是展示文案。
+   *
+   * 它被当作 `StatusBadge` 的 `status` 传下去，由 `utils/format.ts` 的三个映射表
+   * 翻成中文（approve → 批准、publish_unknown → 发布结果未知）。这里**不能**改成
+   * 中文：改了就查不到映射，徽标会显示成兜底的大写原文。
+   */
   label: string
   count: number
   tone: Tone
@@ -99,10 +109,10 @@ function Bars({ rows, empty }: { rows: Row[]; empty: { title: string; hint: stri
 }
 
 /** 明确"算不出来"。**不给 0，也不给一个空占位符**——两者都会被当成一个数值读。 */
-function NotAvailable({ what, reason }: { what: ReactNode; reason: string | null }) {
+function NotAvailable({ what, reason }: { what: ReactNode; reason?: ReactNode }) {
   return (
     <div className="na">
-      <div className="na__title">Not available</div>
+      <div className="na__title">暂不可用</div>
       <div>{what}</div>
       {reason ? <div className="cell-muted">{reason}</div> : null}
     </div>
@@ -145,24 +155,35 @@ function publishRows(counts: PublishOutcomeDistribution): Row[] {
   ]
 }
 
+/**
+ * 平均运行时长。
+ *
+ * `metric.reason` 后端下发的是英文常量（被测试断言着），所以这里不直接渲染它——
+ * 不可用的原因只有一种，就是把后端那句话按同样的语义写成中文。少渲染一句话，
+ * 换掉的是页面上唯一一段英文。
+ */
 function DurationBlock({ metric }: { metric: AverageRunDuration }) {
   if (!metric.available || metric.average_seconds === null) {
-    return <NotAvailable what="Average Run duration" reason={metric.reason} />
+    return (
+      <NotAvailable
+        what="平均运行时长"
+        reason="还没有任何一个终态 Run 同时具备 started_at 和 finished_at。只有终态（已发布 / 已拒绝 / 失败 / 已完成）才会写 finished_at；已批准、已编辑、待审核以及结果未定的发布都刻意留空。"
+      />
+    )
   }
   const partial = metric.sampled_runs < metric.total_runs
   return (
     <div className="stack stack--tight">
       <div className="kpi__value">{duration(metric.average_seconds)}</div>
       <div className="kpi__sub">
-        averaged over <strong>{metric.sampled_runs}</strong> of {metric.total_runs} runs
+        取自 <strong>{metric.sampled_runs}</strong> 个 Run，共 {metric.total_runs} 个
       </div>
       {partial ? (
         <div className="notice notice--warn">
-          Only Runs that reached a terminal state have both <code>started_at</code> and{' '}
-          <code>finished_at</code>, and only those can be measured. Runs still waiting for review,
-          approved or edited but not yet published, and Runs stuck in an unresolved publish are{' '}
-          <strong>not</strong> in this average — it is not the average over all{' '}
-          {metric.total_runs} Runs.
+          只有到达终态的 Run 才同时有 <code>started_at</code> 和 <code>finished_at</code>
+          ，也只有这些能被测量。仍在等待审核的、已批准或已编辑但还没发布的、以及卡在结果未定
+          的发布里的 Run，<strong>都不在</strong>这个平均值里 —— 它不是全部{' '}
+          {metric.total_runs} 个 Run 的平均。
         </div>
       ) : null}
     </div>
@@ -172,12 +193,10 @@ function DurationBlock({ metric }: { metric: AverageRunDuration }) {
 function ScopeNote() {
   return (
     <div className="notice notice--info" style={{ marginBottom: 20 }}>
-      <div className="notice__title">What the window applies to</div>
-      Only the two charts and &ldquo;Runs in window&rdquo; are filtered by the selected window. The
-      review decisions, publish outcomes, average duration and topic ranking are computed over{' '}
-      <strong>every record in the database</strong> — the backend has no date filter for them. Each
-      block is labelled with its own scope so a 7-day chart is never read together with an all-time
-      distribution.
+      <div className="notice__title">窗口对哪些区块生效</div>
+      只有两张图和「窗口内 Run 数」会被上方选定的时间窗口过滤。审核决定分布、发布结果分布、
+      平均运行时长和主题排行都是<strong>全库统计</strong> —— 后端对这几项没有日期过滤参数。
+      每个区块都标了自己的范围，免得用一张 7 天的图去解释一个含全部历史的分布。
     </div>
   )
 }
@@ -197,10 +216,10 @@ export function Analytics() {
     <>
       <section className="section">
         <div className="section__head">
-          <h2 className="section__title">System activity</h2>
+          <h2 className="section__title">系统活动</h2>
           <div className="row">
             <label className="cell-muted" htmlFor="analytics-window">
-              Window
+              时间窗口
             </label>
             <select
               id="analytics-window"
@@ -211,19 +230,19 @@ export function Analytics() {
             >
               {WINDOWS.map((value) => (
                 <option key={value} value={value}>
-                  Last {value} days
+                  最近 {value} 天
                 </option>
               ))}
             </select>
             <button type="button" className="btn btn--sm" onClick={reload} disabled={loading}>
-              Refresh
+              刷新
             </button>
           </div>
         </div>
 
-        {loading && !data ? <LoadingState message="Loading analytics…" /> : null}
+        {loading && !data ? <LoadingState message="正在加载数据分析…" /> : null}
         {error ? (
-          <ErrorState error={error} what="Failed to load analytics." onRetry={reload} />
+          <ErrorState error={error} what="加载数据分析失败。" onRetry={reload} />
         ) : null}
       </section>
 
@@ -233,81 +252,77 @@ export function Analytics() {
 
           <section className="section">
             <div className="section__head">
-              <h2 className="section__title">Totals</h2>
+              <h2 className="section__title">总量</h2>
             </div>
             <div className="kpi-grid">
               <div className="kpi">
-                <div className="kpi__label">Runs in window</div>
+                <div className="kpi__label">窗口内 Run 数</div>
                 <div className="kpi__value">{data.run_volume}</div>
-                <div className="kpi__sub">created in the last {data.window_days} days</div>
+                <div className="kpi__sub">最近 {data.window_days} 天内创建的</div>
               </div>
               <div className="kpi">
-                <div className="kpi__label">Review decisions</div>
+                <div className="kpi__label">审核决定数</div>
                 <div className="kpi__value">{decisionTotal}</div>
-                <div className="kpi__sub">all time · one row per human decision</div>
+                <div className="kpi__sub">全库 · 一次人工决定一行</div>
               </div>
               <div className="kpi">
-                <div className="kpi__label">Publish records</div>
+                <div className="kpi__label">发布记录数</div>
                 <div className="kpi__value">{outcomeTotal}</div>
-                <div className="kpi__sub">all time · at most one row per run</div>
+                <div className="kpi__sub">全库 · 每个 Run 最多一行</div>
               </div>
             </div>
           </section>
 
           <section className="section">
             <div className="section__head">
-              <h2 className="section__title">Daily activity</h2>
-              <span className="section__hint">
-                last {data.window_days} days · UTC calendar days
-              </span>
+              <h2 className="section__title">每日活动</h2>
+              <span className="section__hint">最近 {data.window_days} 天 · 按 UTC 自然日</span>
             </div>
             <div className="chart-grid">
               <div className="card">
                 <div className="card__body">
-                  <div className="section__title">Runs created</div>
+                  <div className="section__title">每日运行量</div>
                   <TrendChart
                     points={data.daily_runs}
-                    emptyHint="No Runs were created in this window. Widen the window to look further back."
+                    emptyHint="该窗口内没有创建过 Run。可以把窗口放宽，看得更远一些。"
                   />
                 </div>
               </div>
               <div className="card">
                 <div className="card__body">
-                  <div className="section__title">Publish attempts</div>
+                  <div className="section__title">每日发布量</div>
                   <TrendChart
                     points={data.daily_published}
-                    emptyHint="No publish attempt was recorded in this window. This counts attempts, not successes — a failed or unresolved attempt still appears here."
+                    emptyHint="该窗口内没有发布尝试记录。这里统计的是尝试次数，不是成功次数 —— 失败或结果未定的尝试同样会出现在图上。"
                   />
                 </div>
               </div>
             </div>
             <p className="cell-muted">
-              Attempts are bucketed by <code>published_post.created_at</code>, the moment the attempt
-              started — not by <code>published_at</code>, which only the successful rows have. Using
-              the latter would make the chart look more optimistic than reality.
+              尝试按 <code>published_post.created_at</code> 归入某一天，也就是尝试开始的时刻 ——
+              不是按 <code>published_at</code>，那个只有成功的行才有。用后者会让这张图比现实好看。
             </p>
           </section>
 
           <section className="section">
             <div className="section__head">
-              <h2 className="section__title">Review decisions</h2>
-              <span className="section__hint">all time</span>
+              <h2 className="section__title">审核决策分布</h2>
+              <span className="section__hint">全库</span>
             </div>
             <div className="card">
               <div className="card__body">
                 <Bars
                   rows={decisions}
                   empty={{
-                    title: 'No review decision has been recorded',
-                    hint: 'A row appears here once a human approves, edits or rejects a Run.',
+                    title: '还没有任何审核决定',
+                    hint: '人工批准、编辑或拒绝一个 Run 之后，这里会出现一行记录。',
                   }}
                 />
                 {decisionTotal > 0 ? (
                   <p className="cell-muted" style={{ marginBottom: 0 }}>
-                    Decide once per Run. <strong>other</strong> collects anything outside the three
-                    known decisions — in practice a review row that never progressed past{' '}
-                    <code>pending</code>. It is shown rather than dropped so the four numbers always
-                    add up to the total.
+                    每个 Run 只决定一次。<strong>其他</strong>收的是三种已知决定之外的记录 ——
+                    实际上就是那些一直停在 <code>pending</code> 的审核行。把它显示出来而不是丢掉，
+                    是为了四个数字加起来始终等于总数。
                   </p>
                 ) : null}
               </div>
@@ -316,41 +331,43 @@ export function Analytics() {
 
           <section className="section">
             <div className="section__head">
-              <h2 className="section__title">Publish outcomes</h2>
-              <span className="section__hint">all time</span>
+              <h2 className="section__title">发布结果分布</h2>
+              <span className="section__hint">全库</span>
             </div>
             <div className="card">
               <div className="card__body">
                 <Bars
                   rows={outcomes}
                   empty={{
-                    title: 'No publish attempt has been recorded',
-                    hint: 'Nothing has been sent to X yet, or every attempt predates this console.',
+                    title: '还没有任何发布尝试',
+                    hint: '要么还没有内容发到 X，要么所有尝试都发生在这个控制台上线之前。',
                   }}
                 />
-                {/* 口径说明逐字来自后端：它讲的是这份数据本身怎么算出来的，
-                    不是前端能替它概括的东西。 */}
+                {/* 口径说明对应后端下发的 `publish_outcomes.note`（英文常量，被
+                    tests/test_admin_api.py 断言着）。这里按同一份语义用中文重写，
+                    不是逐字翻译：它讲的是这份数据本身怎么算出来的。 */}
                 <p className="cell-muted" style={{ marginBottom: 0 }}>
-                  {data.publish_outcomes.note}
+                  计数按 <strong>Run</strong> 计（每个 Run 记它的当前结局），不是按尝试次数：
+                  <code>published_post</code> 每个 Run 最多一行、重试会复用同一行，所以被覆盖掉的
+                  那次失败不会出现在任何计数里。
                 </p>
               </div>
             </div>
             {unresolved > 0 ? (
               <div className="notice notice--warn" style={{ marginTop: 12 }}>
                 <div className="notice__title">
-                  {unresolved} publish attempt{unresolved === 1 ? '' : 's'} with no known outcome
+                  {unresolved} 次发布尝试的结果未定
                 </div>
-                These are <code>publish_unknown</code> or <code>publishing</code>. A post may or may
-                not exist on X, so they are not counted as failures and not counted as successes.
-                They need a human decision on the Published page.
+                它们的发布状态是 <code>publish_unknown</code> 或 <code>publishing</code>。X 上可能
+                有这条帖子，也可能没有，所以它们既不算失败也不算成功。需要人到发布记录页裁决。
               </div>
             ) : null}
           </section>
 
           <section className="section">
             <div className="section__head">
-              <h2 className="section__title">Average Run duration</h2>
-              <span className="section__hint">all time</span>
+              <h2 className="section__title">平均运行时长</h2>
+              <span className="section__hint">全库</span>
             </div>
             <div className="card">
               <div className="card__body">
@@ -361,8 +378,8 @@ export function Analytics() {
 
           <section className="section">
             <div className="section__head">
-              <h2 className="section__title">Most used topics</h2>
-              <span className="section__hint">all time · top 10 by Run count</span>
+              <h2 className="section__title">主题分布</h2>
+              <span className="section__hint">全库 · 按 Run 数取前 10</span>
             </div>
             <div className="card">
               <div className="card__body">
@@ -374,14 +391,13 @@ export function Analytics() {
                     tone: 'grey',
                   }))}
                   empty={{
-                    title: 'No Runs recorded',
-                    hint: 'There is nothing to rank until at least one Run exists.',
+                    title: '没有可排行的 Run',
+                    hint: '至少要有一个 Run，才有东西可以排。',
                   }}
                 />
                 {data.topic_distribution.length >= 10 ? (
                   <p className="cell-muted" style={{ marginBottom: 0 }}>
-                    Capped at the ten most used topics, so these counts do not add up to the total
-                    number of Runs.
+                    只取使用最多的十个主题，所以这些计数加起来不等于 Run 总数。
                   </p>
                 ) : null}
               </div>
@@ -390,19 +406,18 @@ export function Analytics() {
 
           <section className="section">
             <div className="section__head">
-              <h2 className="section__title">X content performance</h2>
+              <h2 className="section__title">X 内容指标</h2>
             </div>
             <div className="card">
               <div className="card__body">
                 <NotAvailable
                   what={
                     <>
-                      Impressions, likes, replies, reposts, bookmarks and engagement rate are{' '}
-                      <strong>not shown anywhere in this console</strong>. They are not unavailable
-                      because a query failed — the data was never collected.
+                      <strong>暂未接入 X 内容指标同步</strong>
+                      ：曝光、点赞、回复、转发、收藏和互动率在本控制台里
+                      <strong>一律不显示</strong>。它们不是查询失败才拿不到 —— 是这些数据从来没有被采集过。
                     </>
                   }
-                  reason={data.x_content_performance.reason}
                 />
               </div>
             </div>

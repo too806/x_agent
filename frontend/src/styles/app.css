@@ -531,6 +531,14 @@ h4 {
   font-weight: 600;
 }
 
+/* 表单就地校验提示。挂在字段下方，而不是弹 toast：提示要一直在，直到人真的改了它。 */
+.field__error {
+  margin-top: var(--space-1);
+  color: var(--danger);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
 .filter-bar {
   display: flex;
   flex-wrap: wrap;

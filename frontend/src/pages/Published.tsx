@@ -4,13 +4,14 @@ import { useSearchParams } from 'react-router-dom'
 import { api, xPostUrl } from '../api/client'
 import { Pagination } from '../components/Pagination'
 import { PublishControl, ResolveControl } from '../components/PublishAction'
+import { RunDetailDrawer } from '../components/RunDetailDrawer'
 import { EmptyState, ErrorState, LoadingState } from '../components/States'
 import { StatusBadge } from '../components/StatusBadge'
 import { useAsync } from '../hooks/useAsync'
 import { useConsole } from '../hooks/useConsole'
 import { usePageClamp } from '../hooks/usePageClamp'
 import { PUBLISH_STATUSES, isUnresolved } from '../types/api'
-import { EMPTY, dateTime } from '../utils/format'
+import { EMPTY, dateTime, publishStatusLabel } from '../utils/format'
 import type { PublishedRow } from '../types/api'
 
 const UNRESOLVED_FILTER = '__unresolved__'
@@ -33,9 +34,11 @@ const UNRESOLVED_FILTER = '__unresolved__'
 function PublishRow({
   row,
   onSettled,
+  onOpenRun,
 }: {
   row: PublishedRow
   onSettled: () => void
+  onOpenRun: (runId: string) => void
 }) {
   const [expanded, setExpanded] = useState(false)
 
@@ -51,27 +54,17 @@ function PublishRow({
             style={{ marginTop: 4 }}
             onClick={() => setExpanded((value) => !value)}
           >
-            {expanded ? 'Show less' : 'Show more'}
+            {expanded ? '收起' : '展开全文'}
           </button>
         </td>
         <td>
           <StatusBadge status={row.status} kind="publish" />
         </td>
         <td className="cell-muted cell-nowrap">
-          {row.x_post_id ? (
-            <a
-              href={xPostUrl(row.x_post_id)}
-              target="_blank"
-              rel="noreferrer noopener"
-              className="mono"
-            >
-              {row.x_post_id}
-            </a>
-          ) : (
-            EMPTY
-          )}
+          <span className="mono">{row.x_post_id ?? EMPTY}</span>
         </td>
         <td className="cell-muted cell-nowrap">{dateTime(row.published_at)}</td>
+        <td className="cell-muted cell-nowrap">{dateTime(row.created_at)}</td>
         <td className="cell-muted cell-nowrap">{dateTime(row.updated_at)}</td>
         <td className="cell-muted clamp-2">{row.last_error ?? EMPTY}</td>
         <td className="cell-nowrap">
@@ -79,18 +72,35 @@ function PublishRow({
                 failed      → 重发（明确的失败，重发是安全的）
                 unresolved  → 裁决（不知道发没发出去，只能人去 X 上看）
                 其他        → 没有操作。published 是终态，没有"撤销"。 */}
-          {row.status === 'failed' ? (
-            <PublishControl runId={row.run_id} body={row.body} isRetry onSettled={onSettled} />
-          ) : isUnresolved(row.status) ? (
-            <span className="cell-muted">needs a decision below</span>
-          ) : (
-            <span className="cell-muted">final</span>
-          )}
+          <div className="row" style={{ gap: 6 }}>
+            <button type="button" className="btn btn--sm" onClick={() => onOpenRun(row.run_id)}>
+              查看运行
+            </button>
+            {row.x_post_id ? (
+              <a
+                className="btn btn--sm"
+                href={xPostUrl(row.x_post_id)}
+                target="_blank"
+                rel="noreferrer noopener"
+              >
+                在 X 中打开
+              </a>
+            ) : null}
+          </div>
+          <div style={{ marginTop: 6 }}>
+            {row.status === 'failed' ? (
+              <PublishControl runId={row.run_id} body={row.body} isRetry onSettled={onSettled} />
+            ) : isUnresolved(row.status) ? (
+              <span className="cell-muted">需要在下方裁决</span>
+            ) : (
+              <span className="cell-muted">终态</span>
+            )}
+          </div>
         </td>
       </tr>
       {isUnresolved(row.status) ? (
         <tr>
-          <td colSpan={8} style={{ background: 'var(--surface-sunken)' }}>
+          <td colSpan={9} style={{ background: 'var(--surface-sunken)' }}>
             <ResolveControl
               runId={row.run_id}
               publish={{
@@ -116,9 +126,10 @@ export function Published() {
   const [page, setPage] = useState(1)
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
+  const [openRunId, setOpenRunId] = useState<string | null>(null)
   const { refresh } = useConsole()
 
-  // 筛选状态放在 URL 里：Overview 上"View all N →"能直接落到待裁决视图，
+  // 筛选状态放在 URL 里：Overview 上"查看全部 N 条 →"能直接落到待裁决视图，
   // 刷新页面也不会把筛选条件丢掉。
   const statusFilter = searchParams.get('status') ?? ''
   const unresolvedOnly = statusFilter === UNRESOLVED_FILTER
@@ -160,16 +171,16 @@ export function Published() {
   return (
     <>
       <div className="notice notice--info" style={{ marginBottom: 20 }}>
-        This is an <strong>audit record</strong>, not a live mirror of X. Deleting a post on X will
-        not change anything here — on purpose. Publish status is the authoritative field; a run&apos;s
-        own status is only a mirrored view of it.
+        这里是<strong>审计记录</strong>，不是 X 的实时镜像。在 X 上删掉一条帖子，这里不会有任何变化
+        —— 这是刻意的。发布状态才是权威字段，Run 自己的状态只是它的镜像视图。
+        因此本页<strong>没有删除功能</strong>。
       </div>
 
       <section className="section">
         <div className="section__head">
-          <h2 className="section__title">Publish records</h2>
+          <h2 className="section__title">发布记录</h2>
           <button type="button" className="btn btn--sm" onClick={reload} disabled={loading}>
-            Refresh
+            刷新
           </button>
         </div>
 
@@ -178,7 +189,7 @@ export function Published() {
             <div className="filter-bar">
               <div className="field">
                 <label className="field__label" htmlFor="publish-status">
-                  Status
+                  发布状态
                 </label>
                 <select
                   id="publish-status"
@@ -186,11 +197,13 @@ export function Published() {
                   value={statusFilter}
                   onChange={(event) => setStatus(event.target.value)}
                 >
-                  <option value="">Any status</option>
-                  <option value={UNRESOLVED_FILTER}>Needs a decision (unresolved)</option>
+                  <option value="">全部</option>
+                  <option value={UNRESOLVED_FILTER}>待裁决（发布结果未定）</option>
+                  {/* value 仍然是后端枚举，只有显示文案走中文映射——
+                      筛选发出去的是 status=publish_unknown，不是 status=发布结果未知。 */}
                   {PUBLISH_STATUSES.map((value) => (
                     <option key={value} value={value}>
-                      {value}
+                      {publishStatusLabel(value)}
                     </option>
                   ))}
                 </select>
@@ -198,7 +211,7 @@ export function Published() {
 
               <div className="field">
                 <label className="field__label" htmlFor="publish-from">
-                  From
+                  发布时间从
                 </label>
                 <input
                   id="publish-from"
@@ -211,7 +224,7 @@ export function Published() {
 
               <div className="field">
                 <label className="field__label" htmlFor="publish-to">
-                  To (inclusive)
+                  发布时间到（含当天）
                 </label>
                 <input
                   id="publish-to"
@@ -232,7 +245,7 @@ export function Published() {
                   setStatus('')
                 }}
               >
-                Clear
+                清除筛选
               </button>
             </div>
           </div>
@@ -240,9 +253,9 @@ export function Published() {
       </section>
 
       <section className="section">
-        {loading && !data ? <LoadingState message="Loading publish records…" /> : null}
+        {loading && !data ? <LoadingState message="正在加载发布记录…" /> : null}
         {error ? (
-          <ErrorState error={error} what="Failed to load publish records." onRetry={reload} />
+          <ErrorState error={error} what="加载发布记录失败。" onRetry={reload} />
         ) : null}
 
         {data ? (
@@ -253,17 +266,17 @@ export function Published() {
               <EmptyState
                 title={
                   unresolvedOnly
-                    ? 'Nothing needs a decision'
+                    ? '没有需要裁决的发布'
                     : filtered
-                      ? 'No publish records match these filters'
-                      : 'No publish records'
+                      ? '没有符合筛选条件的发布记录'
+                      : '还没有发布记录'
                 }
                 hint={
                   unresolvedOnly
-                    ? 'Every publish attempt has a definite outcome. This is the state you want.'
+                    ? '每一次发布尝试都有确定结果。这正是你想要的状态。'
                     : filtered
-                      ? 'Try clearing a filter or widening the date range.'
-                      : 'Runs appear here once a publish has been attempted.'
+                      ? '可以清除某个筛选条件，或把日期范围放宽一些。'
+                      : 'Run 尝试发布之后，记录会出现在这里。'
                 }
               />
             ) : (
@@ -272,29 +285,44 @@ export function Published() {
                   <table className="table">
                     <thead>
                       <tr>
-                        <th>Topic</th>
-                        <th>Body actually sent</th>
-                        <th>Publish</th>
-                        <th>X post</th>
-                        <th>Published at</th>
-                        <th>Updated</th>
-                        <th>Last error</th>
+                        <th>主题</th>
+                        <th>发布内容</th>
+                        <th>发布状态</th>
+                        <th>X 帖子 ID</th>
+                        <th>发布时间</th>
+                        <th>创建时间</th>
+                        <th>更新时间</th>
+                        <th>最后错误</th>
                         <th />
                       </tr>
                     </thead>
                     <tbody>
                       {data.items.map((row) => (
-                        <PublishRow key={row.publish_id} row={row} onSettled={afterSettle} />
+                        <PublishRow
+                          key={row.publish_id}
+                          row={row}
+                          onSettled={afterSettle}
+                          onOpenRun={setOpenRunId}
+                        />
                       ))}
                     </tbody>
                   </table>
                 </div>
-                <Pagination page={data.page} onChange={setPage} itemLabel="records" />
+                <Pagination page={data.page} onChange={setPage} />
               </>
             )}
           </div>
         ) : null}
       </section>
+
+      {openRunId ? (
+        // 抽屉里重发 / 裁决成功后，这一行的状态就过期了，列表要跟着重取。
+        <RunDetailDrawer
+          runId={openRunId}
+          onClose={() => setOpenRunId(null)}
+          onSettled={afterSettle}
+        />
+      ) : null}
     </>
   )
 }

@@ -5,7 +5,7 @@ type Kind = 'run' | 'review' | 'publish'
 interface Props {
   status: string | null | undefined
   kind: Kind
-  /** 覆盖显示文案，用于队列里的顺带展示（例如把 publish_unknown 标成 "UNRESOLVED"）。 */
+  /** 覆盖显示文案。当前没有任何调用方使用（保留为扩展点，见下方说明）。 */
   label?: string
 }
 

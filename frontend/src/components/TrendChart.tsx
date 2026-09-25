@@ -32,7 +32,7 @@ export function TrendChart({ points, emptyHint }: Props) {
   const total = points.reduce((sum, point) => sum + point.count, 0)
 
   if (points.length === 0 || total === 0) {
-    return <EmptyState title="No activity in this window" hint={emptyHint} />
+    return <EmptyState title="本窗口内无活动" hint={emptyHint} />
   }
 
   return (
@@ -53,7 +53,7 @@ export function TrendChart({ points, emptyHint }: Props) {
           />
           <Tooltip
             labelFormatter={(label) => shortDate(String(label))}
-            formatter={(value) => [String(value), 'count']}
+            formatter={(value) => [String(value), '次数']}
           />
           <Area
             type="monotone"

@@ -1,6 +1,8 @@
 import { useEffect, type ReactNode } from 'react'
 
 import { ApiError } from '../api/client'
+import { ErrorDetail } from './States'
+import { httpStatusLabel } from '../utils/format'
 
 interface Props {
   title: string
@@ -52,16 +54,14 @@ export function ConfirmDialog({
           {children}
           {error ? (
             <div className="notice notice--danger" style={{ marginTop: 12 }}>
-              <div className="notice__title">
-                {error.status === 0 ? 'Network error' : `HTTP ${error.status}`}
-              </div>
-              <div>{error.message}</div>
+              <div className="notice__title">{httpStatusLabel(error.status)}</div>
+              <ErrorDetail error={error} />
             </div>
           ) : null}
         </div>
         <div className="modal__foot">
           <button type="button" className="btn" onClick={onCancel} disabled={busy}>
-            Cancel
+            取消
           </button>
           <button
             type="button"
@@ -69,7 +69,7 @@ export function ConfirmDialog({
             onClick={onConfirm}
             disabled={busy || confirmDisabled}
           >
-            {busy ? 'Working…' : confirmLabel}
+            {busy ? '处理中…' : confirmLabel}
           </button>
         </div>
       </div>
