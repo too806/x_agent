@@ -19,6 +19,13 @@ class Settings(BaseSettings):
     # 静态资源路径（相对项目根目录）
     persona_path: str = "config/persona.yaml"
     prompt_path: str = "prompts/generate.txt"
+    # Phase 5A：Agent 的硬预算（max_steps / max_research_calls / ...）。
+    # 与 persona 同样是配置而非代码常量：调预算不该改代码。
+    agent_budget_path: str = "config/agent.yaml"
+    # Agent 各步 prompt 所在目录（planner / discover / evidence / angles / ...）。
+    # 用目录而不是逐项列路径：每加一个 Tool 就要来 settings 里补一行，漏了会在
+    # 运行到那一步时才炸。
+    agent_prompt_dir: str = "prompts/agent"
 
     # LLM（OpenAI 兼容接口，base_url/model/api_key 均可经 .env 覆盖）
     llm_api_key: str = ""

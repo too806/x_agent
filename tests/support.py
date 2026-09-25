@@ -15,7 +15,7 @@ from fakes import FakeLLMService, FakeXApiClient, draft_json
 ADMIN_SYNC = "postgresql+psycopg://xagent:xagent@localhost:5432/postgres"
 TEST_URL = "postgresql+psycopg://xagent:xagent@localhost:5432/xagent_test"
 CHECKPOINT_URL = to_libpq_url(TEST_URL)
-_ALL_TABLES = "account, agent_run, research_item, draft, review, published_post"
+_ALL_TABLES = "account, agent_run, research_item, draft, review, published_post, agent_decision"
 
 PERSONA = Persona(
     name="default",

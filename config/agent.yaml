@@ -1,0 +1,28 @@
+# Phase 5A Agent Brain 的硬预算。
+#
+# 这里的每个数字都是**上限**，不是目标：正常情况下 Planner 会在远未用满时
+# 自己选 finish。它们的作用是保证最坏情况下 Agent 也会停下来。
+#
+# 由 app/agent/budget.py 强制，纯 Python 判定，不依赖 LLM 自觉。
+
+# 一次运行最多允许多少次 Planner 决策。这是最后一道防线：
+# 其余预算都用尽时，这一个仍然保证运行会结束。
+max_steps: 12
+
+# discover_topics / research_topic / deepen_research 三者的**总**调用上限
+# （共用同一个计数）。research 是最贵的一步（真实 X 调用），所以卡的比别的紧。
+max_research_calls: 4
+
+# 候选池的大小上限（不是"轮次上限"）。
+# 一轮 generate_candidates 产出 candidates_per_round 条即填满；之后只能 revise
+# 或 finish。这样这个参数是真正会触发的预算，而不是一个永远够用的摆设。
+# revise 是**替换**池中的候选，不新增，所以池子大小恒 <= max_candidates。
+max_candidates: 3
+
+# 改稿次数上限。超过之后即使 Critic 仍说 revise 也必须停，
+# 交给人工审核——这是"不追求最聪明，只追求有边界"的落点。
+max_revisions: 2
+
+# Writer 一轮产出几条候选。三条必须在**写法定位**上不同
+# （直接观点 / 信息密集 / 反共识），否则只是换三次措辞。
+candidates_per_round: 3

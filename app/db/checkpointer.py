@@ -15,9 +15,30 @@ from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
 
-# State 里存的是 ResearchResult（pydantic 模型）。msgpack 默认只反序列化已注册的
-# 类型，未登记的类型现在只是告警、未来版本会直接拒绝反序列化，所以显式登记。
-SERDE = JsonPlusSerializer(allowed_msgpack_modules=[("app.schemas", "ResearchResult")])
+# State 里存的是 pydantic 模型。msgpack 默认只反序列化已注册的类型，未登记的类型
+# 现在只是告警、未来版本会直接拒绝反序列化，所以显式登记。
+#
+# **这个清单必须覆盖 RunState 里的每一个类型。** 漏掉一个的后果不是"少个字段"，
+# 而是恢复那个 Run 时整个 state 反序列化失败——而且只在真正走到那一步的运行上炸，
+# 单元测试很可能碰不到。所以新增 Agent state 字段时，先来这里补名字。
+SERDE = JsonPlusSerializer(
+    allowed_msgpack_modules=[
+        ("app.schemas", "ResearchResult"),
+        # Phase 5A Agent Brain：见 app/agent/schemas.py
+        ("app.agent.schemas", "AgentAction"),
+        ("app.agent.schemas", "AgentDecision"),
+        ("app.agent.schemas", "TopicCandidate"),
+        ("app.agent.schemas", "TopicCandidateList"),
+        ("app.agent.schemas", "EvidenceFact"),
+        ("app.agent.schemas", "EvidencePack"),
+        ("app.agent.schemas", "Angle"),
+        ("app.agent.schemas", "AngleList"),
+        ("app.agent.schemas", "Candidate"),
+        ("app.agent.schemas", "CandidateList"),
+        ("app.agent.schemas", "CandidateDraft"),
+        ("app.agent.schemas", "CriticResult"),
+    ]
+)
 
 
 def to_libpq_url(database_url: str) -> str:

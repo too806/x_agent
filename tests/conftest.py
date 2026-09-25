@@ -81,6 +81,11 @@ def _prepare_test_db():
         # 补列后旧行 status 会是 NULL，把 NOT NULL 也补上（新库由 create_all 保证）
         conn.execute(text("UPDATE published_post SET status = 'published' WHERE status IS NULL"))
         conn.execute(text("ALTER TABLE published_post ALTER COLUMN status SET NOT NULL"))
+        # Phase 5A：agent_run.goal 与"topic 放宽为可空"。create_all 对已存在的表
+        # 既不加列也不改约束，所以必须显式补——否则 Agent 链路一跑就报
+        # UndefinedColumn: goal。
+        conn.execute(text("ALTER TABLE agent_run ADD COLUMN IF NOT EXISTS goal TEXT"))
+        conn.execute(text("ALTER TABLE agent_run ALTER COLUMN topic DROP NOT NULL"))
     sync_eng.dispose()
     yield
 

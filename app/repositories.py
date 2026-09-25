@@ -6,7 +6,7 @@ from sqlalchemy import case, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import AgentRun, Draft, PublishedPost, ResearchItem, Review
+from app.models import AgentDecision, AgentRun, Draft, PublishedPost, ResearchItem, Review
 from app.models.published_post import (
     STATUS_FAILED,
     STATUS_PUBLISHED,
@@ -41,8 +41,24 @@ def _uuid(value: str) -> uuid.UUID:
     return value if isinstance(value, uuid.UUID) else uuid.UUID(value)
 
 
-async def create_agent_run(session: AsyncSession, topic: str) -> AgentRun:
-    run = AgentRun(topic=topic, status="running", started_at=_now())
+async def create_agent_run(
+    session: AsyncSession,
+    topic: str | None,
+    *,
+    goal: str | None = None,
+) -> AgentRun:
+    """新建一个 Run。
+
+    `topic` 与 `goal` 二选一：
+    - 走既有 topic 链路的调用方只传 topic（行为与 Phase 1–4a 逐字相同）；
+    - 走 Phase 5A Agent 链路的调用方只传 goal，topic 留空等 Agent 自己发现。
+
+    两条都允许为空是刻意的：Run 行必须能先建出来，Agent 才知道自己有 run_id
+    可用作 thread_id。topic 为空的那段时间是真实存在的中间态，不是错误状态。
+    """
+    if (topic is None) == (goal is None):
+        raise ValueError("exactly one of topic / goal must be provided")
+    run = AgentRun(topic=topic, goal=goal, status="running", started_at=_now())
     session.add(run)
     await session.commit()
     await session.refresh(run)
@@ -517,6 +533,101 @@ async def create_review(
     await session.commit()
     await session.refresh(review)
     return str(review.id)
+
+
+# ---------------------------------------------------------------------------
+# Phase 5A：Agent Decision Trace
+#
+# 决策与结果**分两次写**（create_decision 记"打算做什么"，record_decision_result
+# 记"实际做成了什么"）。这不是为了省事，而是为了崩溃时的可读性：Agent 在某个
+# 动作执行到一半挂掉时，库里必须已经留下"它当时想干什么、为什么"。
+# 如果等动作做完再一次性写，挂掉的那一步在 trace 里就完全消失了——
+# 而"卡在哪一步"恰恰是排查 Agent 最需要的信息。
+# ---------------------------------------------------------------------------
+
+
+async def create_decision(
+    session: AsyncSession,
+    *,
+    run_id: str,
+    step: int,
+    action: str,
+    reason: str,
+    target: str | None,
+    input_summary: str,
+) -> str:
+    """记录一次 Planner 决策（结果留空，等执行完回填）。
+
+    与 `create_review` 同样的"先查后写"：唯一约束 (agent_run_id, step) 是第二道
+    防线，这里先复用同一步已有的行，避免一次重放把 UNIQUE 撞成 500。
+    """
+    run_uuid = _uuid(run_id)
+    existing = (
+        (
+            await session.execute(
+                select(AgentDecision).where(
+                    AgentDecision.agent_run_id == run_uuid, AgentDecision.step == step
+                )
+            )
+        )
+        .scalars()
+        .first()
+    )
+    row = existing if existing is not None else AgentDecision(agent_run_id=run_uuid, step=step)
+    row.action = action
+    row.reason = reason
+    row.target = target
+    row.input_summary = input_summary
+    if existing is None:
+        row.result_summary = ""
+    session.add(row)
+    await session.commit()
+    return str(row.id)
+
+
+async def record_decision_result(
+    session: AsyncSession, *, run_id: str, step: int, result_summary: str
+) -> None:
+    """回填某一步的执行结果。
+
+    条件 UPDATE 限定 (run_id, step)：只改属于这一步的那一行，不会覆盖别的步骤，
+    也就在并发或重放时天然安全。行不存在时静默无事——trace 缺失不该让一次
+    已经成功的动作变成失败。
+    """
+    await session.execute(
+        update(AgentDecision)
+        .where(AgentDecision.agent_run_id == _uuid(run_id), AgentDecision.step == step)
+        .values(result_summary=result_summary)
+    )
+    await session.commit()
+
+
+async def list_decisions(session: AsyncSession, run_id: str) -> list[AgentDecision]:
+    """某个 Run 的完整决策轨迹，按 step 升序。
+
+    按 step 而不是 created_at 排序：created_at 是写入时刻，重放或补写时可能
+    与逻辑顺序不一致，而 step 是决策本身的序号，它才是时间线的真实顺序。
+    """
+    result = await session.execute(
+        select(AgentDecision)
+        .where(AgentDecision.agent_run_id == _uuid(run_id))
+        .order_by(AgentDecision.step.asc())
+    )
+    return list(result.scalars().all())
+
+
+async def set_run_topic(session: AsyncSession, run_id: str, topic: str) -> None:
+    """把 Agent 选定的主题写回 Run。
+
+    只在 topic 还是空的时候写：一次运行选定主题之后就不再改它，
+    否则运行记录列表里的题目会在运行过程中跳变，而人已经照着旧的那个在看内容了。
+    """
+    await session.execute(
+        update(AgentRun)
+        .where(AgentRun.id == _uuid(run_id), AgentRun.topic.is_(None))
+        .values(topic=topic)
+    )
+    await session.commit()
 
 
 # ---------------------------------------------------------------------------
