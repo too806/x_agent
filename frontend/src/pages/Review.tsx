@@ -3,11 +3,13 @@ import { useEffect, useState } from 'react'
 import { api } from '../api/client'
 import { Pagination } from '../components/Pagination'
 import { ReviewPane } from '../components/ReviewPane'
+import { RunDetailPanel } from '../components/RunDetailDrawer'
 import { EmptyState, ErrorState, LoadingState } from '../components/States'
 import { useAsync } from '../hooks/useAsync'
 import { useConsole } from '../hooks/useConsole'
 import { usePageClamp } from '../hooks/usePageClamp'
 import { EMPTY, relativeTime } from '../utils/format'
+import { nextSelection } from '../utils/queue'
 import type { ReviewQueueItem } from '../types/api'
 
 /**
@@ -19,6 +21,12 @@ import type { ReviewQueueItem } from '../types/api'
  * 队列分页在服务器端。决定提交后这里只做两件事：重新取当前页、把选中项挪到下一条。
  * 刻意**不**在本地把已决定的条目从数组里删掉就完事——那样翻页总数会与实际不符，
  * 而且别处（另一个控制台 / API）的决定就不会反映出来。
+ *
+ * 「挪到下一条」有一条边界：队列里只有这一条时没有下一条可挪。这时**保留当前这条**
+ * 而不是清空选中项（规则见 `utils/queue.ts`）—— 人刚在这里做完决定，最想看的就是决定
+ * 之后的样子：编辑稿存下来了没有、现在什么状态、能不能发布。清空会把这份反馈一起抹掉。
+ * 相应地把右侧换成只读的 `RunDetailPanel`：批准 / 编辑 / 拒绝是给**还在等人工决定**的
+ * Run 用的，对着一条已经决定完的 Run 再显示它们，点下去只会拿到 409。
  */
 
 function QueueStatus({ item }: { item: ReviewQueueItem }) {
@@ -68,6 +76,10 @@ export function Review() {
   const items = queue.data?.items
   const contentMaxLength = queue.data?.content_max_length
 
+  // 选中的这条是否还在待审队列里。决定成功的下一刻它就会离开队列（`queue.reload()`
+  // 之后 items 里就没有它了），右侧随之从"可决定"换成"只读详情"。
+  const selectedInQueue = items?.some((item) => item.run_id === selected) ?? false
+
   // 自动选中第一条：待审队列里通常只有个位数条目，进来就让人多点一次没有意义。
   // 只在"还没有选中项"时生效，所以人手动选过的不会被覆盖。
   useEffect(() => {
@@ -82,13 +94,12 @@ export function Review() {
 
   function handleDecided(action: Decided['action']) {
     const list = items ?? []
-    const index = list.findIndex((item) => item.run_id === selected)
-    const topic = list[index]?.topic ?? null
-    // 下一条：被决定的这条会从队列里消失，所以它后面的那条会顶上来，位置不变。
-    const next = index >= 0 ? (list[index + 1]?.run_id ?? null) : null
+    const topic = list.find((item) => item.run_id === selected)?.topic ?? null
 
     setJustDecided({ topic: topic ?? EMPTY, action })
-    setSelected(next)
+    // 下一条：被决定的这条会从队列里消失，所以它后面的那条会顶上来，位置不变。
+    // 没有下一条时**保留刚决定的这条**，不清空 —— 见文件头与 `utils/queue.ts`。
+    setSelected(nextSelection(list, selected))
     queue.reload()
     // 侧栏的待办计数与这里读的是同一份数据，必须一起更新，否则导航上还挂着刚处理掉的那个数。
     refresh()
@@ -174,14 +185,21 @@ export function Review() {
 
       <div>
         {selected && contentMaxLength !== undefined ? (
-          <ReviewPane
-            // key 让切换 Run 时组件彻底重建：上一条的编辑框、半填的理由、
-            // 上一次的错误都会随之清空，不依赖 effect 里的手工清理。
-            key={selected}
-            runId={selected}
-            contentMaxLength={contentMaxLength}
-            onDecided={handleDecided}
-          />
+          selectedInQueue ? (
+            <ReviewPane
+              // key 让切换 Run 时组件彻底重建：上一条的编辑框、半填的理由、
+              // 上一次的错误都会随之清空，不依赖 effect 里的手工清理。
+              key={selected}
+              runId={selected}
+              contentMaxLength={contentMaxLength}
+              onDecided={handleDecided}
+            />
+          ) : (
+            // 这条已经不在待审队列里了 —— 刚被决定，后面又没有下一条。保留它是为了
+            // 让人看得到自己刚保存的编辑稿和发布入口，所以这里必须是**只读详情**，
+            // 而不是一个还会递上"批准 / 编辑 / 拒绝"的工作台。
+            <RunDetailPanel key={selected} runId={selected} />
+          )
         ) : queue.loading ? (
           <LoadingState message="加载中…" />
         ) : (

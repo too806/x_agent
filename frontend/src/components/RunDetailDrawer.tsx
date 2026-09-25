@@ -121,7 +121,7 @@ function PublishBlock({ publish }: { publish: PublishRecord }) {
   )
 }
 
-function DetailBody({ detail, onSettled }: { detail: AdminRunDetail; onSettled: () => void }) {
+export function DetailBody({ detail, onSettled }: { detail: AdminRunDetail; onSettled: () => void }) {
   const [showAllResearch, setShowAllResearch] = useState(false)
   const { draft, review, publish } = detail
 
@@ -323,6 +323,59 @@ function DetailBody({ detail, onSettled }: { detail: AdminRunDetail; onSettled: 
         发布状态才是权威字段，上面的运行状态只是它的一个镜像视图。
       </div>
     </>
+  )
+}
+
+/**
+ * Run 详情（不带抽屉外壳）。
+ *
+ * 审核工作台在「刚决定的这条 Run 已经离开待审队列、而且后面没有下一条」时需要它。
+ * 这时右侧不能空掉 —— 人刚做的决定、存下来的编辑稿、以及发布入口都在这上面 ——
+ * 也不适合弹一个盖住队列的抽屉。渲染的内容与抽屉里**完全一致**，两边共用同一个
+ * `DetailBody`，所以不会出现"抽屉里看得到、工作台上看不到"的字段。
+ */
+export function RunDetailPanel({
+  runId,
+  onSettled: notifyParent,
+}: {
+  runId: string
+  onSettled?: () => void
+}) {
+  const { data, loading, error, reload } = useAsync(() => api.getRunDetail(runId), [runId])
+  const { refresh } = useConsole()
+
+  function onSettled() {
+    reload()
+    refresh()
+    notifyParent?.()
+  }
+
+  if (loading) return <LoadingState message="正在加载这个 Run…" />
+  if (error) return <ErrorState error={error} what="加载该 Run 失败。" onRetry={reload} />
+  if (!data) return null
+
+  return (
+    <div className="stack">
+      <div className="card">
+        <div className="card__body">
+          <h2 className="drawer__title">{data.topic}</h2>
+          <div className="row" style={{ marginTop: 8 }}>
+            <StatusBadge status={data.run_status} kind="run" />
+            <span className="cell-muted mono" title="Run ID">
+              {data.run_id}
+            </span>
+          </div>
+          <div className="cell-muted" style={{ marginTop: 8 }}>
+            这个 Run 已经决定了，不再出现在左侧待审队列里。下面是它的完整记录。
+          </div>
+        </div>
+      </div>
+      <div className="card">
+        <div className="card__body">
+          <DetailBody detail={data} onSettled={onSettled} />
+        </div>
+      </div>
+    </div>
   )
 }
 
