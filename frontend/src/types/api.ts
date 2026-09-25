@@ -30,6 +30,20 @@ export type RunStatus =
   | 'publish_unknown'
   | 'published'
 
+/** 按 Run 生命周期顺序排列，供筛选下拉使用。 */
+export const RUN_STATUSES: readonly RunStatus[] = [
+  'running',
+  'waiting_for_review',
+  'approved',
+  'edited',
+  'publishing',
+  'publish_unknown',
+  'published',
+  'rejected',
+  'failed',
+  'completed',
+]
+
 /** review.status —— 人工审核决定。 */
 export type ReviewStatus = 'approve' | 'edit' | 'reject' | 'pending'
 

@@ -603,6 +603,12 @@ h4 {
   color: #1e3a8a;
 }
 
+.notice--ok {
+  background: var(--ok-soft);
+  border-color: var(--ok-border);
+  color: var(--ok);
+}
+
 .notice__title {
   font-weight: 700;
 }
@@ -832,6 +838,73 @@ h4 {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
   gap: var(--space-4);
+}
+
+/* Recharts 的 ResponsiveContainer 需要一个有确定高度的父元素，
+   否则会得到 0 高度并把图整张吞掉。 */
+.chart-box {
+  height: 200px;
+  margin-top: var(--space-3);
+}
+
+/* ------------------------------------------------------------------ 详情抽屉 */
+
+.detail-section {
+  margin-top: var(--space-5);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border);
+}
+
+/* 护栏结论：只有"通过 / 未通过 / 读不到"三种，读不到必须看起来
+   和另外两种都不一样——它是缺数据，不是结论。 */
+.guard {
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.guard--pass {
+  color: var(--ok);
+}
+
+.guard--fail {
+  color: var(--danger);
+}
+
+.guard--unknown {
+  color: var(--text-faint);
+  font-weight: 400;
+}
+
+.reason-list {
+  margin: var(--space-2) 0 0;
+  padding-left: 18px;
+}
+
+.research-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.research-item {
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.research-item .body-block {
+  margin: var(--space-2) 0;
+}
+
+/* Runs 表里的"这一行有 error"标记。只给一个点，具体内容在 title 里，
+   表格里铺开错误正文会把行高撑垮。 */
+.err-dot {
+  color: var(--danger);
+  cursor: help;
 }
 
 /* ------------------------------------------------------------------ 工作台 */
