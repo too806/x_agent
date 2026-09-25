@@ -18,7 +18,10 @@ class Review(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     draft_id: Mapped[uuid.UUID] = mapped_column(
         Uuid, ForeignKey("draft.id", ondelete="CASCADE"), nullable=False
     )
-    # 人工审核决定：pending（待审）→ approved / edited / rejected
+    # 人工审核决定：pending（待审）→ approve / edit / reject
+    # 注意这里存的是**动作**（approve / edit / reject），不是 Run 的状态。
+    # 映射关系见 app/schemas.py 的 REVIEW_ACTION_STATUS：
+    # approve → approved、edit → edited、reject → rejected。
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
     # 审核时刻的正文快照；原 draft 行不被覆盖，编辑稿只存在这里与 Graph state
     original_content: Mapped[str | None] = mapped_column(Text, nullable=True)
