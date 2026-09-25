@@ -103,13 +103,21 @@ def create_admin_router(runtime_dep) -> APIRouter:
         page: int = Query(1, ge=1),
         page_size: int = Query(PAGE_SIZE_DEFAULT, ge=1, le=PAGE_SIZE_MAX),
         service: AdminService = Depends(get_admin_service),
+        runtime=Depends(runtime_dep),
     ) -> ReviewQueuePage:
         """待人工审核的队列（`waiting_for_review`），最老的排最前。
 
         只返回"待办"本身。审核**决定**要提交请调用既有的
         `POST /api/runs/{run_id}/review` —— 控制台不实现第二套审核入口。
+
+        `content_max_length` 在这里补上：审核队列本身不关心它，但审核工作台要用它
+        渲染字数计数，而它是 persona 配置、不属于 AdminService 的查询职责。
         """
-        return await service.review_queue(page=page, page_size=page_size)
+        return await service.review_queue(
+            page=page,
+            page_size=page_size,
+            content_max_length=runtime.persona.max_length,
+        )
 
     @router.get("/published", response_model=PublishedListPage)
     async def list_published(

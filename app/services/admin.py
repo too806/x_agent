@@ -425,14 +425,22 @@ class AdminService:
 
     # ---------- Review 队列 ----------
 
-    async def review_queue(self, *, page: int, page_size: int) -> ReviewQueuePage:
+    async def review_queue(
+        self, *, page: int, page_size: int, content_max_length: int
+    ) -> ReviewQueuePage:
+        """`content_max_length` 由**调用方**（HTTP 层从已加载的 runtime.persona 取）
+        传进来，而不是在这里现读配置：本服务只碰数据库，配置不归它管，每次请求
+        重读一遍 YAML 也没有道理。字段本身是必填的——没有一个"未设置"的合法状态。
+        """
         async with self._session_factory() as session:
             total = await count_review_queue(session)
             runs = await list_review_queue(
                 session, limit=page_size, offset=(page - 1) * page_size
             )
         return ReviewQueuePage(
-            items=await self._queue_items(runs), page=_page(page, page_size, total)
+            items=await self._queue_items(runs),
+            page=_page(page, page_size, total),
+            content_max_length=content_max_length,
         )
 
     # ---------- Published ----------

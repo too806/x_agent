@@ -54,6 +54,10 @@ async def runtime_with_checkpointer(
                 graph=graph,
                 persona=persona,
             ),
+            # 与 PublishService 用同一个 persona 实例：控制台下发的
+            # content_max_length 必须就是发布前校验会用的那个上限，否则测试里
+            # 两者会各说各话（280 vs config/persona.yaml 的 140）。
+            persona=persona,
         )
 
 

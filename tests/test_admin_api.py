@@ -33,7 +33,7 @@ from app.repositories import (
     note_publish_unknown,
 )
 from fakes import StubGraph
-from support import api_for, runtime_with_checkpointer
+from support import PERSONA, api_for, runtime_with_checkpointer
 
 # ---------------------------------------------------------------------------
 # 脚手架
@@ -41,7 +41,7 @@ from support import api_for, runtime_with_checkpointer
 
 
 @asynccontextmanager
-async def admin_api(session_factory):
+async def admin_api(session_factory, *, persona=PERSONA):
     """把一个只用于控制台测试的 Runtime 注入 FastAPI。
 
     graph 用 `StubGraph()`（空 state）而不是真实 checkpointer：这类测试是**播种式**
@@ -52,11 +52,15 @@ async def admin_api(session_factory):
 
     publish_service 传 None：Admin API 是只读的，任何路径都不该碰到它。真碰到了
     会直接 AttributeError 炸掉测试 —— 这本身就是"控制台没有偷偷写库"的哨兵。
+
+    persona 显式传入而不是走 Runtime 的默认值：默认值会去读 config/persona.yaml，
+    那样测试就会跟着配置文件改动而漂移。
     """
     runtime = Runtime(
         graph=StubGraph(),
         session_factory=session_factory,
         publish_service=None,
+        persona=persona,
     )
     async with api_for(runtime) as api:
         yield api
@@ -352,10 +356,22 @@ async def test_run_detail_reads_real_research_draft_and_checkpoint(session_facto
 
     # research items 来自 research_item 表，不是 graph state
     assert len(detail["research_items"]) == len(started["research_results"]) == 2
-    assert detail["research_items"][0]["platform_post_id"] == "1001"
-    assert detail["research_items"][0]["likes"] == 42
-    assert detail["research_items"][0]["reposts"] == 5
-    assert detail["research_items"][0]["replies"] == 3
+
+    # 按 platform_post_id 定位，**不按下标**。
+    #
+    # 这里踩过一个坑：repository 的排序是 `ORDER BY created_at, id`，而
+    # created_at 用的是 Postgres 的 now()（事务开始时刻）——同一个 Run 的研究条目
+    # 在同一个事务里写入，时间戳完全相同；tie-break 落到 id 上，而 id 是 uuid4，
+    # 是随机的。于是"第一条"在一半的运行里是 1002。
+    #
+    # 系统从来没有承诺过研究条目的顺序（对使用者而言，一屏材料按什么次序排并不
+    # 重要），所以断言顺序本身就是错的。要看顺序问题，看 4b 的收口记录。
+    by_post_id = {item["platform_post_id"]: item for item in detail["research_items"]}
+    assert set(by_post_id) == {"1001", "1002"}
+    assert by_post_id["1001"]["likes"] == 42
+    assert by_post_id["1001"]["reposts"] == 5
+    assert by_post_id["1001"]["replies"] == 3
+    assert by_post_id["1001"]["author_username"] == "ada_dev"
 
     # draft 来自 draft 表
     assert detail["draft"]["content"] == started["draft_content"]
@@ -436,6 +452,22 @@ async def test_review_queue_is_oldest_first_and_paginated(session_factory):
     async with admin_api(session_factory) as api:
         second = (await api.get("/api/admin/reviews?page=2&page_size=2")).json()
     assert [i["run_id"] for i in second["items"]] == ids[2:]
+
+
+async def test_review_queue_reports_the_runtime_max_length(session_factory):
+    """编辑字数上限必须来自当前 Runtime 的 persona，不能是写死的常量。
+
+    用 137 这个不会出现在任何配置里的值：如果实现里把它写死了（140 或 280），
+    这个测试会立刻失败。它守的是"界面上的 N / 140 和发布前的校验用的是同一个数"
+    这条一致性——两者一旦分叉，计数就会开始骗人。
+    """
+    persona = PERSONA.model_copy(update={"max_length": 137})
+    await _make_run(session_factory, "待审的题")
+
+    async with admin_api(session_factory, persona=persona) as api:
+        page = (await api.get("/api/admin/reviews")).json()
+
+    assert page["content_max_length"] == 137
 
 
 async def test_review_queue_preview_is_truncated(session_factory):

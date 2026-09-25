@@ -2,7 +2,7 @@ import logging
 import traceback
 import uuid
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import JSONResponse
@@ -10,7 +10,7 @@ from langgraph.types import Command
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.agent.graph import GraphDeps, build_graph
-from app.agent.persona import load_persona
+from app.agent.persona import Persona, load_persona
 from app.api.admin import create_admin_router
 from app.config import settings
 from app.db.checkpointer import create_checkpointer
@@ -80,6 +80,12 @@ class Runtime:
     graph: object
     session_factory: async_sessionmaker[AsyncSession]
     publish_service: PublishService
+    # persona 本来就在 build_runtime 里加载并交给 PublishService，这里只是把同一个
+    # 实例也留在 Runtime 上：控制台需要把"编辑稿最多多少字"原样显示出来，而这个
+    # 上限属于配置（config/persona.yaml），不该在界面上再抄一份。
+    #
+    # 默认值是为了让已有的构造点（含测试）无需改动；生产路径显式传入。
+    persona: Persona = field(default_factory=load_persona)
 
 
 def build_runtime(checkpointer) -> Runtime:
@@ -105,6 +111,7 @@ def build_runtime(checkpointer) -> Runtime:
             graph=graph,
             persona=persona,
         ),
+        persona=persona,
     )
 
 

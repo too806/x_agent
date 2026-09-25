@@ -129,6 +129,17 @@ export function publishStatusLabel(status: string | null | undefined): string {
   return PUBLISH_STATUS_LABELS[status as PublishStatus] ?? status.toUpperCase()
 }
 
+/**
+ * 按**码点**计数，而不是 JS 默认的 UTF-16 码元。
+ *
+ * `'😀'.length === 2`，因为它在 JS 里是一对代理项；而后端的 `len('😀') === 1`。
+ * 用 `.length` 去对照后端下发的内容长度上限，含 emoji 的正文会提前几个字就被标红，
+ * 而计数存在的唯一意义就是如实预告后端会不会打回。
+ */
+export function codePointLength(value: string): number {
+  return Array.from(value).length
+}
+
 /** 把可能的 null 压成空串，供搜索框等受控输入使用。 */
 export function orEmpty(value: string | null | undefined): string {
   return value ?? ''

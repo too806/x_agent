@@ -390,6 +390,14 @@ class PublishedListPage(BaseModel):
 class ReviewQueuePage(BaseModel):
     items: list[ReviewQueueItem]
     page: Page
+    # 编辑稿的字数上限，取自已加载的 persona 配置。界面用它渲染 "N / 140"。
+    #
+    # 必须由后端下发而不是前端写死：这个值同时是发布前的硬校验
+    # （`app/services/publish.py` 里 `len(content) > persona.max_length` → invalid），
+    # 界面抄一份就会在配置改动后开始说谎，而它存在的意义恰恰是别让人写出会被打回的稿子。
+    #
+    # 口径：这是 **Python `len()`**，字符数，不是 X 的加权字符数计算。中文一个字算 1。
+    content_max_length: int
 
 
 class MetricAvailability(BaseModel):
