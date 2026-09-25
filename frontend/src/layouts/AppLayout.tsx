@@ -63,7 +63,7 @@ export function AppLayout() {
         </nav>
 
         <div className="sidebar__foot">
-          <div>Phase 4b</div>
+          <div>阶段 4b</div>
           <div>只读控制台 · 写操作走既有 API</div>
         </div>
       </aside>
