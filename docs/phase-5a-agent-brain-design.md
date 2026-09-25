@@ -74,13 +74,18 @@ POST /api/runs {goal}
                         ├─→ extract_evidence                        ─→ planner
                         ├─→ generate_angles                         ─→ planner
                         ├─→ select_angle                            ─→ planner
-                        ├─→ generate_candidates → criticize          ─→ planner
+                        ├─→ generate_candidates                     ─→ planner
+                        ├─→ criticize                               ─→ planner
                         ├─→ revise                                  ─→ planner
                         └─(finish)→ finalize → guardrail → human_review → END
 
 POST /api/runs/{id}/review   ← 完全不变
 POST /api/runs/{id}/publish  ← 完全不变
 ```
+
+同一张编译好的 Graph 在 START 处分岔：`goal` 为 None 时走既有的
+`START → research → generate → guardrail → …`（Phase 1–4a 行为，逐字不变），
+非 None 时走上面的 planner 环。
 
 ### B.2 两条拓扑共存，用 `goal` 判别
 
@@ -117,7 +122,10 @@ Agent loop 结束时不直接产出 API 响应，而是**把选定的候选稿�
 | Writer | 写候选 | 评价自己 |
 | Critic | 结构化评价 | 改稿（工作单第十二节：不让 Critic 直接改稿） |
 
-Planner 只调 `llm_service.complete()` 拿一个 `AgentDecision`，**不碰 SQL、不碰 httpx**。
+Planner 只调 `tools/base.py::complete_json(llm_service, prompt, AgentDecision)` 拿一个
+`AgentDecision`，**不碰 SQL、不碰 httpx**：那条 helper 顺带把 `ValidationError` 折成
+`LLMError`（上游给了非法输出 → 502，与 `GeneratedDraft` 同一套处理），失败路径也就只有
+一条。落库走 `create_decision()`（仓储层），节点里一行 SQL 都没有。
 
 ---
 
@@ -131,8 +139,10 @@ Planner 只调 `llm_service.complete()` 拿一个 `AgentDecision`，**不碰 SQL
 | `topic` | `NOT NULL` → **允许 NULL** | 主题由 Agent 自己发现；创建 Run 时还不知道 |
 
 旧行不受影响（`topic` 全部有值、`goal` 全为 NULL → 全部走旧链路）。
-`goal` 与 `topic` 都对外暴露为 `str | None`：**不拿 goal 顶替 topic 显示**，
-前端显式回退（`topic ?? goal`），避免"把目标当题目"这种静默失真。
+`goal` 与 `topic` 都对外暴露为 `str | None`，且**是两个字段、两处显示，从不互相顶替**：
+题目没选出来时表里显示 `—`、抽屉标题退回中性的「Run 详情」，goal 另起一行标为「目标」。
+回退成 `topic ?? goal` 会把"人的输入"渲染成"Agent 的选择"，看着像 Agent 已经选好题了 ——
+那是静默失真，比一个 `—` 危险得多。
 
 ### C.2 新表 `agent_decision`（Agent Decision Trace）
 
@@ -185,10 +195,12 @@ Planner 只调 `llm_service.complete()` 拿一个 `AgentDecision`，**不碰 SQL
 ### D.1 固定边 vs 条件边
 
 - `planner` 用 `add_conditional_edges`：按 `AgentDecision.action` 路由到 10 个目标之一。
-- **`generate_candidates → criticize` 是固定边**：候选生成后必须评价，这一步不该交给
-  LLM 决定（工作单第十七节的图也是这么画的）。Critic 之后回到 `planner`，由 Planner
-  决定 accept / revise / 再来一轮 —— Critic 自己不做路由。
-- 其余执行节点一律固定边回 `planner`。
+- **所有执行节点一律固定边回 `planner`，一个固定边都不加。** 这一段在设计审计里本来
+  写的是 `generate_candidates → criticize` 固定边，实施时改掉了，理由见下面的 I.1：
+  工作单第四节把 `criticize` 列为 Planner 的动作，固定边会让它永远轮不到 Planner 选，
+  schema 也就成了一句空话。
+- "生成之后必须评价"这条约束并没有丢，只是换了实现：它变成了 `finish` 的**前置条件**
+  （见 F.4 的 `ready_to_finish`），由纯函数把关，而不是由图的形状把关。
 - `planner --finish--> finalize`，`finalize → guardrail → human_review → END`（与今天一致）。
 
 ---
@@ -240,27 +252,42 @@ candidates_per_round: 3
 
 工作单第三节："绝不能无限循环"。因此：
 
-1. Planner 节点**先**算 `allowed_actions(state, budget, counters)` —— 纯函数，
+1. Planner 节点**先**算 `allowed_actions(state, budget)` —— 纯函数，
    把前置条件不满足、计数已用尽的 action 全部剔除。
-2. `step_count >= max_steps` → **不调用 LLM，直接返回 `finish`**。
+2. `step_count >= max_steps` → **不调用 LLM**，按回退顺序收尾（见下面的 WRAPUP）。
 3. 调 LLM 拿到 decision 后，用 `allowed` 过滤：
-   - 选中的 action 不在 `allowed` 里 → 按**确定性回退顺序**取第一个 allowed；
+   - 选中的 action 不在 `allowed` 里 → 按**确定性回退顺序**取第一个 allowed，
+     并**丢弃 target / arguments**（它们是针对原动作的，换动作后含义就变了）；
    - `allowed` 为空 → `finish`。
-4. 回退也要留下 trace（`reason` 写明"预算不足，回退到 X"），否则审计会看到
+4. 回退也要留下 trace（`reason` 写明"原决策 X 不可行，改为 Y"），否则审计会看到
    Agent"莫名其妙"做了别的事。
 
-回退顺序（从"最接近完成"到"最接近重来"）：
-`finish → revise → generate_candidates → select_angle → generate_angles →
-extract_evidence → deepen_research → research_topic → discover_topics`
+回退顺序（从"最接近成品"到"最接近从头再来"）：
+`revise → criticize → generate_candidates → select_angle → generate_angles →
+extract_evidence → deepen_research → research_topic → discover_topics → finish`
+
+顺序以 `finish` **结尾**而不是开头：`finish` 是唯一永远可行的动作，放最后保证回退一定
+终止。设计审计里原本把 `finish` 排在第一位，实施时改掉了 —— 那样"研究预算用尽但手上
+有材料"会直接结束这一轮，而正确做法是拿现有材料继续往下走（`extract_evidence`）。
+
+**WRAPUP：预算用尽不等于立刻结束。** 工作单第三节要求的是"预算耗尽 → 停止 Agent →
+安全兜底 / 人工审核"，而不是"什么都没有就结束"。所以 `step_count >= max_steps` 之后仍
+允许沿回退顺序走完收尾（`WRAPUP_ALLOWANCE = 6` 步）。它不是无限循环，因为有三重上界：
+收尾不调用 LLM（纯函数）、收尾动作沿 `FALLBACK_ORDER` 单调推进、以及一个最笨的硬停
+`steps_hard_exhausted`（`step_count >= max_steps + 6`）。硬停那一步的强制 `finish`
+会绕开可行性过滤 —— 那一步的意图恰恰是"没有动作可行了，出去"。
 
 ### F.3 预算计数的口径
 
 | 计数 | 何时 +1 | 上限 |
 |---|---|---|
-| `step_count` | 每次 planner 决策 | `max_steps` = 12 |
+| `step_count` | 每次 planner 决策 | `max_steps` = 12（收尾另有 6 步余量） |
 | `research_count` | `discover_topics` / `research_topic` / `deepen_research` 各 +1 | `max_research_calls` = 4 |
-| `candidate_count` | 候选池里的候选**总数** | `max_candidates` = 3 |
+| 候选池大小 | 不另设计数器，直接取 `len(state["candidates"])` | `max_candidates` = 3 |
 | `revision_count` | 每次 `revise` | `max_revisions` = 2 |
+
+候选池没有独立的计数器字段：`candidates` 列表本身就是要看的那份数据，多一个计数器就
+多一个可能与它对不上的状态源。`writer_epoch` / `critic_epoch` 同理（见 F.4）。
 
 `max_candidates` 的口径取"候选池大小上限"（不是"轮次上限"）：一轮 `generate_candidates`
 产出 `candidates_per_round` = 3 个候选即填满池子，之后 Planner 只能 `revise` 或 `finish`。
@@ -269,30 +296,43 @@ extract_evidence → deepen_research → research_topic → discover_topics`
 
 ### F.4 前置条件表
 
-| action | 前置 |
+| action | 前置（`app/agent/budget.py::allowed_actions`） |
 |---|---|
-| `discover_topics` | 无 |
-| `research_topic` | `selected_topic` 已定 |
-| `deepen_research` | `selected_topic` 已定 且 已有 research |
-| `extract_evidence` | 已有 research |
-| `generate_angles` | `evidence_pack` 非空 |
-| `select_angle` | `angles` 非空 |
+| `discover_topics` | 还没发现过候选选题 且 研究预算未用尽（发现也计入研究预算，否则"发现不出东西"可以无限重试） |
+| `research_topic` | `candidate_topics` 非空 且 研究预算未用尽 |
+| `deepen_research` | `selected_topic` 已定 且 已有 research 且 研究预算未用尽 |
+| `extract_evidence` | 已有 research（预算用尽不影响它 —— 手上的材料照样能往证据推进） |
+| `generate_angles` | `evidence_pack` 里**至少有一条事实**（抽出全部事实被丢弃时不算有证据） |
+| `select_angle` | `angles` 非空 且 **还没有候选**（候选池满时重选角度只会让角度与候选对不上） |
 | `generate_candidates` | `selected_angle` 已定 且 候选池未满 |
-| `criticize` | `candidates` 非空 且 尚无 critic_result |
-| `revise` | `critic_result.decision == revise` 且 未超 max_revisions |
-| `finish` | 永远允许（终局出口） |
+| `criticize` | 候选池非空 且 `writer_epoch > critic_epoch`（**还没评价过这一版**，否则同一批候选可以被反复评价） |
+| `revise` | `critic_result.decision == "revise"` 且 未超 `max_revisions` |
+| `finish` | `ready_to_finish`：有候选 **且** `writer_epoch <= critic_epoch` 且未被改稿推翻 |
 
-### F.5 安全兜底（safe fallback）
+`ready_to_finish` 就是"写出来的东西必须被评价过才能交付"这条链路的落点：`revise` 会推进
+`writer_epoch`，于是改完必须重新评价，"改完就算过"做不到。而评审次数不受 `max_revisions`
+限制 —— 预算管的是改稿，不是检查。
 
-`finish` 时：
+只有 `finish` 不是"永远允许"：一个没有正文的 `finish` 必然失败（`finalize` 会抛
+`AgentIncompleteError`），把它摆在选项里等于给 Planner 一次注定失败的选择。
 
-- 有 `critic_result.decision == accept` 的候选 → 用它；
-- 否则有候选 → 取 critic score 最高的（**明确记为 fallback**，trace 里写明）；
-- 一个候选都没有 → 落一条**空正文** Draft。
+### F.5 收尾时交哪一条（`pick_final_candidate`）
 
-空正文不是偷懒：它让 `guardrail` 给出 `empty_content`，Run 照常停在
-`waiting_for_review`，人看到的是"这次 Agent 没产出内容"这个**事实**，
-而不是一个假装成功的占位文本。**绝不用占位文案冒充产出。**
+排序规则（`app/agent/nodes/finalize.py`）：
+
+1. Critic 评价过、且不是 `reject` 的，**分数高的优先**；
+2. 没被评价过的（分数未知）次之；
+3. 被 `reject` 的垫底。
+
+被 `reject` 的排最后而不是直接丢掉：真到只剩它可选时，交一条明确被否过的稿子并**保留
+那条否决记录**（它还在 `critic_results` 里，控制台与审核工作台看得到），比让整个 Run
+失败更有用 —— 人能直接看到"Agent 努力过，但评价说不行"。
+
+**一个候选都没有 → Run 明确失败**（`AgentIncompleteError`，错误信息带上步数/研究次数/
+材料条数）。这条在设计审计里原本写的是"落一条空正文 Draft"，实施时改掉了：下游需要的
+是一条真正文才能进人工审核，而"给人工审核一条空内容"比"明确失败"更糟 —— 审核者会以为
+流程是好的。失败比假装成功诚实，也说明预算或 prompt 需要调整（错误信息正是为此带的）。
+**绝不用占位文案冒充产出。**
 
 ---
 
@@ -307,14 +347,16 @@ extract_evidence → deepen_research → research_topic → discover_topics`
 | `published_post` 四状态 | **不改** | |
 | `canPublish` 规则 | **不改** | |
 | `review` 表 | **不改** | |
-| `AdminService` 只读边界 | **不改** | 只新增一个读 `agent_decision` 的方法 |
+| `AdminService` 只读边界 | **不改** | `run_detail` 多读一处 `agent_decision`（`list_decisions` 早已存在）。仍然一个写端点都没有 |
 
 `finalize` 是唯一的新写入点，它写的是**已经存在**的 `draft` 表，用的是**已经存在**的
 `create_draft()`。没有新的写路径，就没有新的漂移面。
 
-`PublishService` 与 `AdminService` 继续拿 Runtime 上的 graph 做 `aget_state`：
-两个 Graph 共用**同一个 `RunState`**（同一套 channel schema），
-因此无论 Run 由哪条拓扑执行，`aget_state` 读到的字段映射都一致。
+`PublishService` 与 `AdminService` 继续拿 Runtime 上的 graph 做 `aget_state`。
+**两条拓扑编译成同一个 Graph**（START 处按 `goal` 是否为 None 分岔），而不是两个
+Graph：Runtime 上只有一个 graph 引用，`PublishService` 就不需要知道"这次该用哪个"。
+两个 Graph 的写法要求每个持有 graph 的地方都做一次同样的判断，而判断错的那一次恰好
+落在最不能出错的地方 —— 发布前对 checkpoint 的交叉校验。
 
 ---
 
@@ -342,14 +384,39 @@ Agent loop 需要按步返回不同 JSON，所以新增一个
 
 ---
 
-## 实施顺序（小 commit）
+## I. 实施记录：与这份审计稿的偏离
 
-1. `feat: add agent decision model` —— schemas + budget + agent_decision 表 + migration
-2. `feat: add planner and agent tools` —— planner（预算强制）+ 7 个 tool
-3. `feat: add autonomous research loop` —— build_agent_graph + 条件路由 + finalize
-4. `feat: persist agent decision trace` —— Admin API + 控制台最小时间线
-5. `test: cover agentic loop`
-6. `docs: document phase-5a agent brain`
+审计完成后直接实施（工作单第二十一节），过程中改掉了审计稿里的五处设计。记在这里
+是因为"为什么不是最初那个设计"比设计本身更容易丢：
+
+| # | 审计稿写的 | 实际实现 | 为什么改 |
+|---|---|---|---|
+| I.1 | `generate_candidates → criticize` 固定边 | 无边，改为 `finish` 的前置条件 `ready_to_finish` | 固定边会让 `criticize` 永远轮不到 Planner 选，而工作单第四节把它列为 Planner 的动作 —— schema 会变成一句空话。约束改由纯函数把关，图的形状更简单 |
+| I.2 | 回退顺序 `finish` 排第一 | `finish` 排最后 | 研究预算用尽但手上有材料时，正确答案是继续往下走，不是结束这一轮 |
+| I.3 | 预算用尽 → 直接 `finish` | 预算用尽 → 沿回退顺序收尾（`WRAPUP_ALLOWANCE = 6`），另有硬停 | 工作单第三节要的是"安全兜底 / 人工审核"，不是"什么都没有就结束" |
+| I.4 | 无候选 → 落一条空正文 Draft | 无候选 → `AgentIncompleteError`，Run 失败 | 空正文会让审核者以为流程是好的 |
+| I.5 | 前端 `topic ?? goal` | 两个字段分列显示，题目缺失显示 `—` | 顶替会把"人的输入"渲染成"Agent 的选择" |
+
+另外两个字段级的口径变化（候选池不设计数器、`critic_epoch` 直接取 `writer_epoch`）
+已分别写进 F.3 / F.4。
+
+## 实际提交（工作单第二十四节的小 commit 建议）
+
+| commit | 内容 |
+|---|---|
+| `5114a41` | `feat: add agent decision model` —— schemas + budget + `agent_decision` 表 + migration + 仓储层 |
+| `3901fc8` | `feat: add the autonomous planner loop and its tools` —— planner（预算强制）+ 9 个动作工具 + Graph 分岔 + finalize + 63 条测试 |
+| `e05ea11` | `feat: surface the agent decision trace in the console` —— Admin API 暴露 `decision_trace` / `goal` + 控制台最小时间线 |
+| 本次 | `docs: document phase-5a agent brain` |
+
+审计稿原本建议拆成六条，实际是三条：工具的注册表与 Graph 的节点一一对应、缺任何一组
+都会让测试红灯，所以 planner + tools + graph 合成一条可运行、可验证的提交；
+"persist agent decision trace" 的**写入**部分也已经在 `3901fc8` 里（Planner 落库是它
+的一部分），`e05ea11` 只负责**读出来**。
+
+测试：186（Phase 4b 结束时）→ 252 后端 + 9 前端。关键用例做了变异验证 —— 去掉证据
+可追溯性校验、`ready_to_finish` 闸门、研究预算、改稿预算、可行性过滤、决策轨迹排序中
+的任意一条，都有对应用例立刻变红。
 
 ---
 
