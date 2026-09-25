@@ -6,6 +6,7 @@ import { ReviewPane } from '../components/ReviewPane'
 import { EmptyState, ErrorState, LoadingState } from '../components/States'
 import { useAsync } from '../hooks/useAsync'
 import { useConsole } from '../hooks/useConsole'
+import { usePageClamp } from '../hooks/usePageClamp'
 import { EMPTY, relativeTime } from '../utils/format'
 import type { ReviewQueueItem } from '../types/api'
 
@@ -58,11 +59,7 @@ export function Review() {
 
   // 处理完当前页最后一条后，这一页会变成空的。留在空页上会让人以为队列已清空，
   // 而后面的页里还有待审的 Run。
-  useEffect(() => {
-    if (queue.data && queue.data.items.length === 0 && page > 1) {
-      setPage(page - 1)
-    }
-  }, [queue.data, page])
+  usePageClamp(page, setPage, items !== undefined && items.length === 0, queue.data !== null)
 
   function handleDecided() {
     const list = items ?? []

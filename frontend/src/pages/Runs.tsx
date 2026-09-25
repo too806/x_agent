@@ -7,6 +7,7 @@ import { EmptyState, ErrorState, LoadingState } from '../components/States'
 import { StatusBadge } from '../components/StatusBadge'
 import { useAsync } from '../hooks/useAsync'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
+import { usePageClamp } from '../hooks/usePageClamp'
 import { RUN_STATUSES } from '../types/api'
 import { EMPTY, dateTime } from '../utils/format'
 
@@ -68,6 +69,11 @@ export function Runs() {
 
   const dirty =
     filters.status !== '' || filters.topic !== '' || filters.from !== '' || filters.to !== ''
+
+  // 抽屉里发布 / 裁决成功后，这一行可能就不再满足当前筛选（比如按 rejected 过滤，
+  // 而它被改成了别的状态）。空的尾页要退回去，否则会看到一句"没有匹配的 Run"，
+  // 而前面几页明明还有。
+  usePageClamp(page, setPage, data !== null && data.items.length === 0, data !== null)
 
   return (
     <>

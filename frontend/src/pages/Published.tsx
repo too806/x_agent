@@ -8,6 +8,7 @@ import { EmptyState, ErrorState, LoadingState } from '../components/States'
 import { StatusBadge } from '../components/StatusBadge'
 import { useAsync } from '../hooks/useAsync'
 import { useConsole } from '../hooks/useConsole'
+import { usePageClamp } from '../hooks/usePageClamp'
 import { PUBLISH_STATUSES, isUnresolved } from '../types/api'
 import { EMPTY, dateTime } from '../utils/format'
 import type { PublishedRow } from '../types/api'
@@ -121,6 +122,7 @@ export function Published() {
   // 刷新页面也不会把筛选条件丢掉。
   const statusFilter = searchParams.get('status') ?? ''
   const unresolvedOnly = statusFilter === UNRESOLVED_FILTER
+  const filtered = statusFilter !== '' || from !== '' || to !== ''
 
   const { data, loading, error, reload } = useAsync(
     () =>
@@ -137,6 +139,11 @@ export function Published() {
   useEffect(() => {
     setPage(1)
   }, [statusFilter, from, to])
+
+  // 重发 / 裁决成功后这一行会改变状态，可能就不再满足当前的筛选（按 failed 过滤时
+  // 重发成功、按待裁决过滤时裁决完成）。空的尾页要退回去：留在那里会显示一句
+  // "没有发布记录"，读起来像"一条都没有"，而实际上前面几页还有。
+  usePageClamp(page, setPage, data !== null && data.items.length === 0, data !== null)
 
   function setStatus(value: string) {
     const next = new URLSearchParams(searchParams)
@@ -241,12 +248,22 @@ export function Published() {
         {data ? (
           <div className="card card--flush" style={{ opacity: loading ? 0.6 : 1 }}>
             {data.items.length === 0 ? (
+              // 三种"空"是不同的事，不能共用一句话：没有任何发布记录、待裁决队列
+              // 是空的（这是好状态）、以及筛选条件没匹配上（要动的是筛选，不是别人）。
               <EmptyState
-                title={unresolvedOnly ? 'Nothing needs a decision' : 'No publish records'}
+                title={
+                  unresolvedOnly
+                    ? 'Nothing needs a decision'
+                    : filtered
+                      ? 'No publish records match these filters'
+                      : 'No publish records'
+                }
                 hint={
                   unresolvedOnly
                     ? 'Every publish attempt has a definite outcome. This is the state you want.'
-                    : 'Runs appear here once a publish has been attempted.'
+                    : filtered
+                      ? 'Try clearing a filter or widening the date range.'
+                      : 'Runs appear here once a publish has been attempted.'
                 }
               />
             ) : (

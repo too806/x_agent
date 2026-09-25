@@ -110,6 +110,21 @@ async def _publish_as(session_factory, run_id: str, draft_id: str, outcome: str)
         raise AssertionError(f"unknown outcome {outcome}")
 
 
+async def _set_publish_created_at(session_factory, run_id: str, when: datetime) -> None:
+    """绕过 ORM 改 published_post.created_at —— 同样只由 server_default 生成。
+
+    发布记录列表的日期筛选走的是这一列（`published_post.created_at`），不是
+    `published_at`：后者只有 published 的行才有值，用它筛会让 failed / unknown
+    既不出现在窗口里，也不出现在窗口外，像是从来不存在。
+    """
+    async with session_factory() as session:
+        await session.execute(
+            text("UPDATE published_post SET created_at = :ts WHERE agent_run_id = :id"),
+            {"ts": when, "id": uuid.UUID(run_id)},
+        )
+        await session.commit()
+
+
 async def _set_created_at(session_factory, run_id: str, when: datetime) -> None:
     """绕过 ORM 直接改 created_at —— 它由 server_default 生成，构造不出来历史时间。"""
     async with session_factory() as session:
@@ -722,6 +737,48 @@ async def test_published_unresolved_filter_intersects_with_status(session_factor
     assert [i["run_id"] for i in both_ok["items"]] == [unknown_run]
     assert contradictory["items"] == []
     assert contradictory["page"]["total"] == 0
+
+
+async def test_published_date_range_is_half_open_and_intersects_with_unresolved(session_factory):
+    """日期窗口同样左闭右开，并且与 unresolved 取交集。
+
+    控制台的 From / To 与"Needs a decision"是可以同时生效的两个筛选（界面上就在
+    同一行），所以这里要验证的是**两个条件都成立**才留下——把日期条件写丢或写成
+    并集，都会让"最近的待裁决"变成一个覆盖全部历史的列表。
+
+    三行的 created_at 刻意这样排：B 在右端点上（属于窗口外），C 比 A 新。
+    这样既钉住半开区间，也钉住"最新的在前"。
+    """
+    a_run, a_draft = await _make_reviewed_run(session_factory, "窗口内的待裁决")
+    await _publish_as(session_factory, a_run, a_draft, "publish_unknown")
+    await _set_publish_created_at(
+        session_factory, a_run, datetime(2026, 9, 10, 12, tzinfo=timezone.utc)
+    )
+
+    b_run, b_draft = await _make_reviewed_run(session_factory, "正好在右端点")
+    await _publish_as(session_factory, b_run, b_draft, "publish_unknown")
+    await _set_publish_created_at(
+        session_factory, b_run, datetime(2026, 9, 11, 0, tzinfo=timezone.utc)
+    )
+
+    c_run, c_draft = await _make_reviewed_run(session_factory, "窗口内的确定结局")
+    await _publish_as(session_factory, c_run, c_draft, "failed")
+    await _set_publish_created_at(
+        session_factory, c_run, datetime(2026, 9, 10, 13, tzinfo=timezone.utc)
+    )
+
+    window = "date_from=2026-09-10T00:00:00Z&date_to=2026-09-11T00:00:00Z"
+    async with admin_api(session_factory) as api:
+        in_window = (await api.get(f"/api/admin/published?{window}")).json()
+        unresolved_in_window = (await api.get(f"/api/admin/published?{window}&unresolved=true")).json()
+
+    # 右端点上的 B 不在窗口里；窗口内按最新的在前
+    assert [i["run_id"] for i in in_window["items"]] == [c_run, a_run]
+    assert in_window["page"]["total"] == 2
+
+    # 两个条件都生效：C 在窗口内但不是待裁决，B 是待裁决但不在窗口内
+    assert [i["run_id"] for i in unresolved_in_window["items"]] == [a_run]
+    assert unresolved_in_window["page"]["total"] == 1
 
 
 async def test_published_empty_state(session_factory):
