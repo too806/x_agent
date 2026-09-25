@@ -25,12 +25,14 @@ from app.repositories import (
     claim_publish,
     claim_run_for_review,
     create_agent_run,
+    create_decision,
     create_draft,
     create_review,
     mark_publish_failed,
     mark_published,
     mark_run_waiting_for_review,
     note_publish_unknown,
+    record_decision_result,
 )
 from fakes import StubGraph
 from support import PERSONA, api_for, runtime_with_checkpointer
@@ -70,6 +72,42 @@ async def _make_run(session_factory, topic: str = "AI coding agent") -> str:
     async with session_factory() as session:
         run = await create_agent_run(session, topic)
         return str(run.id)
+
+
+async def _make_goal_run(session_factory, goal: str = "找一个值得讨论的 AI 话题") -> str:
+    """造一个 Phase 5A 的 Agent 模式 Run：只有目标，主题还没有。
+
+    topic 为 None 是它的**真实初始状态**（Agent 还没选），不是构造出来的残缺数据。
+    """
+    async with session_factory() as session:
+        run = await create_agent_run(session, topic=None, goal=goal)
+        return str(run.id)
+
+
+async def _seed_decision(
+    session_factory,
+    run_id: str,
+    *,
+    step: int,
+    action: str,
+    reason: str,
+    result: str = "",
+    target: str | None = None,
+) -> None:
+    """落一步决策，并按真实时序回填结果（Planner 先写意图、执行完再补结果）。"""
+    async with session_factory() as session:
+        await create_decision(
+            session,
+            run_id=run_id,
+            step=step,
+            action=action,
+            reason=reason,
+            target=target,
+            input_summary=f"topics={step}; step={step}/12",
+        )
+    if result:
+        async with session_factory() as session:
+            await record_decision_result(session, run_id=run_id, step=step, result_summary=result)
 
 
 async def _make_reviewed_run(session_factory, topic: str, action: str = "approve") -> tuple[str, str]:
@@ -436,6 +474,73 @@ async def test_run_detail_survives_missing_checkpoint(session_factory):
     assert detail["guardrail_reasons"] == []
     assert detail["run_status"] == "running"
     assert detail["research_items"] == []
+
+
+# ---------------------------------------------------------------------------
+# Agent 决策轨迹（Phase 5A）
+# ---------------------------------------------------------------------------
+
+
+async def test_run_detail_orders_the_decision_trace_by_step(session_factory):
+    """决策轨迹按 **step** 排，不是按写入时刻。
+
+    所以这里刻意倒着播种（先写第 2 步、再写第 1 步）：如果实现改成按 created_at
+    排序，这个顺序就会翻过来。之所以必须按 step，是因为重放或补写会让写入时刻与
+    逻辑顺序不一致，而 step 才是决策本身的序号。
+    """
+    run_id = await _make_goal_run(session_factory, "找一个值得讨论的 AI 话题")
+    await _seed_decision(
+        session_factory, run_id, step=2, action="research_topic", reason="材料还不够",
+        result="主题「某模型开源」，取回 10 条材料", target="某模型开源",
+    )
+    await _seed_decision(
+        session_factory, run_id, step=1, action="discover_topics", reason="开局先找选题",
+        result="得到 5 个候选选题",
+    )
+
+    async with admin_api(session_factory) as api:
+        detail = (await api.get(f"/api/admin/runs/{run_id}")).json()
+
+    trace = detail["decision_trace"]
+    assert [row["step"] for row in trace] == [1, 2]
+    assert [row["action"] for row in trace] == ["discover_topics", "research_topic"]
+    assert trace[1]["target"] == "某模型开源"
+    assert trace[1]["result_summary"] == "主题「某模型开源」，取回 10 条材料"
+    # 存的是"当时手上有什么"，不是完整 prompt
+    assert trace[0]["input_summary"].startswith("topics=")
+    assert trace[0]["created_at"]
+
+
+async def test_run_detail_shows_goal_separately_from_topic(session_factory):
+    """goal 与 topic 必须分列，且 topic 还没选出来时就是 null。
+
+    不能拿 goal 去顶替 topic 显示：goal 是**人的输入**，topic 是 **Agent 的选择**，
+    顶替之后界面会看起来像"Agent 已经选定了一个叫『找一个值得讨论的 AI 话题』的题"。
+    """
+    run_id = await _make_goal_run(session_factory, "围绕开源模型找一个角度")
+
+    async with admin_api(session_factory) as api:
+        detail = (await api.get(f"/api/admin/runs/{run_id}")).json()
+
+    assert detail["goal"] == "围绕开源模型找一个角度"
+    assert detail["topic"] is None
+    assert detail["decision_trace"] == []
+
+
+async def test_run_list_carries_goal_without_faking_a_topic(session_factory):
+    """列表行同样如此 —— Agent 模式与 topic 模式在列表里要能区分。"""
+    goal_run = await _make_goal_run(session_factory)
+    topic_run = await _make_run(session_factory, "AI coding agent")
+
+    async with admin_api(session_factory) as api:
+        items = (await api.get("/api/admin/runs", params={"page_size": 100})).json()["items"]
+
+    by_id = {item["run_id"]: item for item in items}
+    assert by_id[goal_run]["goal"] == "找一个值得讨论的 AI 话题"
+    assert by_id[goal_run]["topic"] is None
+    # 既有链路的 Run 不该被塞上一个 goal
+    assert by_id[topic_run]["goal"] is None
+    assert by_id[topic_run]["topic"] == "AI coding agent"
 
 
 # ---------------------------------------------------------------------------

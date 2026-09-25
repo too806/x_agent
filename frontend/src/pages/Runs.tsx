@@ -219,7 +219,12 @@ export function Runs() {
                             }
                           }}
                         >
-                          <td className="table__topic">{run.topic}</td>
+                          {/* 题目为 `—` = Agent 模式的 Run 还没选出主题（Phase 5A）。
+                              这里**不显示 goal** 顶替：goal 是人给的输入，topic 是 Agent
+                              的选择，混在一起会看不出 Agent 到底选了没有。 */}
+                          <td className="table__topic">
+                            {run.topic ?? <span className="cell-muted">{EMPTY}</span>}
+                          </td>
                           <td>
                             <StatusBadge status={run.run_status} kind="run" />
                           </td>

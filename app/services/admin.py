@@ -55,6 +55,7 @@ from app.repositories import (
     get_published_post,
     get_review_for_run,
     get_runs_by_ids,
+    list_decisions,
     list_published_page,
     list_research_items,
     list_review_queue,
@@ -68,6 +69,7 @@ from app.schemas import (
     AdminRunDetail,
     AnalyticsResponse,
     AverageRunDuration,
+    DecisionTraceRecord,
     DraftRecord,
     MetricAvailability,
     OverviewKpis,
@@ -227,6 +229,7 @@ class AdminService:
             RunSummary(
                 run_id=str(run.id),
                 topic=run.topic,
+                goal=run.goal,
                 run_status=run.status,
                 review_status=getattr(reviews.get(run.id), "status", None),
                 publish_status=getattr(published.get(run.id), "status", None),
@@ -361,6 +364,10 @@ class AdminService:
             review = await get_review_for_run(session, run_id)
             published = await get_published_post(session, run_id)
             items = await list_research_items(session, run_id)
+            # 决策轨迹来自数据库而不是 checkpoint：Run 的每一步"为什么这么做"
+            # 必须比 checkpoint 活得久，否则清理过 checkpoint 的 Run 在控制台上
+            # 就只剩一堆没有来由的产物。
+            decisions = await list_decisions(session, run_id)
 
         # checkpoint 只读，用于补齐数据库里没有的那几个字段。
         snapshot = await self._graph.aget_state({"configurable": {"thread_id": run_id}})
@@ -369,6 +376,7 @@ class AdminService:
         return AdminRunDetail(
             run_id=str(run.id),
             topic=run.topic,
+            goal=run.goal,
             run_status=run.status,
             review_status=getattr(review, "status", None),
             publish_status=getattr(published, "status", None),
@@ -394,6 +402,18 @@ class AdminService:
                     created_at=item.created_at,
                 )
                 for item in items
+            ],
+            decision_trace=[
+                DecisionTraceRecord(
+                    step=row.step,
+                    action=row.action,
+                    reason=row.reason,
+                    target=row.target,
+                    input_summary=row.input_summary,
+                    result_summary=row.result_summary,
+                    created_at=row.created_at,
+                )
+                for row in decisions
             ],
             draft=(
                 DraftRecord(

@@ -250,6 +250,26 @@ class Page(BaseModel):
     pages: int
 
 
+class DecisionTraceRecord(BaseModel):
+    """Agent 决策轨迹里的一步（Phase 5A）。
+
+    读的是 `agent_decision` 表，而不是 checkpoint 里的 `decision_trace`。两者内容
+    同源（Planner 落库时写的是同一份），但表里这份是**持久的**：checkpoint 被清理
+    或那次运行早已结束时，"当时为什么这么做"仍然答得出来。
+
+    `input_summary` / `result_summary` 都是摘要而不是完整 prompt —— 记的是"当时手
+    上有什么、允许做什么"和"这一步实际产出了什么"（工作单第十五节）。
+    """
+
+    step: int
+    action: str
+    reason: str
+    target: str | None = None
+    input_summary: str
+    result_summary: str
+    created_at: datetime
+
+
 class ResearchItemRecord(BaseModel):
     """research_item 表里真实落库的一条研究材料。"""
 
@@ -280,10 +300,15 @@ class RunSummary(BaseModel):
 
     刻意不用 None 之外的任何值去"兜底"（比如拿 run_status 顶替）：没有
     published_post 行就是没有，UI 显示 `—`。
+
+    `topic` 同样可能为 None：Phase 5A 的 Run 是给一个**目标**、由 Agent 自己发现
+    主题，所以在 Agent 选定之前它确实是空的。`goal` 是另一回事，两者不能互相顶替
+    （见 `AdminRunDetail` 的说明）。
     """
 
     run_id: str
-    topic: str
+    topic: str | None = None
+    goal: str | None = None
     run_status: str
     review_status: str | None = None
     publish_status: str | None = None
@@ -358,10 +383,18 @@ class AdminRunDetail(BaseModel):
 
     guardrail_passed / guardrail_reasons / human_action / final_content 来自
     checkpoint，其余来自数据库。两处来源在这里**只读地**汇合，不写回任何一边。
+
+    `topic` 与 `goal` 是**两个不同的东西**，绝不能互相顶替显示：goal 是人给的
+    目标（"找一个值得讨论的 AI 话题"），topic 是 Agent 从中选定的结果（"某模型
+    开源"）。goal 可以永远不为空，topic 在 Agent 选定之前就是空的。
+
+    `decision_trace` 来自 `agent_decision` 表（不是 checkpoint）：即使这个 Run 的
+    checkpoint 已经读不到，它每一步为什么这么做也仍然查得到。
     """
 
     run_id: str
-    topic: str
+    topic: str | None = None
+    goal: str | None = None
     run_status: str
     review_status: str | None = None
     publish_status: str | None = None
@@ -376,6 +409,7 @@ class AdminRunDetail(BaseModel):
     final_content: str | None = None
 
     research_items: list[ResearchItemRecord] = []
+    decision_trace: list[DecisionTraceRecord] = []
     draft: DraftRecord | None = None
     review: ReviewRecord | None = None
     publish: PublishRecord | None = None

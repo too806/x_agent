@@ -992,6 +992,35 @@ h4 {
   margin: var(--space-2) 0;
 }
 
+/* Agent 决策轨迹（Phase 5A）。
+   与 .research-item 是同一套视觉语言（同样的边框与留白），但多一条左侧竖线：
+   研究材料是一袋彼此无关的条目，轨迹是**有序**的一步步过程，顺序本身就是信息。 */
+.trace-list {
+  margin: 0;
+  padding: 0 0 0 var(--space-3);
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  border-left: 2px solid var(--border);
+}
+
+.trace-item {
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.trace-item .body-block {
+  margin: var(--space-2) 0;
+}
+
+.trace-item__step {
+  color: var(--text-faint);
+  font-weight: 400;
+  margin-right: var(--space-2);
+}
+
 /* Runs 表里的"这一行有 error"标记。只给一个点，具体内容在 title 里，
    表格里铺开错误正文会把行高撑垮。 */
 .err-dot {

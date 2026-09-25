@@ -9,8 +9,20 @@ import { PublishControl } from './PublishAction'
 import { ErrorState, LoadingState } from './States'
 import { StatusBadge } from './StatusBadge'
 import { isUnresolved } from '../types/api'
-import { EMPTY, dateTime, draftStatusLabel, duration, text } from '../utils/format'
-import type { AdminRunDetail, PublishRecord, ResearchItemRecord } from '../types/api'
+import {
+  EMPTY,
+  agentActionLabel,
+  dateTime,
+  draftStatusLabel,
+  duration,
+  text,
+} from '../utils/format'
+import type {
+  AdminRunDetail,
+  DecisionTraceEntry,
+  PublishRecord,
+  ResearchItemRecord,
+} from '../types/api'
 
 /**
  * Run 详情抽屉。
@@ -77,6 +89,61 @@ function ResearchRow({ item }: { item: ResearchItemRecord }) {
         )}
       </div>
     </li>
+  )
+}
+
+function TraceRow({ entry }: { entry: DecisionTraceEntry }) {
+  return (
+    <li className="trace-item">
+      <div className="row row--between">
+        <strong>
+          <span className="trace-item__step">第 {entry.step} 步</span>
+          {agentActionLabel(entry.action)}
+        </strong>
+        <span className="cell-muted">{dateTime(entry.created_at)}</span>
+      </div>
+      {/* 为什么这么做。这是时间线上唯一一列**由 Agent 自己写**的字段，
+          其余都是系统记录的客观事实。 */}
+      <div className="body-block">{entry.reason}</div>
+      {entry.target ? <div className="cell-muted">作用于：{entry.target}</div> : null}
+      {/* 存的是"当时手上有什么"，不是完整 prompt —— 所以这两行很短，可以全列出来。 */}
+      <div className="cell-muted">当时手里：{entry.input_summary}</div>
+      <div className="cell-muted">
+        结果：{entry.result_summary || '（还没回填）'}
+      </div>
+    </li>
+  )
+}
+
+/** Agent 决策轨迹。刻意只做**最小版本**（工作单第十五节：后端先提供数据，
+ *  控制台不因此大改）。 */
+function AgentTraceSection({ detail }: { detail: AdminRunDetail }) {
+  // 没有 goal 也没有轨迹的 Run（也就是 Phase 5A 之前的全部 Run）看到的东西
+  // 与从前**逐像素一致**：这一段根本不出现。
+  if (!detail.goal && detail.decision_trace.length === 0) return null
+
+  return (
+    <Section
+      title="Agent 决策轨迹"
+      hint={
+        detail.decision_trace.length
+          ? `${detail.decision_trace.length} 步，按步号排序`
+          : undefined
+      }
+    >
+      {detail.decision_trace.length === 0 ? (
+        <div className="notice">
+          这个 Run 没有 Agent 决策记录。直接给主题的 Run 本来就没有；Agent 模式的 Run
+          则可能是第一步就被上游挡住，还没落下记录。
+        </div>
+      ) : (
+        <ol className="trace-list">
+          {detail.decision_trace.map((entry) => (
+            <TraceRow key={entry.step} entry={entry} />
+          ))}
+        </ol>
+      )}
+    </Section>
   )
 }
 
@@ -170,6 +237,13 @@ export function DetailBody({ detail, onSettled }: { detail: AdminRunDetail; onSe
         <Field label="Run ID">
           <span className="mono">{detail.run_id}</span>
         </Field>
+        {/* 只有 Agent 模式的 Run 才有目标。这里**不与 topic 合并**：goal 是人给的
+            输入，topic 是 Agent 从中选出的结果，合成一个字段就分不清"Agent 选了没"。 */}
+        {detail.goal ? (
+          <Field label="目标">
+            <span title={detail.goal}>{detail.goal}</span>
+          </Field>
+        ) : null}
       </div>
 
       {detail.error ? (
@@ -178,6 +252,8 @@ export function DetailBody({ detail, onSettled }: { detail: AdminRunDetail; onSe
           <div className="body-block body-block--mono">{detail.error}</div>
         </div>
       ) : null}
+
+      <AgentTraceSection detail={detail} />
 
       <Section title="规则检查" hint="来自 LangGraph checkpoint">
         {detail.guardrail_passed === null ? (
@@ -358,7 +434,7 @@ export function RunDetailPanel({
     <div className="stack">
       <div className="card">
         <div className="card__body">
-          <h2 className="drawer__title">{data.topic}</h2>
+          <h2 className="drawer__title">{data.topic ?? 'Run 详情'}</h2>
           <div className="row" style={{ marginTop: 8 }}>
             <StatusBadge status={data.run_status} kind="run" />
             <span className="cell-muted mono" title="Run ID">
@@ -410,7 +486,8 @@ export function RunDetailDrawer({
       onClose={onClose}
       title={
         <>
-          <h2 className="drawer__title">{data ? data.topic : 'Run 详情'}</h2>
+          {/* 题目还没选出来时退回中性标题，不拿 goal 顶替（见 DetailBody 里的说明）。 */}
+          <h2 className="drawer__title">{data?.topic ?? 'Run 详情'}</h2>
           <div className="cell-muted mono">{runId}</div>
         </>
       }

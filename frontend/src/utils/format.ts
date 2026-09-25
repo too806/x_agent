@@ -166,6 +166,30 @@ export function publishStatusLabel(status: string | null | undefined): string {
 }
 
 /**
+ * Agent 的动作名（`AgentAction` 枚举值）→ 中文。
+ *
+ * 与状态映射同一套规矩：查不到就原样返回英文枚举。Agent 加了新动作而前端还没跟上时，
+ * 时间线上会出现一个没翻译的英文词——那是**看得见的缺口**，比一句"未知步骤"有用。
+ */
+const AGENT_ACTION_LABELS: Record<string, string> = {
+  discover_topics: '发现选题',
+  research_topic: '研究选题',
+  deepen_research: '深化研究',
+  extract_evidence: '抽取证据',
+  generate_angles: '生成观点',
+  select_angle: '选定观点',
+  generate_candidates: '生成候选',
+  criticize: '评审候选',
+  revise: '改写候选',
+  finish: '收尾',
+}
+
+export function agentActionLabel(action: string | null | undefined): string {
+  if (!action) return EMPTY
+  return AGENT_ACTION_LABELS[action] ?? action
+}
+
+/**
  * 按**码点**计数，而不是 JS 默认的 UTF-16 码元。
  *
  * `'😀'.length === 2`，因为它在 JS 里是一对代理项；而后端的 `len('😀') === 1`。

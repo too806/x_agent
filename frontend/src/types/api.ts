@@ -142,7 +142,10 @@ export interface DraftRecord {
 
 export interface RunSummary {
   run_id: string
-  topic: string
+  /** null = Agent 模式（Phase 5A）的 Run 还没选出主题。不要拿 goal 顶替它。 */
+  topic: string | null
+  /** 人给 Agent 的目标。null = 这条 Run 走的是既有 topic 链路。 */
+  goal: string | null
   run_status: RunStatus
   /** null = 还没有人工决定。 */
   review_status: ReviewStatus | null
@@ -208,9 +211,23 @@ export interface OverviewResponse {
 // Run 详情
 // ---------------------------------------------------------------------------
 
+/** Agent 决策轨迹里的一步（`agent_decision` 表的一行）。字段全是摘要，不是完整 prompt。 */
+export interface DecisionTraceEntry {
+  step: number
+  action: string
+  reason: string
+  target: string | null
+  input_summary: string
+  result_summary: string
+  created_at: string
+}
+
 export interface AdminRunDetail {
   run_id: string
-  topic: string
+  /** Agent 选定的主题。null = 还没选出来（不是"没有"这个字段的意思）。 */
+  topic: string | null
+  /** 人给 Agent 的目标。null = 不是 Agent 模式的 Run。两者不可互相顶替。 */
+  goal: string | null
   run_status: RunStatus
   review_status: ReviewStatus | null
   publish_status: PublishStatus | null
@@ -226,6 +243,8 @@ export interface AdminRunDetail {
   final_content: string | null
 
   research_items: ResearchItemRecord[]
+  /** 来自 agent_decision 表（不是 checkpoint），按 step 升序。空数组 = 没有决策记录。 */
+  decision_trace: DecisionTraceEntry[]
   draft: DraftRecord | null
   review: ReviewRecord | null
   publish: PublishRecord | null
