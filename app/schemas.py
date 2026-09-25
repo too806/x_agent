@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, TypeAdapter, field_validator
+from pydantic import BaseModel, Field, TypeAdapter, field_validator, model_validator
 
 
 class ResearchResult(BaseModel):
@@ -26,7 +26,26 @@ class GeneratedDraft(BaseModel):
 
 
 class RunRequest(BaseModel):
-    topic: str
+    """一次运行的输入。
+
+    `topic` 与 `goal` 二选一，恰好一个：
+
+    - 只给 topic → Phase 1–4 的固定链路（行为与之前逐字相同）；
+    - 只给 goal → Phase 5A 的 Agent 自主循环，题目由 Agent 自己发现。
+
+    两个都给是**有歧义**的：那时谁定题目？固定在 topic 上等于悄悄忽略了目标，
+    交给 Agent 又等于忽略了调用方明确给的题目。有歧义的输入拒收（422），
+    比猜一个更安全——猜错的表现是"运行结果和输入对不上"，很难查。
+    """
+
+    topic: str | None = None
+    goal: str | None = None
+
+    @model_validator(mode="after")
+    def _exactly_one_of_topic_goal(self) -> "RunRequest":
+        if (self.topic is None) == (self.goal is None):
+            raise ValueError("必须且只能提供 topic 或 goal 其中之一")
+        return self
 
 
 class ReviewPayload(BaseModel):

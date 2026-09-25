@@ -185,14 +185,27 @@ async def health() -> dict[str, str]:
 async def create_run(request: RunRequest, runtime: Runtime = Depends(get_runtime)) -> RunResponse:
     session_factory = runtime.session_factory
     async with session_factory() as session:
-        run = await create_agent_run(session, request.topic)
+        run = await create_agent_run(session, request.topic, goal=request.goal)
     run_id = str(run.id)
-    logger.info("run started (run_id=%s, topic=%r)", run_id, request.topic)
+    agent_mode = request.goal is not None
+    logger.info(
+        "run started (run_id=%s, mode=%s, topic=%r)",
+        run_id,
+        "agent" if agent_mode else "topic",
+        request.goal if agent_mode else request.topic,
+    )
+
+    # 初始 State 只放属于这条链路的那个字段：图在 START 处按 `goal` 是否存在分岔，
+    # 而给一条 topic 运行塞一个 goal=None 会让"判别式"多出一个恒假的字段，
+    # 将来读代码的人要自己在脑子里把它排除掉。
+    initial_state: dict[str, object] = {"run_id": run_id}
+    if agent_mode:
+        initial_state["goal"] = request.goal
+    else:
+        initial_state["topic"] = request.topic
 
     try:
-        final_state = await runtime.graph.ainvoke(
-            {"run_id": run_id, "topic": request.topic}, config=_thread_config(run_id)
-        )
+        final_state = await runtime.graph.ainvoke(initial_state, config=_thread_config(run_id))
     except Exception as exc:  # noqa: BLE001
         return await _fail_run(session_factory, run_id, exc)
 

@@ -37,6 +37,8 @@ SERDE = JsonPlusSerializer(
         ("app.agent.schemas", "CandidateList"),
         ("app.agent.schemas", "CandidateDraft"),
         ("app.agent.schemas", "CriticResult"),
+        ("app.agent.schemas", "CriticReport"),
+        ("app.agent.schemas", "DecisionTraceEntry"),
     ]
 )
 

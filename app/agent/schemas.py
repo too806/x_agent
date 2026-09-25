@@ -176,3 +176,59 @@ class CriticResult(BaseModel):
     hook_strength: float = Field(0.0, ge=0.0, le=10.0)
     persona_fit: float = Field(0.0, ge=0.0, le=10.0)
     evidence_binding: float = Field(0.0, ge=0.0, le=10.0)
+
+
+class DecisionTraceEntry(BaseModel):
+    """Graph state 里的一条决策记录（step、动作、理由、结果）。
+
+    与 `agent_decision` 表**故意有重叠**，各自解决不同的问题：
+
+    - 表是权威的审计记录，带完整结果、能按 Run 查询，供控制台展示；
+    - state 里这份让运行中的 Agent 能看到自己刚做过什么（prompt 要渲染它），
+      而且 `aget_state` 就能读出整条时间线，不必为了调试再查一次库。
+
+    两者的写入点在同一个地方（Planner 节点与统一 Tool 节点），因此不会漂移。
+    """
+
+    step: int
+    action: str
+    reason: str
+    target: str | None = None
+    result_summary: str = ""
+    timestamp: datetime
+
+
+def merge_trace(
+    left: list[DecisionTraceEntry], right: list[DecisionTraceEntry]
+) -> list[DecisionTraceEntry]:
+    """`decision_trace` 的 reducer：按 step **覆盖**而不是追加。
+
+    为什么不能用 `operator.add`：同一步先由 Planner 写入（只有意图），
+    执行完再由 Tool 节点写入（补上结果）。追加的话每一步会出现两条——
+    一条没有结果、一条没有理由，人得自己在脑子里配对。
+
+    按 step 覆盖之后，整条轨迹每一步恰好一条，且始终是"最新已知"的那份。
+    """
+    by_step = {entry.step: entry for entry in left}
+    for entry in right:
+        by_step[entry.step] = entry
+    return [by_step[step] for step in sorted(by_step)]
+
+
+class CriticReport(BaseModel):
+    """一次 Critic 调用对**整批**候选的评价。
+
+    为什么是一批而不是一条一条评：
+
+    1. 三条候选的差别是"写法"上的（直接观点 / 信息密集 / 反共识），
+       分开评价时 Critic 看不到彼此，就无法回答"哪一条更适合这个角度"——
+       而那正是生成三条的意义。
+    2. 一条一评要把同样的证据包送进模型三次，最贵的一步做三遍。
+
+    `focus_candidate_id` 指出"这一轮该动谁"：需要改稿时它是被改的那条，
+    无需改稿时通常是得分最高的那条。流程只认它对应的那一条结果
+    （state 里的 `critic_result`），整批结果留在 `critic_results` 里供人查看。
+    """
+
+    results: list[CriticResult] = Field(default_factory=list)
+    focus_candidate_id: str = ""

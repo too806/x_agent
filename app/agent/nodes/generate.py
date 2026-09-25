@@ -4,6 +4,7 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from app.agent.persona import Persona
+from app.agent.prompts import format_persona
 from app.agent.state import RunState
 from app.config import settings
 from app.repositories import create_draft
@@ -13,16 +14,6 @@ from app.services.llm import LLMError, LLMService
 logger = logging.getLogger(__name__)
 
 PROMPT_VERSION = "1"
-
-
-def _format_persona(persona: Persona) -> str:
-    return (
-        f"- 名称：{persona.name}\n"
-        f"- 描述：{persona.description}\n"
-        f"- 语气：{persona.tone}\n"
-        f"- 风格：{'；'.join(persona.style)}\n"
-        f"- 避免：{'；'.join(persona.avoid)}"
-    )
 
 
 def _format_research(results: list[ResearchResult]) -> str:
@@ -41,7 +32,7 @@ def _format_research(results: list[ResearchResult]) -> str:
 def build_prompt(topic: str, results: list[ResearchResult], persona: Persona) -> str:
     template = Path(settings.prompt_path).read_text(encoding="utf-8")
     return (
-        template.replace("{{PERSONA}}", _format_persona(persona))
+        template.replace("{{PERSONA}}", format_persona(persona))
         .replace("{{TOPIC}}", topic)
         .replace("{{RESEARCH}}", _format_research(results))
         .replace("{{MAX_LENGTH}}", str(persona.max_length))

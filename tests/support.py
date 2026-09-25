@@ -29,12 +29,15 @@ PERSONA = Persona(
 
 @asynccontextmanager
 async def runtime_with_checkpointer(
-    session_factory, *, x_service=None, llm_service=None, persona=PERSONA
+    session_factory, *, x_service=None, llm_service=None, persona=PERSONA, budget=None
 ):
     """构建一个全新的 Runtime（自带独立 checkpointer 连接池）。
 
     每次进入都等价于「进程重建」：新的连接池 + 新编译的 Graph，没有任何
     进程内状态被复用，因此可以用于验证 checkpoint 恢复。
+
+    `budget` 用于把 Agent 预算压小：验证"预算用尽会停下来"必须能在几步之内
+    跑完，否则测试要么跑十几轮假 LLM，要么根本验不到终止条件。
     """
     async with create_checkpointer(CHECKPOINT_URL) as checkpointer:
         resolved_x_service = x_service or XService(FakeXApiClient())
@@ -44,7 +47,7 @@ async def runtime_with_checkpointer(
             persona=persona,
             session_factory=session_factory,
         )
-        graph = build_graph(deps, checkpointer)
+        graph = build_graph(deps, checkpointer, budget=budget)
         yield Runtime(
             graph=graph,
             session_factory=session_factory,
