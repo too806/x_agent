@@ -847,6 +847,90 @@ h4 {
   margin-top: var(--space-3);
 }
 
+/* ------------------------------------------------------------------ 分布条 */
+
+/* 计数分布（审核决定 / 发布结局 / 话题排名）。
+   条长按**组内最大值**归一化，不是按总数：一组 3/2/1 与一组 300/200/100 的形状
+   应当一样，条是用来比大小的，绝对值在上面写着。 */
+.bars {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.bar-row {
+  display: grid;
+  grid-template-columns: 150px 1fr 52px;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.bar-row__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bar {
+  height: 14px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.bar__fill {
+  height: 100%;
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+}
+
+/* 色名对应用色语义，具体哪个状态取哪个色由调用方决定。
+   green / red / violet 与徽标用的是同一组值，orange 是 publish_unknown 的专用色
+   ——整个界面里它只出现在这一个状态上。 */
+.bar__fill--green {
+  background: var(--ok);
+}
+
+.bar__fill--red {
+  background: var(--danger);
+}
+
+.bar__fill--orange {
+  background: #e8590c;
+}
+
+.bar__fill--violet {
+  background: #5b21b6;
+}
+
+.bar__fill--grey {
+  background: var(--text-faint);
+}
+
+.bar-row__value {
+  text-align: right;
+  font-weight: 600;
+}
+
+/* 明确算不出来的指标。刻意不用 .state（空态）：那不是"没有数据"，
+   是"这个系统不会产出这类数据"，两者的后续动作完全不同。 */
+.na {
+  padding: var(--space-3) var(--space-4);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface-sunken);
+}
+
+.na__title {
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  font-size: var(--text-xs);
+  letter-spacing: 0.04em;
+  margin-bottom: var(--space-2);
+}
+
 /* ------------------------------------------------------------------ 详情抽屉 */
 
 .detail-section {

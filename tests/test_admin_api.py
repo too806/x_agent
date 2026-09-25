@@ -529,6 +529,34 @@ async def test_analytics_distributions(session_factory):
     assert len(data["daily_runs"]) == 7
 
 
+async def test_analytics_review_other_bucket_absorbs_unknown_statuses(session_factory):
+    """三个已知决定之外的 `review.status` 必须落进 other。
+
+    控制台的分布是拿 other 兜底的，而且界面上明说了"四个数字相加等于审核记录总数"。
+    真出现一个没见过的状态时，这里要是把它漏掉，四项之和就会小于总数，界面那句话
+    当场变成假话。所以这个桶的行为单独钉一下：pending 与一个完全陌生的值都算 other。
+    """
+    await _make_reviewed_run(session_factory, "正常批准")
+    pending_run, _ = await _make_reviewed_run(session_factory, "停在待审")
+    stranger_run, _ = await _make_reviewed_run(session_factory, "意外的状态")
+
+    async with session_factory() as session:
+        for run_id, status in ((pending_run, "pending"), (stranger_run, "superseded")):
+            await session.execute(
+                text(
+                    "UPDATE review SET status=:s WHERE draft_id IN "
+                    "(SELECT id FROM draft WHERE agent_run_id=:r)"
+                ),
+                {"s": status, "r": uuid.UUID(run_id)},
+            )
+        await session.commit()
+
+    async with admin_api(session_factory) as api:
+        data = (await api.get("/api/admin/analytics")).json()
+
+    assert data["review_decisions"] == {"approve": 1, "edit": 0, "reject": 0, "other": 2}
+
+
 async def test_analytics_duration_reports_sample_size(session_factory):
     """平均耗时只能覆盖终态 Run，必须如实给出样本数与排除数。"""
     # 一个终态 Run：跑了 120 秒
