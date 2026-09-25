@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.agent.graph import GraphDeps, build_graph
 from app.agent.persona import load_persona
+from app.api.admin import create_admin_router
 from app.config import settings
 from app.db.checkpointer import create_checkpointer
 from app.db.session import async_session_factory
@@ -38,6 +39,7 @@ from app.schemas import (
     RunDetailResponse,
     RunRequest,
     RunResponse,
+    publish_record_from_row,
 )
 from app.services.llm import LLMError, OpenAILLMService
 from app.services.publish import (
@@ -132,6 +134,11 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
+
+# 运营控制台（Phase 4b）：只读的 Admin API。挂载时把 get_runtime 作为依赖注入，
+# 而不是让 app/api/admin.py 反过来 import main —— 避免循环导入，同时保住
+# app.dependency_overrides[get_runtime] 在测试里的覆盖效果。
+app.include_router(create_admin_router(get_runtime))
 
 
 def _describe_failure(run_id: str, exc: Exception) -> str:
@@ -267,17 +274,13 @@ async def get_run(
 
 
 def _publish_record(row) -> PublishRecord | None:
+    """published_post 行 → 对外形状。
+
+    映射本身在 app/schemas.py，与运营控制台共用一份，避免两侧字段漂移。
+    """
     if row is None:
         return None
-    return PublishRecord(
-        status=row.status,
-        draft_id=str(row.draft_id),
-        body=row.body,
-        x_post_id=row.x_post_id,
-        published_at=row.published_at,
-        last_error=row.last_error,
-        updated_at=row.updated_at,
-    )
+    return publish_record_from_row(row)
 
 
 async def _publish_payload(

@@ -2,7 +2,7 @@ import logging
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import select, update
+from sqlalchemy import case, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -517,3 +517,328 @@ async def create_review(
     await session.commit()
     await session.refresh(review)
     return str(review.id)
+
+
+# ---------------------------------------------------------------------------
+# 运营控制台（Phase 4b）只读查询
+#
+# 这一节**只读**，不参与任何状态迁移：Admin API 不得改变 Run / Review / Publish
+# 的任何语义，所有写路径继续走上面那些带条件 UPDATE 的函数与现有 REST。
+#
+# 分页一律在服务器端完成（LIMIT/OFFSET + 独立 COUNT）。刻意不在这里做"取全表再
+# 在 Python 里切"——Run 数量会随时间无界增长，那种写法今天能跑，明天就是把库拖垮。
+# ---------------------------------------------------------------------------
+
+# Review Queue 的排序方向：最老的排最前。人工审核是工作队列，先进先出才不会被
+# 新 Run 淹没（按最新排序的话，积压的旧 Run 会永远沉在列表底部）。
+REVIEW_QUEUE_RUN_STATUS = "waiting_for_review"
+
+
+def _escape_like(value: str) -> str:
+    """转义 LIKE 元字符，让 topic 搜索按字面量匹配。
+
+    不转义的话，用户搜一个 `_` 会命中任意单字符、搜 `%` 会命中全部——搜索框会
+    表现得像坏了。反斜杠必须**先**替换，否则会把后面两个替换产生的转义符再转一遍。
+    """
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _run_filter_clauses(
+    *,
+    status: str | None = None,
+    topic: str | None = None,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+) -> list:
+    """Run 列表的过滤条件。COUNT 与 SELECT 共用，保证两者口径永远一致。
+
+    日期过滤用**半开区间** `[date_from, date_to)`：闭区间会让"截止到今天"漏掉
+    今天的数据，而按天分桶的图表用半开区间才不会把边界那一天算两次。
+    """
+    clauses = []
+    if status:
+        clauses.append(AgentRun.status == status)
+    if topic:
+        clauses.append(AgentRun.topic.ilike(f"%{_escape_like(topic)}%", escape="\\"))
+    if date_from is not None:
+        clauses.append(AgentRun.created_at >= date_from)
+    if date_to is not None:
+        clauses.append(AgentRun.created_at < date_to)
+    return clauses
+
+
+async def count_runs(
+    session: AsyncSession,
+    *,
+    status: str | None = None,
+    topic: str | None = None,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+) -> int:
+    result = await session.execute(
+        select(func.count())
+        .select_from(AgentRun)
+        .where(*_run_filter_clauses(status=status, topic=topic, date_from=date_from, date_to=date_to))
+    )
+    return int(result.scalar() or 0)
+
+
+async def list_runs_page(
+    session: AsyncSession,
+    *,
+    status: str | None = None,
+    topic: str | None = None,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+    limit: int,
+    offset: int,
+) -> list[AgentRun]:
+    """按创建时间倒序取一页 Run。
+
+    排序加 `id` 做第二键：`created_at` 精度有限，同一秒内创建的多个 Run 若只按
+    单键排序，PostgreSQL 没有义务在两次查询间给出相同顺序——翻页时会出现"某条
+    记录在第 1 页和第 2 页各出现一次，另一条从未出现过"。
+    """
+    result = await session.execute(
+        select(AgentRun)
+        .where(*_run_filter_clauses(status=status, topic=topic, date_from=date_from, date_to=date_to))
+        .order_by(AgentRun.created_at.desc(), AgentRun.id.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+    return list(result.scalars().all())
+
+
+async def list_research_items(session: AsyncSession, run_id: str) -> list[ResearchItem]:
+    """某个 Run 真实落库的研究条目（不是 Graph state 里的副本）。"""
+    result = await session.execute(
+        select(ResearchItem)
+        .where(ResearchItem.agent_run_id == _uuid(run_id))
+        .order_by(ResearchItem.created_at, ResearchItem.id)
+    )
+    return list(result.scalars().all())
+
+
+async def reviews_by_run(
+    session: AsyncSession, run_ids: list[uuid.UUID]
+) -> dict[uuid.UUID, Review]:
+    """批量取每个 Run 的审核记录，避免列表页 N+1。
+
+    Review 挂在 draft 上而不是 run 上，所以经 draft 反查 run_id。
+    同一 draft 理论上只有一条记录（create_review 复用同一行），按 created_at
+    升序让"万一有多条"时后写的覆盖先写的，与 get_review_for_run 的取法一致。
+    """
+    if not run_ids:
+        return {}
+    result = await session.execute(
+        select(Draft.agent_run_id, Review)
+        .join(Review, Review.draft_id == Draft.id)
+        .where(Draft.agent_run_id.in_(run_ids))
+        .order_by(Review.created_at, Review.id)
+    )
+    return {run_id: review for run_id, review in result.all()}
+
+
+async def published_by_run(
+    session: AsyncSession, run_ids: list[uuid.UUID]
+) -> dict[uuid.UUID, PublishedPost]:
+    """批量取每个 Run 的发布记录。没有记录的 Run 不出现在返回的字典里。
+
+    调用方必须把"缺失"当作"没有发布记录"（UI 显示 `—`），**不得**用 Run 状态
+    反推一个发布状态——`published_post.status` 才是发布状态的权威。
+    """
+    if not run_ids:
+        return {}
+    result = await session.execute(
+        select(PublishedPost).where(PublishedPost.agent_run_id.in_(run_ids))
+    )
+    return {row.agent_run_id: row for row in result.scalars().all()}
+
+
+async def drafts_by_run(session: AsyncSession, run_ids: list[uuid.UUID]) -> dict[uuid.UUID, Draft]:
+    """批量取每个 Run 的最新版本草稿（与 get_draft_for_run 的取法一致）。"""
+    if not run_ids:
+        return {}
+    result = await session.execute(
+        select(Draft)
+        .where(Draft.agent_run_id.in_(run_ids))
+        .order_by(Draft.agent_run_id, Draft.version.asc(), Draft.id.asc())
+    )
+    return {row.agent_run_id: row for row in result.scalars().all()}
+
+
+async def count_published_grouped_by_status(session: AsyncSession) -> dict[str, int]:
+    result = await session.execute(
+        select(PublishedPost.status, func.count()).group_by(PublishedPost.status)
+    )
+    return {status: int(count) for status, count in result.all()}
+
+
+async def count_reviews_grouped_by_status(session: AsyncSession) -> dict[str, int]:
+    result = await session.execute(select(Review.status, func.count()).group_by(Review.status))
+    return {status: int(count) for status, count in result.all()}
+
+
+async def _daily_counts(session: AsyncSession, column, *, date_from: datetime) -> dict[str, int]:
+    """按 UTC 自然日分桶计数。
+
+    显式 `timezone('UTC', ...)` 而不是直接 date_trunc：date_trunc 作用在
+    timestamptz 上时用的是**会话时区**，同一个库在不同机器上会给出不同的分桶结果。
+    图的横轴必须是确定的，所以先把时间戳归一化到 UTC 再截断。
+    """
+    bucket = func.date_trunc("day", func.timezone("UTC", column))
+    result = await session.execute(
+        select(bucket, func.count()).where(column >= date_from).group_by(bucket).order_by(bucket)
+    )
+    return {day.date().isoformat(): int(count) for day, count in result.all()}
+
+
+async def daily_run_counts(session: AsyncSession, *, date_from: datetime) -> dict[str, int]:
+    return await _daily_counts(session, AgentRun.created_at, date_from=date_from)
+
+
+async def daily_published_counts(session: AsyncSession, *, date_from: datetime) -> dict[str, int]:
+    """按 published_post.created_at 分桶——它是**尝试发起**的时刻。
+
+    刻意不用 published_at：那只有 `published` 的行才有值，failed / unknown 会
+    整条从趋势里消失，图会看起来比现实乐观。
+    """
+    return await _daily_counts(session, PublishedPost.created_at, date_from=date_from)
+
+
+async def topic_distribution(session: AsyncSession, *, limit: int) -> list[tuple[str, int]]:
+    result = await session.execute(
+        select(AgentRun.topic, func.count())
+        .group_by(AgentRun.topic)
+        .order_by(func.count().desc(), AgentRun.topic.asc())
+        .limit(limit)
+    )
+    return [(topic, int(count)) for topic, count in result.all()]
+
+
+async def average_run_duration(session: AsyncSession) -> tuple[float | None, int, int]:
+    """返回 (平均秒数, 参与计算的 Run 数, Run 总数)。
+
+    只有**终态** Run 才有 `finished_at`（见 TERMINAL_RUN_STATUSES）：approved /
+    edited / waiting_for_review / publishing / publish_unknown 一律为空。因此这个
+    平均值只能覆盖有始有终的那部分 Run，调用方必须把样本数与总数一并展示，
+    否则读图的人会以为它代表全部 Run。
+    """
+    result = await session.execute(
+        select(
+            func.avg(func.extract("epoch", AgentRun.finished_at - AgentRun.started_at)),
+            func.count(),
+        ).where(AgentRun.finished_at.is_not(None), AgentRun.started_at.is_not(None))
+    )
+    average, sampled = result.one()
+    total = int((await session.execute(select(func.count()).select_from(AgentRun))).scalar() or 0)
+    return (float(average) if average is not None else None, int(sampled), total)
+
+
+async def count_review_queue(session: AsyncSession) -> int:
+    result = await session.execute(
+        select(func.count())
+        .select_from(AgentRun)
+        .where(AgentRun.status == REVIEW_QUEUE_RUN_STATUS)
+    )
+    return int(result.scalar() or 0)
+
+
+async def list_review_queue(session: AsyncSession, *, limit: int, offset: int) -> list[AgentRun]:
+    """待人工审核的 Run，最老的在前（先进先出，见 REVIEW_QUEUE_RUN_STATUS 说明）。"""
+    result = await session.execute(
+        select(AgentRun)
+        .where(AgentRun.status == REVIEW_QUEUE_RUN_STATUS)
+        .order_by(AgentRun.created_at.asc(), AgentRun.id.asc())
+        .limit(limit)
+        .offset(offset)
+    )
+    return list(result.scalars().all())
+
+
+async def count_unresolved_publications(session: AsyncSession) -> int:
+    result = await session.execute(
+        select(func.count())
+        .select_from(PublishedPost)
+        .where(PublishedPost.status.in_(UNRESOLVED_STATUSES))
+    )
+    return int(result.scalar() or 0)
+
+
+async def list_unresolved_publications(
+    session: AsyncSession, *, limit: int
+) -> list[PublishedPost]:
+    """需要人工裁决的发布记录。
+
+    `publish_unknown` 排在 `publishing` 前面：前者是一次**已经结束**的尝试，
+    人去看一眼就能裁决；后者可能还在飞行中，立刻去 X 上找反而可能找不到。
+    先把能立刻处理的排前面。
+    """
+    priority = case((PublishedPost.status == STATUS_UNKNOWN, 0), else_=1)
+    result = await session.execute(
+        select(PublishedPost)
+        .where(PublishedPost.status.in_(UNRESOLVED_STATUSES))
+        .order_by(priority, PublishedPost.updated_at.desc())
+        .limit(limit)
+    )
+    return list(result.scalars().all())
+
+
+def _published_filter_clauses(
+    *,
+    status: str | None = None,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+) -> list:
+    clauses = []
+    if status:
+        clauses.append(PublishedPost.status == status)
+    if date_from is not None:
+        clauses.append(PublishedPost.created_at >= date_from)
+    if date_to is not None:
+        clauses.append(PublishedPost.created_at < date_to)
+    return clauses
+
+
+async def count_published(
+    session: AsyncSession,
+    *,
+    status: str | None = None,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+) -> int:
+    result = await session.execute(
+        select(func.count())
+        .select_from(PublishedPost)
+        .where(*_published_filter_clauses(status=status, date_from=date_from, date_to=date_to))
+    )
+    return int(result.scalar() or 0)
+
+
+async def list_published_page(
+    session: AsyncSession,
+    *,
+    status: str | None = None,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+    limit: int,
+    offset: int,
+) -> list[PublishedPost]:
+    result = await session.execute(
+        select(PublishedPost)
+        .where(*_published_filter_clauses(status=status, date_from=date_from, date_to=date_to))
+        .order_by(PublishedPost.created_at.desc(), PublishedPost.id.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+    return list(result.scalars().all())
+
+
+async def get_runs_by_ids(
+    session: AsyncSession, run_ids: list[uuid.UUID]
+) -> dict[uuid.UUID, AgentRun]:
+    """批量取 Run，供 Published / Resolution 列表补上 topic 等展示字段。"""
+    if not run_ids:
+        return {}
+    result = await session.execute(select(AgentRun).where(AgentRun.id.in_(run_ids)))
+    return {row.id: row for row in result.scalars().all()}
