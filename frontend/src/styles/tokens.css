@@ -1,0 +1,70 @@
+/**
+ * 设计变量。
+ *
+ * 这是一个**内部运营控制台**，不是营销页面。所有取值都服务于三个目标：
+ * 信息密度、状态可辨、长时间盯着不累。因此：
+ *   - 不用大面积品牌色、不用渐变、不用阴影堆叠
+ *   - 状态颜色是语义资产，只按状态取值，不做装饰用途
+ *   - 圆角与间距统一取小值，让表格能放下更多行
+ */
+
+:root {
+  /* 层次 */
+  --bg: #f5f6f8;
+  --surface: #ffffff;
+  --surface-sunken: #fafbfc;
+  --border: #e2e5ea;
+  --border-strong: #cbd1d9;
+
+  /* 文字 */
+  --text: #1b1f24;
+  --text-muted: #667085;
+  --text-faint: #98a2b3;
+
+  /* 主色（仅用于交互元素与选中态，不做装饰） */
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-soft: #eff4ff;
+
+  /* 语义色 */
+  --danger: #b42318;
+  --danger-soft: #fef3f2;
+  --danger-border: #fda29b;
+
+  --warn: #b54708;
+  --warn-soft: #fffaeb;
+  --warn-border: #fec84b;
+
+  --ok: #067647;
+  --ok-soft: #ecfdf3;
+  --ok-border: #abefc6;
+
+  /* 排版 */
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', 'PingFang SC',
+    Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono',
+    monospace;
+
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-base: 13px;
+  --text-md: 14px;
+  --text-lg: 17px;
+  --text-xl: 22px;
+
+  /* 间距 */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 28px;
+
+  --radius-sm: 4px;
+  --radius: 6px;
+  --radius-lg: 8px;
+
+  --sidebar-width: 208px;
+  --topbar-height: 52px;
+  --drawer-width: 720px;
+}
