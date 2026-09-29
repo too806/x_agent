@@ -649,6 +649,33 @@ async def test_analytics_distributions(session_factory):
     assert len(data["daily_runs"]) == 7
 
 
+async def test_analytics_survives_a_run_without_a_topic(session_factory):
+    """topic 为 NULL 的 Run 不能把整个 analytics 打挂。
+
+    这是真实复现过的 500：Phase 5A 的 Agent 链路在选定主题**之前**就创建 Run
+    （`create_agent_run(goal=..., topic=NULL)`），于是库里一定存在 topic 为 NULL
+    的行；`topic_distribution` 按 `AgentRun.topic` 分组时把它们也带了出来，落到
+    `TopicCount(topic=None)` 上——而那个字段是 `str`，Pydantic 直接抛
+    ValidationError，整个 `/api/admin/analytics` 变成 500。
+
+    只要有一个正在选题的 Run 在库里，控制台的 Analytics 页就会整页不可用，
+    所以这里钉两层：HTTP 200，以及 NULL **不能**以任何形式出现在分布里。
+    最后一条同时排掉了"用 'unknown' 之类的占位值蒙混过去"这种修法——
+    那会把一个运行中的临时状态说成一种内容主题。
+    """
+    await _make_goal_run(session_factory, goal="还没选主题的目标")
+    await _make_run(session_factory, "有主题的题")
+
+    async with admin_api(session_factory) as api:
+        response = await api.get("/api/admin/analytics")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert [row["topic"] for row in data["topic_distribution"]] == ["有主题的题"]
+    # 排除的是"这张图里的这一条"，不是这个 Run：它照样计入总量。
+    assert data["run_volume"] == 2
+
+
 async def test_analytics_review_other_bucket_absorbs_unknown_statuses(session_factory):
     """三个已知决定之外的 `review.status` 必须落进 other。
 

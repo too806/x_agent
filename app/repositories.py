@@ -818,8 +818,25 @@ async def daily_published_counts(session: AsyncSession, *, date_from: datetime) 
 
 
 async def topic_distribution(session: AsyncSession, *, limit: int) -> list[tuple[str, int]]:
+    """按 topic 聚合 Run，**排除 `topic IS NULL`**。
+
+    `topic` 允许为空是 Phase 5A 引入的正常状态而不是脏数据：Agent 链路在选定主题
+    之前就先创建 Run（`create_agent_run(goal=..., topic=NULL)`，见
+    `docs/phase-5a-agent-brain-design.md`），主题是 Agent 自己选的、选完才回填。
+
+    排除而不是造一个替代值，有两个理由：
+    - 对外形状 `TopicCount.topic` 是 `str`（analytics 响应的一部分），NULL 装不进去，
+      这正是 `/api/admin/analytics` 之前 500 的原因——分组把 NULL 带进了
+      `TopicCount(topic=None)`；
+    - "还没有主题"不是一个 topic。"未知"之类的占位会把一个**运行中的临时状态**
+      说成一种内容类别，读图的人会以为系统产过这类主题。
+
+    代价是正在选题的那部分 Run 暂时不计入这张图——它们仍然计入 `run_volume`，
+    而这张图问的是"已产出的内容分布在哪些主题上"。
+    """
     result = await session.execute(
         select(AgentRun.topic, func.count())
+        .where(AgentRun.topic.is_not(None))
         .group_by(AgentRun.topic)
         .order_by(func.count().desc(), AgentRun.topic.asc())
         .limit(limit)
