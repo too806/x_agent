@@ -152,7 +152,16 @@ def allowed_actions(state: Mapping[str, Any], budget: AgentBudget) -> tuple[Agen
     if filled(state, "research_item_ids"):
         allowed.append(AgentAction.EXTRACT_EVIDENCE)
 
-    if has_evidence(state):
+    # 生成 Angle 的意义在于"它还能被选中、进而变成候选"。候选一旦写出来，
+    # 选 Angle 就被挡在下面那条（候选池里的正文对应的是当时那个角度），
+    # 于是新生成的 Angle 永远选不上——纯粹白做。
+    #
+    # 这不只是一个洁癖问题：`has_evidence` 之后 generate_angles 原本一直可行，
+    # 而它在 FALLBACK_ORDER 里排在 finish 前面，于是"候选池已满 + 最近一轮评审
+    # 已完成"的收尾会反复重新生成 Angle，直到把 WRAPUP_ALLOWANCE 耗光、
+    # 最后被强制 finish（RULE-013 记录的真实场景）。条件与下面的 SELECT_ANGLE
+    # 对齐，两者一起表达同一件事：候选写出来之后，角度就定了。
+    if has_evidence(state) and not candidates:
         allowed.append(AgentAction.GENERATE_ANGLES)
 
     # 已经产出候选之后不再允许重新选 angle：候选池是满的，重新选角度并不能
@@ -183,6 +192,27 @@ def allowed_actions(state: Mapping[str, Any], budget: AgentBudget) -> tuple[Agen
     return tuple(allowed)
 
 
+def run_is_complete(state: Mapping[str, Any], budget: AgentBudget, allowed: set[AgentAction]) -> bool:
+    """成品已就绪，且已经没有动作能再改变结局。
+
+    两个条件：
+
+    1. `ready_to_finish`——有正文，且这一版正文已经被评审过。
+    2. **候选池已满**——`generate_candidates` 被 `max_candidates` 挡住，而 Angle
+       那边在候选写出来之后也已经封口（见 `allowed_actions`）。继续产出是
+       **做不了**，不是"不该做"。
+
+    有待办时不算完成：Critic 还没评（`writer_epoch > critic_epoch`）或刚要求改稿
+    （`revision_pending`）都得先做正事。前者已被 `ready_to_finish` 排除，后者
+    在这里再挡一次。
+    """
+    if not ready_to_finish(state):
+        return False
+    if len(state.get("candidates") or []) < budget.max_candidates:
+        return False
+    return AgentAction.REVISE not in allowed and AgentAction.CRITICIZE not in allowed
+
+
 def pick_fallback(state: Mapping[str, Any], budget: AgentBudget) -> AgentAction:
     """模型选了一个不可行的动作时，确定性地改选一个。
 
@@ -192,6 +222,13 @@ def pick_fallback(state: Mapping[str, Any], budget: AgentBudget) -> AgentAction:
     也不能让图停在一个没有出边的节点上。这是终止性的兜底，不是正常路径。
     """
     allowed = set(allowed_actions(state, budget))
+    # 成品已就绪时，finish 优先于排在它前面的那些"重复劳动"。
+    #
+    # 不能无条件把 finish 提到最前：研究预算刚用尽时还没有成品，那时候的正确
+    # 答案恰恰是"用手上的材料往下走"（见 FALLBACK_ORDER 的说明）。所以只在
+    # `run_is_complete` 成立时提前——那意味着剩下的动作只会重做已完成的工作。
+    if AgentAction.FINISH in allowed and run_is_complete(state, budget, allowed):
+        return AgentAction.FINISH
     for action in FALLBACK_ORDER:
         if action in allowed:
             return action

@@ -134,6 +134,70 @@ def test_angles_are_not_generated_from_an_empty_evidence_pack():
     assert AgentAction.GENERATE_ANGLES in allowed_actions(with_facts, BUDGET)
 
 
+def test_angles_stop_being_generated_once_candidates_exist():
+    """候选写出来之后角度就定了：再生成 Angle 是选不上的白工。
+
+    `SELECT_ANGLE` 早就以这个理由被封（候选池里的正文对应的是当时那个角度），
+    但 `GENERATE_ANGLES` 之前只看 `has_evidence`，于是一直可行。两者是同一件事的
+    两半，必须一起关——否则 Agent 会去生成一批永远选不上的角度。
+    """
+    from app.agent.schemas import EvidencePack
+
+    evidence = EvidencePack.model_validate({"facts": [{"fact": "x", "source_ids": ["s"]}]})
+
+    # 真实需要角度时（还没有候选）照样允许
+    assert AgentAction.GENERATE_ANGLES in allowed_actions(
+        {"evidence_pack": evidence}, BUDGET
+    )
+    # 候选已经写出来之后就封口
+    blocked = {"evidence_pack": evidence, "candidates": [object()]}
+    assert AgentAction.GENERATE_ANGLES not in allowed_actions(blocked, BUDGET)
+
+
+def test_wrapup_finishes_instead_of_repeating_angles():
+    """收尾不该靠"反复生成 Angle"烧完 WRAPUP_ALLOWANCE。
+
+    这是 RULE-013 描述的真实场景：候选池已满、最近一轮评审也已完成，但
+    `generate_angles` 一直可行、又在 `FALLBACK_ORDER` 里排在 `finish` 前面，
+    于是收尾一路 `generate_angles → generate_angles → …` 直到硬顶被强制 finish。
+
+    修完之后回退的第一步就该是 `finish`：预算应当是安全边界，而不是正常完成
+    任务的出口。注意这个 state 里 `EXTRACT_EVIDENCE` **仍然可行**——回退要是
+    按老顺序走，选中它就是同一种"重做已完成的工作"，所以这里断的是结果不是顺序。
+    """
+    state = {
+        "candidate_topics": [object()],
+        "selected_topic": "题目",
+        "research_item_ids": ["id-1"],
+        "research_count": BUDGET.max_research_calls,  # 研究预算已用尽
+        "evidence_pack": _evidence_pack(),
+        "angles": [object()],
+        "selected_angle": object(),
+        "candidates": [object(), object(), object()],  # 池子已满
+        "writer_epoch": 1,
+        "critic_epoch": 1,  # 最近一轮评审已完成
+    }
+    allowed = allowed_actions(state, BUDGET)
+    assert AgentAction.FINISH in allowed
+    assert AgentAction.EXTRACT_EVIDENCE in allowed  # 见证"重做"这条路确实还开着
+    assert pick_fallback(state, BUDGET) is AgentAction.FINISH
+
+
+def test_wrapup_still_advances_before_anything_is_written():
+    """成品出现之前，回退仍然要往前走——finish 不能无条件插队。
+
+    否则研究预算用尽的 Agent 会直接丢掉手上的材料。这条与上一条是一对：
+    "优先 finish"只在**确实已经完成**时成立。
+    """
+    researching = {
+        "candidate_topics": [object()],
+        "selected_topic": "题目",
+        "research_item_ids": ["id-1"],
+        "research_count": BUDGET.max_research_calls,
+    }
+    assert pick_fallback(researching, BUDGET) is AgentAction.EXTRACT_EVIDENCE
+
+
 def test_ready_to_finish_needs_actual_content():
     assert ready_to_finish({}) is False
     assert ready_to_finish({"candidates": [object()], "writer_epoch": 1}) is False
@@ -181,6 +245,12 @@ def _revise_verdict():
     from app.agent.schemas import CriticResult
 
     return CriticResult(candidate_id="c1", decision="revise", score=4.0)
+
+
+def _evidence_pack():
+    from app.agent.schemas import EvidencePack
+
+    return EvidencePack.model_validate({"facts": [{"fact": "x", "source_ids": ["s"]}]})
 
 
 # --------------------------------------------------------------------------
