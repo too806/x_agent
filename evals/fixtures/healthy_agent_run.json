@@ -2,7 +2,7 @@
   "label": "healthy_agent_run",
   "synthetic": true,
   "provenance": "fixture",
-  "note": "synthetic fixture — 一次完全正常的自主运行：8 步走完 discover→research→evidence→angles→candidates→criticize→finish，评审一次通过，进入人工审核但未发布。所有硬门禁应通过。",
+  "note": "synthetic fixture — 一次完全正常的自主运行：8 步走完 discover→research→evidence→angles→candidates→criticize→finish，评审一次通过，进入人工审核但未发布。所有硬门禁应通过。 candidate_topics 已按 Phase 5B.1 的 CandidateTopic 形状迁移（旧字段 topic / signal / confidence 映射为 title / description），分数由 app/agent/trends.py 实算并附在 state.trend_inputs 里；轨迹保留 Phase 5A 时期的动作序列，因此没有 select_topic 这一步。",
   "run_id": "run-fixture-healthy",
   "goal": "帮我找一个最近值得讨论的 AI Agent 话题",
   "budget": {
@@ -18,32 +18,109 @@
     "topic": "Agent 的评测基准正在从「能不能做」转向「做得多稳」",
     "candidate_topics": [
       {
-        "topic": "Agent 的评测基准正在从「能不能做」转向「做得多稳」",
-        "why_now": "最近几周连续出现同一类复现失败报告",
-        "signal": "多个团队公布同一任务上的成功率差异",
-        "source_ids": [
+        "topic_id": "t1",
+        "title": "Agent 的评测基准正在从「能不能做」转向「做得多稳」",
+        "description": "多个团队公布同一任务上的成功率差异",
+        "keywords": [],
+        "source_post_ids": [
           "ri-1",
           "ri-2"
         ],
-        "confidence": 0.9
+        "first_seen_at": "2026-09-18T07:30:00Z",
+        "latest_seen_at": "2026-09-18T09:00:00Z",
+        "observed_at": "2026-09-18T12:00:00Z",
+        "discussion_count": 2,
+        "author_count": 2,
+        "engagement_signal": 593,
+        "recency_score": 0.917,
+        "spread_score": 0.5,
+        "novelty_score": 0.9375,
+        "source_quality_score": 1.0,
+        "engagement_score": 1.0,
+        "trend_score": 84.39,
+        "trend_score_raw": 84.39,
+        "trend_reasons": [
+          "最新一条发布于 3.0 小时前，recency 0.9170（半衰期 24 小时）",
+          "2 位不同作者参与，spread 0.5000（满值 4 人）",
+          "观测互动 593（点赞×1+转发×2+回复×2+引用×3），engagement 1.0000（饱和值 500）",
+          "窗口内首条出现在 94% 处，novelty 0.9375",
+          "引用 2 条来源、其中 2 条可核验，source_quality 1.0000",
+          "trend_score_raw = 100 × (recency×0.3 + spread×0.25 + engagement×0.2 + source_quality×0.15 + novelty×0.1) = 84.39"
+        ],
+        "why_now": "最近几周连续出现同一类复现失败报告",
+        "unknowns": [],
+        "qualification": "qualified",
+        "lifecycle": "researching"
       },
       {
-        "topic": "Agent 工具调用协议的碎片化",
-        "why_now": "三家主要厂商在同一季度更新了各自的工具描述格式",
-        "signal": "格式互不兼容，迁移成本上升",
-        "source_ids": [
+        "topic_id": "t2",
+        "title": "Agent 工具调用协议的碎片化",
+        "description": "格式互不兼容，迁移成本上升",
+        "keywords": [],
+        "source_post_ids": [
           "ri-3"
         ],
-        "confidence": 0.8
+        "first_seen_at": "2026-09-17T20:00:00Z",
+        "latest_seen_at": "2026-09-17T20:00:00Z",
+        "observed_at": "2026-09-18T12:00:00Z",
+        "discussion_count": 1,
+        "author_count": 1,
+        "engagement_signal": 240,
+        "recency_score": 0.63,
+        "spread_score": 0.25,
+        "novelty_score": 0.7778,
+        "source_quality_score": 1.0,
+        "engagement_score": 0.8823,
+        "trend_score": 40.0,
+        "trend_score_raw": 65.57,
+        "trend_reasons": [
+          "最新一条发布于 16.0 小时前，recency 0.6300（半衰期 24 小时）",
+          "1 位不同作者参与，spread 0.2500（满值 4 人）",
+          "观测互动 240（点赞×1+转发×2+回复×2+引用×3），engagement 0.8823（饱和值 500）",
+          "窗口内首条出现在 78% 处，novelty 0.7778",
+          "引用 1 条来源、其中 1 条可核验，source_quality 1.0000",
+          "trend_score_raw = 100 × (recency×0.3 + spread×0.25 + engagement×0.2 + source_quality×0.15 + novelty×0.1) = 65.57",
+          "单一来源上限 40 生效（作者数 1 或可核验来源数 1 不足）"
+        ],
+        "why_now": "三家主要厂商在同一季度更新了各自的工具描述格式",
+        "unknowns": [],
+        "qualification": "weak_support",
+        "lifecycle": "discarded"
       },
       {
-        "topic": "长上下文是否真的解决了 Agent 的记忆问题",
-        "why_now": "新模型把上下文窗口又扩大了",
-        "signal": "实测里 Agent 仍然会忘掉较早的约束",
-        "source_ids": [
+        "topic_id": "t3",
+        "title": "长上下文是否真的解决了 Agent 的记忆问题",
+        "description": "实测里 Agent 仍然会忘掉较早的约束",
+        "keywords": [],
+        "source_post_ids": [
           "ri-4"
         ],
-        "confidence": 0.7
+        "first_seen_at": "2026-09-17T14:00:00Z",
+        "latest_seen_at": "2026-09-17T14:00:00Z",
+        "observed_at": "2026-09-18T12:00:00Z",
+        "discussion_count": 1,
+        "author_count": 1,
+        "engagement_signal": 110,
+        "recency_score": 0.5297,
+        "spread_score": 0.25,
+        "novelty_score": 0.6944,
+        "source_quality_score": 1.0,
+        "engagement_score": 0.7576,
+        "trend_score": 40.0,
+        "trend_score_raw": 59.24,
+        "trend_reasons": [
+          "最新一条发布于 22.0 小时前，recency 0.5297（半衰期 24 小时）",
+          "1 位不同作者参与，spread 0.2500（满值 4 人）",
+          "观测互动 110（点赞×1+转发×2+回复×2+引用×3），engagement 0.7576（饱和值 500）",
+          "窗口内首条出现在 69% 处，novelty 0.6944",
+          "引用 1 条来源、其中 1 条可核验，source_quality 1.0000",
+          "trend_score_raw = 100 × (recency×0.3 + spread×0.25 + engagement×0.2 + source_quality×0.15 + novelty×0.1) = 59.24",
+          "单一来源上限 40 生效（作者数 1 或可核验来源数 1 不足）"
+        ],
+        "why_now": "新模型把上下文窗口又扩大了",
+        "unknowns": [],
+        "qualification": "weak_support",
+        "lifecycle": "discarded"
       }
     ],
     "selected_topic": "Agent 的评测基准正在从「能不能做」转向「做得多稳」",
@@ -238,7 +315,67 @@
     "guardrail_passed": true,
     "guardrail_reasons": [],
     "human_action": null,
-    "final_content": ""
+    "final_content": "",
+    "trend_inputs": [
+      {
+        "topic_id": "t1",
+        "claimed_sources": 2,
+        "items": [
+          {
+            "item_id": "ri-1",
+            "post_id": "x-ri-1",
+            "author": "karpathy_zh",
+            "published_at": "2026-09-18T09:00:00Z",
+            "likes": 210,
+            "reposts": 44,
+            "replies": 31,
+            "quotes": 12
+          },
+          {
+            "item_id": "ri-2",
+            "post_id": "x-ri-2",
+            "author": "eval_weekly",
+            "published_at": "2026-09-18T07:30:00Z",
+            "likes": 96,
+            "reposts": 18,
+            "replies": 22,
+            "quotes": 7
+          }
+        ]
+      },
+      {
+        "topic_id": "t2",
+        "claimed_sources": 1,
+        "items": [
+          {
+            "item_id": "ri-3",
+            "post_id": "x-ri-3",
+            "author": "tooling_guy",
+            "published_at": "2026-09-17T20:00:00Z",
+            "likes": 140,
+            "reposts": 25,
+            "replies": 19,
+            "quotes": 4
+          }
+        ]
+      },
+      {
+        "topic_id": "t3",
+        "claimed_sources": 1,
+        "items": [
+          {
+            "item_id": "ri-4",
+            "post_id": "x-ri-4",
+            "author": "context_nerd",
+            "published_at": "2026-09-17T14:00:00Z",
+            "likes": 58,
+            "reposts": 9,
+            "replies": 14,
+            "quotes": 2
+          }
+        ]
+      }
+    ]
   },
   "trace": [
     {

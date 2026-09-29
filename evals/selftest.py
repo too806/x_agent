@@ -255,6 +255,56 @@ def check_every_gate_can_fail() -> list[str]:
     )
     fired.append("RULE-010")
 
+    # RULE-015：一条爆款 + 单一作者被标成 qualified
+    hype = load(f"{BASE}/single_post_hype.json")
+    _check(_status_of(hype, "RULE-015") == "fail", "RULE-015 未在单条帖子撑起的高分上失败")
+    # 同一个话题只把**分数**抬高（结构不变）：判定仍然必须失败。
+    # 这条断言是为了证明 (c) 那条封顶分支不是死代码——只让 (a)(b) 可失败，
+    # 等于留下一个"分数可以随便写"的口子。
+    inflated = _with_state(
+        hype,
+        candidate_topics=[
+            t.model_copy(update={"trend_score": 96.0}) for t in hype.state.candidate_topics
+        ],
+    )
+    _check(
+        _status_of(inflated, "RULE-015") == "fail",
+        "RULE-015 未在「结构不变、分数被抬高」上失败（单一来源上限那条分支没起作用）",
+    )
+    fired.append("RULE-015")
+
+    # RULE-016：交付了正文，但轨迹里从未抽取过证据
+    _check(
+        _status_of(load(f"{BASE}/missing_evidence.json"), "RULE-016") == "fail",
+        "RULE-016 未在「交付路径没经过证据」上失败",
+    )
+    fired.append("RULE-016")
+
+    # RULE-017：分数不能从观测输入复算出来
+    base = _base()
+    _check(base.state.trend_inputs, "healthy_agent_run 应当带 trend_inputs，否则 RULE-017 判不了")
+    tampered = _with_state(
+        base,
+        candidate_topics=[
+            t.model_copy(
+                update={"trend_score": round(t.trend_score + 7.0, 2)} if index == 0 else {}
+            )
+            for index, t in enumerate(base.state.candidate_topics)
+        ],
+    )
+    _check(
+        _status_of(tampered, "RULE-017") == "fail",
+        "RULE-017 未在「分数与观测输入对不上」上失败",
+    )
+    fired.append("RULE-017")
+
+    # RULE-018：明显过期的话题被标成 fresh
+    _check(
+        _status_of(load(f"{BASE}/stale_topic.json"), "RULE-018") == "fail",
+        "RULE-018 未在 stale 话题被判 qualified 上失败",
+    )
+    fired.append("RULE-018")
+
     _check(
         sorted(fired) == sorted(GATE_RULE_IDS),
         f"被验证会失败的门禁 {sorted(fired)} 与 GATE_RULE_IDS {sorted(GATE_RULE_IDS)} 不一致",
@@ -478,9 +528,80 @@ def check_unavailable_never_reads_as_zero() -> list[str]:
     return ["unavailable 不参与求均值、不被当成 0、空轨迹上的非法动作计数为 unavailable"]
 
 
+def check_trend_rules_discriminate() -> list[str]:
+    """Phase 5B.1 的三条话题规则必须**两边都能判**。
+
+    这条补的是 `check_every_gate_can_fail` 留下的口子：它只要求每条门禁
+    "在违规数据上失败"，于是一条**永远失败**的规则也能过检。而一个永远失败的
+    门禁和一个永远通过的门禁一样没用——它会把每一份数据都标红，然后被人关掉。
+
+    所以每一对断言都是一正一反，而且**对照的数据只差一个变量**：
+
+    - RULE-015：多作者话题通过 / 单条爆款被拦（差别在结构，不在分数）；
+    - RULE-018：fresh 通过 / stale 被拦（差别**只在时间**，材料与作者完全一致）；
+    - RULE-017：带 trend_inputs 的数据通过 / 分数被改动后被拦（差别只在那个数）；
+    - RULE-016：正常交付路径通过 / 从未抽取证据被拦。
+    """
+    notes: list[str] = []
+    pairs = (
+        ("RULE-015", "multi_author_topic", "single_post_hype"),
+        ("RULE-018", "fresh_topic", "stale_topic"),
+        ("RULE-016", "healthy_agent_run", "missing_evidence"),
+    )
+    for rule_id, good, bad in pairs:
+        _check(
+            _status_of(load(f"{BASE}/{good}.json"), rule_id) == "pass",
+            f"{rule_id} 在干净数据 {good} 上应当通过，实际不是",
+        )
+        _check(
+            _status_of(load(f"{BASE}/{bad}.json"), rule_id) == "fail",
+            f"{rule_id} 在违规数据 {bad} 上应当失败，实际不是",
+        )
+        notes.append(f"{rule_id}：{good} 通过 / {bad} 失败")
+
+    good = _base()
+    _check(
+        _status_of(good, "RULE-017") == "pass",
+        "RULE-017 在带 trend_inputs 的 healthy_agent_run 上应当通过，实际不是",
+    )
+    _check(
+        _status_of(
+            _with_state(load(f"{BASE}/multi_author_topic.json"), trend_inputs=[]), "RULE-017"
+        )
+        == "unavailable",
+        "RULE-017 在没有 trend_inputs 的数据上应当 unavailable，而不是给出确定结论",
+    )
+    notes.append("RULE-017：可复算的通过 / 无输入可复算的判为 unavailable")
+
+    # fresh 与 stale 这一对是"只差时间"的对照：材料表与作者完全相同。
+    fresh = load(f"{BASE}/fresh_topic.json").state.candidate_topics[0]
+    stale = load(f"{BASE}/stale_topic.json").state.candidate_topics[0]
+    _check(
+        fresh.author_count == stale.author_count
+        and fresh.discussion_count == stale.discussion_count,
+        "fresh_topic 与 stale_topic 应当同结构（这一对的意义就在于只差时间）",
+    )
+    _check(
+        fresh.qualification.value == "qualified" and stale.qualification.value != "stale",
+        "这一对的前提是：干净那份判 qualified、违规那份被**错误地**判成非 stale",
+    )
+    notes.append(
+        f"fresh/stale 同结构（{fresh.author_count} 位作者 / {fresh.discussion_count} 条材料），"
+        f"差别只在时间"
+    )
+    return notes
+
+
 def check_clean_fixtures_pass() -> list[str]:
     """干净数据必须全绿——否则门禁会因为误伤而被人关掉。"""
-    clean = ("healthy_agent_run", "accepted_candidate", "revision_loop", "invalid_action_recovery")
+    clean = (
+        "healthy_agent_run",
+        "accepted_candidate",
+        "revision_loop",
+        "invalid_action_recovery",
+        "multi_author_topic",
+        "fresh_topic",
+    )
     for label in clean:
         record = load(f"{BASE}/{label}.json")
         report = evaluate_rules(analyze(record))
@@ -531,6 +652,7 @@ CHECKS: tuple[tuple[str, Any], ...] = (
     ("预算耗尽可观察但不是硬失败", check_budget_exhaustion_is_observable_not_fatal),
     ("unavailable 不会被读成 0", check_unavailable_never_reads_as_zero),
     ("干净数据全绿", check_clean_fixtures_pass),
+    ("话题规则两边都能判", check_trend_rules_discriminate),
     ("--live 被拒绝", check_live_mode_is_refused),
     ("分数卡没有总分", check_scorecard_has_no_total),
 )

@@ -1,0 +1,348 @@
+{
+  "label": "missing-evidence",
+  "synthetic": true,
+  "provenance": "fixture",
+  "note": "synthetic fixture — 正文交付了，但**轨迹里从来没有 extract_evidence 这一步**，state 里也没有证据包。同一个缺陷从两个方向都看得见，而两条规则各自只看一边：RULE-016 读轨迹（交付路径没经过证据抽取），RULE-006 读 state（有候选正文但 0 条事实、选中的角度没有引用）。这正是两条规则并存的意义——state 齐全只说明结果对，不说明过程对。另：轨迹里 generate_angles 发生在没有任何证据的时候，所以那一步 input_summary 的 allowed= 里不会有它，RULE-014 会作为观察项记下这一点。",
+  "run_id": "run-fixture-missing-evidence",
+  "goal": "帮我把上一轮那个 Agent 话题写成一条可以发的帖子",
+  "budget": {
+    "max_steps": 12,
+    "max_research_calls": 4,
+    "max_candidates": 3,
+    "max_revisions": 2,
+    "candidates_per_round": 3
+  },
+  "state": {
+    "run_id": "run-fixture-missing-evidence",
+    "goal": "帮我把上一轮那个 Agent 话题写成一条可以发的帖子",
+    "topic": "Agent 的评测应当把「重试后成功率」作为主指标",
+    "candidate_topics": [
+      {
+        "topic_id": "t1",
+        "title": "Agent 的评测应当把「重试后成功率」作为主指标",
+        "description": "这条结论是从检索结果的标题里读出来的，没有抽取过任何事实。",
+        "keywords": [],
+        "source_post_ids": [
+          "ri-1",
+          "ri-2",
+          "ri-3",
+          "ri-4",
+          "ri-5",
+          "ri-6"
+        ],
+        "first_seen_at": "2026-09-17T06:00:00Z",
+        "latest_seen_at": "2026-09-18T10:00:00Z",
+        "observed_at": "2026-09-18T12:00:00Z",
+        "discussion_count": 6,
+        "author_count": 6,
+        "engagement_signal": 238,
+        "recency_score": 0.9439,
+        "spread_score": 1.0,
+        "novelty_score": 0.5833,
+        "source_quality_score": 1.0,
+        "engagement_score": 0.8809,
+        "trend_score": 91.77,
+        "trend_score_raw": 91.77,
+        "trend_reasons": [
+          "最新一条发布于 2.0 小时前，recency 0.9439（半衰期 24 小时）",
+          "6 位不同作者参与，spread 1.0000（满值 4 人）",
+          "观测互动 238（点赞×1+转发×2+回复×2+引用×3），engagement 0.8809（饱和值 500）",
+          "窗口内首条出现在 58% 处，novelty 0.5833",
+          "引用 6 条来源、其中 6 条可核验，source_quality 1.0000",
+          "trend_score_raw = 100 × (recency×0.3 + spread×0.25 + engagement×0.2 + source_quality×0.15 + novelty×0.1) = 91.77"
+        ],
+        "why_now": "多个账号都在说同一件事",
+        "unknowns": [],
+        "qualification": "qualified",
+        "lifecycle": "researching"
+      }
+    ],
+    "trend_inputs": [
+      {
+        "topic_id": "t1",
+        "claimed_sources": 6,
+        "items": [
+          {
+            "item_id": "ri-1",
+            "post_id": "x-ri-1",
+            "author": "agent_watcher",
+            "published_at": "2026-09-18T10:00:00Z",
+            "likes": 40,
+            "reposts": 8,
+            "replies": 5,
+            "quotes": 2
+          },
+          {
+            "item_id": "ri-2",
+            "post_id": "x-ri-2",
+            "author": "ml_practitioner",
+            "published_at": "2026-09-18T08:00:00Z",
+            "likes": 25,
+            "reposts": 5,
+            "replies": 4,
+            "quotes": 1
+          },
+          {
+            "item_id": "ri-3",
+            "post_id": "x-ri-3",
+            "author": "tooling_guy",
+            "published_at": "2026-09-18T05:00:00Z",
+            "likes": 30,
+            "reposts": 7,
+            "replies": 3,
+            "quotes": 2
+          },
+          {
+            "item_id": "ri-4",
+            "post_id": "x-ri-4",
+            "author": "eval_weekly",
+            "published_at": "2026-09-18T00:00:00Z",
+            "likes": 18,
+            "reposts": 4,
+            "replies": 3,
+            "quotes": 0
+          },
+          {
+            "item_id": "ri-5",
+            "post_id": "x-ri-5",
+            "author": "infra_notes",
+            "published_at": "2026-09-17T16:00:00Z",
+            "likes": 12,
+            "reposts": 2,
+            "replies": 2,
+            "quotes": 0
+          },
+          {
+            "item_id": "ri-6",
+            "post_id": "x-ri-6",
+            "author": "context_nerd",
+            "published_at": "2026-09-17T06:00:00Z",
+            "likes": 8,
+            "reposts": 1,
+            "replies": 1,
+            "quotes": 0
+          }
+        ]
+      }
+    ],
+    "selected_topic": "Agent 的评测应当把「重试后成功率」作为主指标",
+    "research_item_ids": [
+      "ri-1",
+      "ri-2",
+      "ri-3",
+      "ri-4",
+      "ri-5",
+      "ri-6"
+    ],
+    "evidence_pack": null,
+    "angles": [
+      {
+        "angle_id": "a1",
+        "claim": "Agent 的评测应当把「重试后成功率」作为主指标，单轮成功率已经失去区分度",
+        "why_it_matters": "口径决定优化方向，继续刷单轮成功率会把工程资源投向错误的地方",
+        "evidence_ids": [],
+        "risk": "对手方会说方差来自任务集",
+        "confidence": 0.6
+      },
+      {
+        "angle_id": "a2",
+        "claim": "失败集中在错误恢复分支，瓶颈在工程健壮性而不是模型能力",
+        "why_it_matters": "这解释了为什么能力提升没有转化为成功率提升",
+        "evidence_ids": [
+          "f2"
+        ],
+        "risk": "单一样本，可能是特定工具的问题",
+        "confidence": 0.6
+      },
+      {
+        "angle_id": "a3",
+        "claim": "评测口径的变化本身就是行业转向的信号",
+        "why_it_matters": "口径是公开承诺，改口径意味着有人承认了旧口径不够用",
+        "evidence_ids": [
+          "f3"
+        ],
+        "risk": "证据只有一条，属于解读而非事实",
+        "confidence": 0.5
+      }
+    ],
+    "selected_angle": {
+      "angle_id": "a1",
+      "claim": "Agent 的评测应当把「重试后成功率」作为主指标，单轮成功率已经失去区分度",
+      "why_it_matters": "口径决定优化方向，继续刷单轮成功率会把工程资源投向错误的地方",
+      "evidence_ids": [],
+      "risk": "对手方会说方差来自任务集",
+      "confidence": 0.6
+    },
+    "candidates": [
+      {
+        "candidate_id": "c0",
+        "label": "直接观点",
+        "revision": 0,
+        "content": "单轮成功率这个指标已经该退休了。同一个 Agent，任务集没变，两次公布差 11 个百分点——这个数字说明的不是模型不稳，是指标本身没有区分度。"
+      },
+      {
+        "candidate_id": "c1",
+        "label": "信息密集",
+        "revision": 0,
+        "content": "三件事放在一起看：一，同任务集的两次公布成功率相差 11 个百分点；二，失败样本 60% 集中在工具返回异常后的恢复分支；三，有报告已经把口径从「是否完成」改成「重试后是否完成」。"
+      },
+      {
+        "candidate_id": "c2",
+        "label": "反共识",
+        "revision": 0,
+        "content": "大家都在等更强的模型来解决 Agent 不稳的问题，但数据不支持这个方向。失败样本里六成发生在工具异常后的恢复分支上——这部分靠模型能力提升基本救不回来。"
+      }
+    ],
+    "critic_result": {
+      "candidate_id": "c1",
+      "score": 8.5,
+      "flags": [],
+      "revision_targets": [],
+      "decision": "accept",
+      "factual_support": 8.0,
+      "stance_strength": 8.0,
+      "specificity": 8.0,
+      "generic_ai_style": 2.0,
+      "hook_strength": 7.5,
+      "persona_fit": 8.0,
+      "evidence_binding": 8.0
+    },
+    "critic_results": [
+      {
+        "candidate_id": "c0",
+        "score": 7.5,
+        "flags": [],
+        "revision_targets": [],
+        "decision": "accept",
+        "factual_support": 8.0,
+        "stance_strength": 8.0,
+        "specificity": 8.0,
+        "generic_ai_style": 2.0,
+        "hook_strength": 7.5,
+        "persona_fit": 8.0,
+        "evidence_binding": 8.0
+      },
+      {
+        "candidate_id": "c1",
+        "score": 8.5,
+        "flags": [],
+        "revision_targets": [],
+        "decision": "accept",
+        "factual_support": 8.0,
+        "stance_strength": 8.0,
+        "specificity": 8.0,
+        "generic_ai_style": 2.0,
+        "hook_strength": 7.5,
+        "persona_fit": 8.0,
+        "evidence_binding": 8.0
+      },
+      {
+        "candidate_id": "c2",
+        "score": 8.0,
+        "flags": [],
+        "revision_targets": [],
+        "decision": "accept",
+        "factual_support": 8.0,
+        "stance_strength": 8.0,
+        "specificity": 8.0,
+        "generic_ai_style": 2.0,
+        "hook_strength": 7.5,
+        "persona_fit": 8.0,
+        "evidence_binding": 8.0
+      }
+    ],
+    "critic_tally": {
+      "accept": 3,
+      "revise": 0,
+      "reject": 0
+    },
+    "step_count": 8,
+    "research_count": 2,
+    "revision_count": 0,
+    "writer_epoch": 1,
+    "critic_epoch": 1,
+    "draft_content": "三件事放在一起看：一，同任务集的两次公布成功率相差 11 个百分点；二，失败样本 60% 集中在工具返回异常后的恢复分支；三，有报告已经把口径从「是否完成」改成「重试后是否完成」。",
+    "draft_id": "draft-fixture-missing-evidence",
+    "guardrail_passed": true,
+    "guardrail_reasons": [],
+    "human_action": null,
+    "final_content": ""
+  },
+  "trace": [
+    {
+      "step": 1,
+      "action": "discover_topics",
+      "reason": "还没有候选选题，先做一次发现，看看最近有什么值得讨论的信号。",
+      "target": null,
+      "input_summary": "allowed=research_topic,discover_topics; step=0/12; research=0/4; topics=0; materials=0; facts=0; angles=0; candidates=0; revisions=0/2",
+      "result_summary": "检索「Agent 评测口径」取回 6 条材料，发现 1 个候选选题"
+    },
+    {
+      "step": 2,
+      "action": "select_topic",
+      "reason": "t1 的 trend_score 最高且判定达标，先把它定下来。",
+      "target": "t1",
+      "input_summary": "allowed=select_topic,research_topic; step=1/12; research=1/4; topics=1; materials=0; facts=0; angles=0; candidates=0; revisions=0/2",
+      "result_summary": "选定 t1：Agent 的评测应当把「重试后成功率」作为主指标"
+    },
+    {
+      "step": 3,
+      "action": "research_topic",
+      "reason": "题目定了，先去取它的原始材料。",
+      "target": "Agent 的评测应当把「重试后成功率」作为主指标",
+      "input_summary": "allowed=research_topic; step=2/12; research=1/4; topics=1; materials=0; facts=0; angles=0; candidates=0; revisions=0/2",
+      "result_summary": "研究主题「Agent 的评测应当把「重试后成功率」作为主指标」，取回 6 条材料"
+    },
+    {
+      "step": 4,
+      "action": "generate_angles",
+      "reason": "证据在手，接下来把它变成有立场的观点，而不是继续堆材料。",
+      "target": null,
+      "input_summary": "allowed=research_topic,deepen_research,extract_evidence; step=3/12; research=2/4; topics=1; materials=6; facts=0; angles=0; candidates=0; revisions=0/2",
+      "result_summary": "生成 3 个候选观点"
+    },
+    {
+      "step": 5,
+      "action": "select_angle",
+      "reason": "a1 的证据链最完整，选它作为这一轮的写作立场。",
+      "target": "a1",
+      "input_summary": "allowed=research_topic,deepen_research,extract_evidence,select_angle; step=4/12; research=2/4; topics=1; materials=6; facts=0; angles=3; candidates=0; revisions=0/2",
+      "result_summary": "选定 a1：Agent 的评测应当把「重试后成功率」作为主指标，单轮成功率已经失去区分度"
+    },
+    {
+      "step": 6,
+      "action": "generate_candidates",
+      "reason": "立场已经定了，可以按不同写法一次写出三条候选，让评审有得比较。",
+      "target": null,
+      "input_summary": "allowed=research_topic,deepen_research,extract_evidence,select_angle,generate_candidates; step=5/12; research=2/4; topics=1; materials=6; facts=0; angles=3; candidates=0; revisions=0/2",
+      "result_summary": "写出 3 条候选：直接观点、信息密集、反共识"
+    },
+    {
+      "step": 7,
+      "action": "criticize",
+      "reason": "候选还没有被评价过，交出去之前必须先过一轮评审。",
+      "target": null,
+      "input_summary": "allowed=research_topic,deepen_research,extract_evidence,criticize; step=6/12; research=2/4; topics=1; materials=6; facts=0; angles=3; candidates=3; revisions=0/2",
+      "result_summary": "评价 3 条：c0 accept(7.5)；c1 accept(8.5)；c2 accept(8.0)。聚焦 c1"
+    },
+    {
+      "step": 8,
+      "action": "finish",
+      "reason": "三条候选都已评审通过，得分最高的那条交给人工审核。",
+      "target": null,
+      "input_summary": "allowed=research_topic,deepen_research,extract_evidence,finish; step=7/12; research=2/4; topics=1; materials=6; facts=0; angles=3; candidates=3; revisions=0/2",
+      "result_summary": "交付候选 c1（信息密集，第 0 稿）"
+    }
+  ],
+  "outcome": {
+    "run_status": "waiting_for_review",
+    "human_review_reached": true,
+    "human_action": null,
+    "published": false,
+    "publish_initiated_by": "none"
+  },
+  "content_quality": {
+    "annotator": "",
+    "note": "synthetic fixture：不填人工标注，评估报告应如实显示 dimensions 全为 unavailable"
+  }
+}

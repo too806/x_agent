@@ -2,7 +2,7 @@
   "label": "invalid_action_recovery",
   "synthetic": true,
   "provenance": "fixture",
-  "note": "synthetic fixture — 第 2 步模型在还没有任何证据时就想 generate_angles，生产按 FALLBACK_ORDER 把它换成 extract_evidence 并在 reason 里写下回退标记。运行本身**完全正常地结束**（这正是要演示的点：回退是安全网，接住了错误决策，所以从结果上看不出任何问题）。RULE-010 必须 FAIL：模型确实提出了一个不可行动作，代价是那一步的决策权被收走。RULE-014 应通过——被记录下来的 extract_evidence 当时是合法的。",
+  "note": "synthetic fixture — 第 2 步模型在还没有任何证据时就想 generate_angles，生产按 FALLBACK_ORDER 把它换成 extract_evidence 并在 reason 里写下回退标记。运行本身**完全正常地结束**（这正是要演示的点：回退是安全网，接住了错误决策，所以从结果上看不出任何问题）。RULE-010 必须 FAIL：模型确实提出了一个不可行动作，代价是那一步的决策权被收走。RULE-014 应通过——被记录下来的 extract_evidence 当时是合法的。 candidate_topics 已按 Phase 5B.1 的 CandidateTopic 形状迁移（旧字段 topic / signal / confidence 映射为 title / description），分数由 app/agent/trends.py 实算并附在 state.trend_inputs 里；轨迹保留 Phase 5A 时期的动作序列，因此没有 select_topic 这一步。",
   "run_id": "run-fixture-invalid-action-recovery",
   "goal": "长上下文是不是真的解决了 Agent 的记忆问题",
   "budget": {
@@ -18,22 +18,74 @@
     "topic": "长上下文并没有解决 Agent 的记忆问题",
     "candidate_topics": [
       {
-        "topic": "长上下文并没有解决 Agent 的记忆问题",
-        "why_now": "新模型把上下文窗口又扩大了一个量级",
-        "signal": "实测里 Agent 仍然会忘掉较早的约束",
-        "source_ids": [
-          "ri-1"
-        ],
-        "confidence": 0.85
-      },
-      {
-        "topic": "Agent 的工具调用在长会话里开始退化",
-        "why_now": "多份复现报告指向同一个退化点",
-        "signal": "同样的工具在同一会话的第 30 轮开始传错参数",
-        "source_ids": [
+        "topic_id": "t1",
+        "title": "长上下文并没有解决 Agent 的记忆问题",
+        "description": "实测里 Agent 仍然会忘掉较早的约束",
+        "keywords": [],
+        "source_post_ids": [
+          "ri-1",
           "ri-2"
         ],
-        "confidence": 0.7
+        "first_seen_at": "2026-09-18T07:30:00Z",
+        "latest_seen_at": "2026-09-18T09:00:00Z",
+        "observed_at": "2026-09-18T12:00:00Z",
+        "discussion_count": 2,
+        "author_count": 2,
+        "engagement_signal": 593,
+        "recency_score": 0.917,
+        "spread_score": 0.5,
+        "novelty_score": 0.9375,
+        "source_quality_score": 1.0,
+        "engagement_score": 1.0,
+        "trend_score": 84.39,
+        "trend_score_raw": 84.39,
+        "trend_reasons": [
+          "最新一条发布于 3.0 小时前，recency 0.9170（半衰期 24 小时）",
+          "2 位不同作者参与，spread 0.5000（满值 4 人）",
+          "观测互动 593（点赞×1+转发×2+回复×2+引用×3），engagement 1.0000（饱和值 500）",
+          "窗口内首条出现在 94% 处，novelty 0.9375",
+          "引用 2 条来源、其中 2 条可核验，source_quality 1.0000",
+          "trend_score_raw = 100 × (recency×0.3 + spread×0.25 + engagement×0.2 + source_quality×0.15 + novelty×0.1) = 84.39"
+        ],
+        "why_now": "新模型把上下文窗口又扩大了一个量级",
+        "unknowns": [],
+        "qualification": "qualified",
+        "lifecycle": "researching"
+      },
+      {
+        "topic_id": "t2",
+        "title": "Agent 的工具调用在长会话里开始退化",
+        "description": "同样的工具在同一会话的第 30 轮开始传错参数",
+        "keywords": [],
+        "source_post_ids": [
+          "ri-3"
+        ],
+        "first_seen_at": "2026-09-17T20:00:00Z",
+        "latest_seen_at": "2026-09-17T20:00:00Z",
+        "observed_at": "2026-09-18T12:00:00Z",
+        "discussion_count": 1,
+        "author_count": 1,
+        "engagement_signal": 240,
+        "recency_score": 0.63,
+        "spread_score": 0.25,
+        "novelty_score": 0.7778,
+        "source_quality_score": 1.0,
+        "engagement_score": 0.8823,
+        "trend_score": 40.0,
+        "trend_score_raw": 65.57,
+        "trend_reasons": [
+          "最新一条发布于 16.0 小时前，recency 0.6300（半衰期 24 小时）",
+          "1 位不同作者参与，spread 0.2500（满值 4 人）",
+          "观测互动 240（点赞×1+转发×2+回复×2+引用×3），engagement 0.8823（饱和值 500）",
+          "窗口内首条出现在 78% 处，novelty 0.7778",
+          "引用 1 条来源、其中 1 条可核验，source_quality 1.0000",
+          "trend_score_raw = 100 × (recency×0.3 + spread×0.25 + engagement×0.2 + source_quality×0.15 + novelty×0.1) = 65.57",
+          "单一来源上限 40 生效（作者数 1 或可核验来源数 1 不足）"
+        ],
+        "why_now": "多份复现报告指向同一个退化点",
+        "unknowns": [],
+        "qualification": "weak_support",
+        "lifecycle": "discarded"
       }
     ],
     "selected_topic": "长上下文并没有解决 Agent 的记忆问题",
@@ -213,7 +265,51 @@
     "guardrail_passed": true,
     "guardrail_reasons": [],
     "human_action": null,
-    "final_content": ""
+    "final_content": "",
+    "trend_inputs": [
+      {
+        "topic_id": "t1",
+        "claimed_sources": 2,
+        "items": [
+          {
+            "item_id": "ri-1",
+            "post_id": "x-ri-1",
+            "author": "karpathy_zh",
+            "published_at": "2026-09-18T09:00:00Z",
+            "likes": 210,
+            "reposts": 44,
+            "replies": 31,
+            "quotes": 12
+          },
+          {
+            "item_id": "ri-2",
+            "post_id": "x-ri-2",
+            "author": "eval_weekly",
+            "published_at": "2026-09-18T07:30:00Z",
+            "likes": 96,
+            "reposts": 18,
+            "replies": 22,
+            "quotes": 7
+          }
+        ]
+      },
+      {
+        "topic_id": "t2",
+        "claimed_sources": 1,
+        "items": [
+          {
+            "item_id": "ri-3",
+            "post_id": "x-ri-3",
+            "author": "tooling_guy",
+            "published_at": "2026-09-17T20:00:00Z",
+            "likes": 140,
+            "reposts": 25,
+            "replies": 19,
+            "quotes": 4
+          }
+        ]
+      }
+    ]
   },
   "trace": [
     {

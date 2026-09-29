@@ -1,7 +1,7 @@
 {
   "name": "agent-evaluation-lab-baseline",
-  "version": "1.0.0",
-  "note": "10 条基准目标。每条把工作单第三节里的一个评估问题，绑到一个 fixture 上——**不调用真实 X，也不调用 LLM**，所以整套基准可以在任意机器上逐位复现。",
+  "version": "1.1.0",
+  "note": "16 条基准目标（10 条 Phase 5A.1 + 6 条 Phase 5B.1）。每条把工作单里的一个评估问题，绑到一个 fixture 上——**不调用真实 X，也不调用 LLM**，所以整套基准可以在任意机器上逐位复现。",
   "how_to_read": [
     "goal 是「这条基准想回答什么」，question 是它在评估问题清单里的出处，fixture 是回答它的那份数据。",
     "expect 只断言**回归门禁的结论**（§14 定义的那些），不断言任何指标数值。",
@@ -116,6 +116,78 @@
       "expect": {
         "passed": true,
         "gate_failures": []
+      }
+    },
+    {
+      "id": "G-011",
+      "goal": "由多位作者真实参与、且有编造出处被如实扣分的话题，能不能被正确地判为值得继续研究——而不是把所有话题都压低",
+      "question": "「有讨论」与「值得继续研究」是否真的被分开判定（Trend Scout 的对照组）",
+      "fixture": "multi_author_topic",
+      "expect": {
+        "passed": true,
+        "gate_failures": []
+      }
+    },
+    {
+      "id": "G-012",
+      "goal": "一条爆款帖子 + 单一作者，被记录成 qualified 并选中继续研究——这个判定能不能被独立拦下",
+      "question": "单条帖子能不能单独制造高可信 trend（工作单第十一 / 二十六节）",
+      "fixture": "single_post_hype",
+      "expect": {
+        "passed": false,
+        "gate_failures": [
+          "RULE-015"
+        ]
+      }
+    },
+    {
+      "id": "G-013",
+      "goal": "与上一份**同结构、只有时间不同**的话题（8 条材料 / 5 位作者 / 最新 1.5 小时前）能不能被正确地判为 fresh",
+      "question": "stale 与 fresh 的判别依据是不是**时间**，而不是规模或互动量",
+      "fixture": "fresh_topic",
+      "expect": {
+        "passed": true,
+        "gate_failures": []
+      }
+    },
+    {
+      "id": "G-014",
+      "goal": "同样结构的材料，但最新一条已是 100 小时前（整批落在 72 小时窗口之外），却被判 qualified 并选中研究——能不能被拦下",
+      "question": "stale topic 会不会被标记为 fresh（工作单第二十六节）",
+      "fixture": "stale_topic",
+      "expect": {
+        "passed": false,
+        "gate_failures": [
+          "RULE-018"
+        ]
+      }
+    },
+    {
+      "id": "G-015",
+      "goal": "被选中并决定了正文的那条角度，置信度 0.85，却一条证据都没引——能不能被拦下",
+      "question": "最终 claim 是否可追溯到 evidence（工作单第二十六节）",
+      "fixture": "unsupported_claim",
+      "expect": {
+        "passed": false,
+        "gate_failures": [
+          "RULE-006"
+        ]
+      }
+    },
+    {
+      "id": "G-016",
+      "goal": "正文交付了，但整个运行从未抽取过证据——这件事能不能被同时从 state 与 trace 两个方向看见",
+      "question": "交付路径是否真的经过证据；state 与 trace 是否互相印证",
+      "fixture": "missing_evidence",
+      "expect": {
+        "passed": false,
+        "gate_failures": [
+          "RULE-006",
+          "RULE-016"
+        ],
+        "observations": [
+          "RULE-014"
+        ]
       }
     }
   ]

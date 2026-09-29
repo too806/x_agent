@@ -1,4 +1,4 @@
-"""行为规则 RULE-001 … RULE-012。
+"""行为规则 RULE-001 … RULE-018。
 
 每条规则是一个纯函数 `(RunAnalysis) -> RuleResult`，注册在 `RULES` 里。
 没有基类、没有装饰器：规则之间不共享状态，唯一需要共享的是 `RunAnalysis`，
@@ -12,12 +12,21 @@
 
 from __future__ import annotations
 
-from typing import Callable, Literal
+from datetime import datetime, timezone
+from typing import Any, Callable, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.agent.budget import WRAPUP_ALLOWANCE, AgentBudget
-from app.agent.schemas import AgentAction
+from app.agent.schemas import AgentAction, TopicLifecycle, TopicQualification
+from app.agent.trends import (
+    MIN_AUTHORS_FOR_QUALIFIED,
+    MIN_SOURCES_FOR_QUALIFIED,
+    SINGLE_SOURCE_SCORE_CAP,
+    STALE_AFTER_HOURS,
+    TopicScanItem,
+    score_topic,
+)
 from evals.analysis import (
     METHOD_MARKER,
     METHOD_NONE,
@@ -36,6 +45,9 @@ Status = Literal["pass", "fail", "unavailable"]
 FINISH = AgentAction.FINISH.value
 REVISE = AgentAction.REVISE.value
 CRITICIZE = AgentAction.CRITICIZE.value
+EXTRACT_EVIDENCE = AgentAction.EXTRACT_EVIDENCE.value
+GENERATE_ANGLES = AgentAction.GENERATE_ANGLES.value
+GENERATE_CANDIDATES = AgentAction.GENERATE_CANDIDATES.value
 
 #: 强制收尾那一步本身占的步数。
 #:
@@ -813,6 +825,430 @@ def rule_012_no_duplicate_research(analysis: RunAnalysis) -> RuleResult:
     )
 
 
+# --------------------------------------------------------------------------
+# RULE-015 … RULE-018：Phase 5B.1 的 Trend Scout / Evidence Intelligence
+#
+# 这四条都只读**记录下来的判断**（state 上的候选选题分档、交付路径、可复算性），
+# 不复算一遍生产的意思。区别在于：前四层规则查"流程有没有走对"，
+# 这四条查"话题层的结论有没有依据"。
+# --------------------------------------------------------------------------
+def rule_015_a_single_post_cannot_make_a_trend(analysis: RunAnalysis) -> RuleResult:
+    """查什么：被判定为 `qualified` 的候选选题，必须真的撑得起这个判定。
+
+    三条子检查，全部只看**观测到的结构量**，一条也不看分数：
+
+    a) `qualified` ⇒ 不同作者数 ≥ `MIN_AUTHORS_FOR_QUALIFIED`；
+    b) `qualified` ⇒ 可核验来源数 ≥ `MIN_SOURCES_FOR_QUALIFIED`；
+    c) 作者数或来源数不足时，`trend_score` 不得超过 `SINGLE_SOURCE_SCORE_CAP`。
+
+    为什么值得查：工作单第十一 / 二十六节把这条写成了点名要求
+    （"单条帖子不能单独制造高可信 trend"）。生产侧已经在 `app/agent/trends.py`
+    里用封顶与硬门槛实现了它，但评估**不能因此不看**：这条规则复核的是
+    "记录下来的那个判定"，而不是产生它的那段代码。一旦有人绕开打分
+    （手写一个 95 分、或从别处抄一份候选进来），实现再正确也拦不住，
+    而报告会全绿。
+
+    (a)(b) 用 `>=` 而不是"分数够高就行"，正是因为"一位作者连发十条"
+    与"四位作者各说一句"在互动量上可能相等，在**讨论**上则不是一件事。
+
+    判不出来时：没有任何候选选题 ⇒ unavailable。把"没发现选题"当作通过，
+    等于给一次什么都没做的运行发一张合格证。
+    """
+    topics = analysis.record.state.candidate_topics
+    if not topics:
+        return _unknown(
+            "RULE-015", "单条帖子不能单独制造高可信 trend", "gate",
+            "本次运行没有任何候选选题，这条判不了",
+        )
+
+    problems: list[str] = []
+    qualified = 0
+    for topic in topics:
+        label = topic.topic_id or topic.title
+        thin = (
+            topic.author_count < MIN_AUTHORS_FOR_QUALIFIED
+            or topic.discussion_count < MIN_SOURCES_FOR_QUALIFIED
+        )
+        if topic.qualification == TopicQualification.QUALIFIED:
+            qualified += 1
+            if topic.author_count < MIN_AUTHORS_FOR_QUALIFIED:
+                problems.append(
+                    f"{label}「{topic.title}」被判 qualified，但只有 "
+                    f"{topic.author_count} 位不同作者（门槛 {MIN_AUTHORS_FOR_QUALIFIED}）"
+                )
+            if topic.discussion_count < MIN_SOURCES_FOR_QUALIFIED:
+                problems.append(
+                    f"{label}「{topic.title}」被判 qualified，但只有 "
+                    f"{topic.discussion_count} 条可核验材料（门槛 {MIN_SOURCES_FOR_QUALIFIED}）"
+                )
+        if thin and topic.trend_score > SINGLE_SOURCE_SCORE_CAP:
+            problems.append(
+                f"{label}「{topic.title}」只有 {topic.author_count} 位作者 / "
+                f"{topic.discussion_count} 条材料，trend_score {topic.trend_score:.2f} "
+                f"超过单一来源上限 {SINGLE_SOURCE_SCORE_CAP:g}"
+            )
+
+    if problems:
+        return _fail(
+            "RULE-015", "单条帖子不能单独制造高可信 trend", "gate",
+            "；".join(problems[:5]) + ("…" if len(problems) > 5 else ""),
+            *problems,
+        )
+    return _pass(
+        "RULE-015", "单条帖子不能单独制造高可信 trend", "gate",
+        f"{len(topics)} 个候选选题的结构量都撑得起各自的判定（{qualified} 个 qualified）",
+        *[
+            f"{t.topic_id or t.title}：{t.author_count} 位作者 / "
+            f"{t.discussion_count} 条材料 / {t.trend_score:.2f} 分 / {t.qualification.value}"
+            for t in topics
+        ],
+    )
+
+
+def rule_016_delivery_path_went_through_evidence(analysis: RunAnalysis) -> RuleResult:
+    """查什么：交付出来的正文，其**生成路径**必须经过证据与评审两步。
+
+    三条子检查，全部读 `decision_trace` 的动作**顺序**：
+
+    a) 交付了正文 ⇒ 轨迹里必须出现过 `extract_evidence`；
+    b) `extract_evidence` 必须排在第一个生成动作（`generate_angles` /
+       `generate_candidates`）**之前**；
+    c) 交付了正文 ⇒ `criticize` 必须出现在最后一次 `generate_candidates` 之后。
+
+    为什么值得查：这条与 RULE-006 是一对，但看的**不是同一份数据**。
+    RULE-006 读 state（"证据包里有没有事实、角度引的 id 在不在里面"），
+    这条读 trace（"这份证据是不是这一步真的产出的"）。
+
+    差别不是学术的：一份"证据包存在、角度也引了真实 fact_id"的 state，
+    完全可以对应一条**从未抽取过证据**的轨迹——从 checkpoint 恢复、
+    手工拼装的导出、或某个跳过抽取节点的路径都会这样。此时 RULE-006 会
+    正确地放行（它看到的一切都是自洽的），而正文的来路其实没有凭据。
+    换个方向也一样：state 齐全只说明**结果**对，不说明**过程**对。
+
+    (c) 是同一件事在评审侧的一半：正文被交付，而没有任何一轮
+    `criticize` 晚于它的生成——那不是"评审通过了"，是"没有评审"。
+
+    判不出来时：轨迹为空 ⇒ unavailable；本次运行没有交付正文 ⇒ pass
+    （不适用，不是失败）。把"没交付"判成失败会让每一次预算耗尽空手而归的
+    运行都变成违规，而那是设计好的兜底。
+    """
+    state = analysis.record.state
+    actions = list(analysis.action_sequence)
+    if not actions:
+        return _unknown(
+            "RULE-016", "交付路径必须经过证据与评审", "gate",
+            "没有可读的决策轨迹，路径检查做不了",
+        )
+
+    delivered = bool(state.candidates) or bool(state.draft_content)
+    if not delivered:
+        return _pass(
+            "RULE-016", "交付路径必须经过证据与评审", "gate",
+            f"本次运行没有交付正文（{len(actions)} 步轨迹），路径检查不适用",
+        )
+
+    def first_index(action: str) -> int | None:
+        return actions.index(action) if action in actions else None
+
+    def last_index(action: str) -> int | None:
+        return len(actions) - 1 - actions[::-1].index(action) if action in actions else None
+
+    problems: list[str] = []
+    extraction = first_index(EXTRACT_EVIDENCE)
+    generation = first_index(GENERATE_ANGLES)
+    candidates_step = first_index(GENERATE_CANDIDATES)
+    if generation is None or (candidates_step is not None and candidates_step < generation):
+        generation = candidates_step
+
+    if extraction is None:
+        problems.append(
+            f"交付了 {len(state.candidates)} 条候选正文，但轨迹里从未出现 "
+            f"extract_evidence——正文的来路没有凭据"
+        )
+    elif generation is not None and extraction > generation:
+        problems.append(
+            f"extract_evidence 在第 {analysis.steps[extraction].step} 步，"
+            f"而生成动作在第 {analysis.steps[generation].step} 步——先写后找证据"
+        )
+
+    critique = last_index(CRITICIZE)
+    last_generation = last_index(GENERATE_CANDIDATES)
+    if critique is None:
+        problems.append("交付了正文，但轨迹里从未出现 criticize——评审步骤被跳过")
+    elif last_generation is not None and critique < last_generation:
+        problems.append(
+            f"criticize 停在第 {analysis.steps[critique].step} 步，"
+            f"而候选在第 {analysis.steps[last_generation].step} 步之后又生成过——"
+            f"被交付的正文没有被评审过"
+        )
+
+    if problems:
+        return _fail(
+            "RULE-016", "交付路径必须经过证据与评审", "gate",
+            "；".join(problems),
+            *problems,
+        )
+    return _pass(
+        "RULE-016", "交付路径必须经过证据与评审", "gate",
+        "交付路径依次经过了证据抽取与评审",
+        f"extract_evidence 在第 {analysis.steps[extraction].step} 步，"
+        f"criticize 在第 {analysis.steps[critique].step} 步",
+    )
+
+
+#: RULE-017 复算时逐项比对的数值字段。前三个是**观测到的结构量**，
+#: 其余是分项与总分。少比一项就等于给那一项留了一条"可以悄悄变"的路。
+_REPRODUCIBLE_FIELDS: tuple[str, ...] = (
+    "discussion_count",
+    "author_count",
+    "engagement_signal",
+    "recency_score",
+    "spread_score",
+    "novelty_score",
+    "source_quality_score",
+    "engagement_score",
+    "trend_score",
+    "trend_score_raw",
+)
+
+
+def _scan_item(raw: dict[str, Any]) -> TopicScanItem:
+    """把 fixture 里的一条材料原始记录读成打分输入。
+
+    只认 5 个字段里的 4 个计数 + 时间 + 作者：`item_id` 与 `post_id` 分工见
+    `trends.TopicScanItem` 的说明。时间缺失**不报错**——现实里就是会缺，
+    而打分对缺失时间有明确定义（记 0），所以这里静默通过是正确行为。
+    """
+    published = raw.get("published_at")
+    return TopicScanItem(
+        item_id=str(raw.get("item_id", "")),
+        post_id=str(raw.get("post_id", "")),
+        author=str(raw.get("author", "")),
+        published_at=_as_aware(published),
+        likes=int(raw.get("likes", 0)),
+        reposts=int(raw.get("reposts", 0)),
+        replies=int(raw.get("replies", 0)),
+        quotes=int(raw.get("quotes", 0)),
+    )
+
+
+def _as_aware(value: Any) -> datetime | None:
+    """JSON 里的时间字符串 → aware datetime。认不出来就返回 None。
+
+    返回 None 而不是抛异常：一条读不懂的时间在打分口径里就等于"没有时间"，
+    而"没有时间记 0"是**已定义的**行为。抛异常会把一次数据小瑕疵升级成
+    "这条规则执行失败"，反而掩盖了真正要说的话。
+    """
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def _differs(left: Any, right: Any) -> bool:
+    """两个值是否算"不一样"。浮点用 1e-6 容差，其余直接比。
+
+    容差是必要的：分数经过 JSON 往返（`0.1 + 0.2` 那一类），
+    用一个绝对相等的判断会把"可复现"误报成"不可复现"。
+    """
+    if isinstance(left, bool) or isinstance(right, bool):
+        return left is not right
+    if isinstance(left, (int, float)) and isinstance(right, (int, float)):
+        return abs(float(left) - float(right)) > 1e-6
+    return left != right
+
+
+def rule_017_trend_score_is_reproducible(analysis: RunAnalysis) -> RuleResult:
+    """查什么：候选选题上的 `trend_score`，能不能用**本次运行的观测输入**原样算出来。
+
+    对每个候选选题，拿 `state.trend_inputs` 里对应的那组材料调
+    `app/agent/trends.score_topic`，然后逐项比对记录下来的值
+    （见 `_REPRODUCIBLE_FIELDS`）。同一组输入还会被打两次分，
+    两次结果必须完全一致。
+
+    为什么值得查：工作单第二十六节点名要求 "trend score deterministic"，
+    第三十三节同时禁止 "LLM 随机给 95 分 然后称 trend_score = 95"。
+    这两件事是同一件事的两面，而**只有复算**能把它变成一条可执行的断言：
+    "分数是算出来的"这句话本身没法被检查，但"这个分数能不能被重新算出来"
+    可以。一个凭空写下的 95 分，找不到任何一组输入能把它算出来。
+
+    刻意用**生产**的 `score_topic` 复算：这条规则要否定的不是"公式不对"，
+    而是"这个数不是这个公式算的"。换一套自己的公式去核对，就等于同时改了
+    尺子与被量的东西，两边一起漂移也看不出来。
+
+    这条的代价是显式的：**改了 `trends.py` 的权重或口径，fixture 会红**。
+    这不是误报——fixture 记录的是"当时那个口径下的分数"，口径变了它就该红，
+    由人重新生成一次并看见 diff。
+
+    判不出来时：没有候选选题、没有 `trend_inputs`、或某个选题缺条目 ⇒
+    unavailable。缺输入时返回 pass 会让这条规则在大多数数据上变成装饰品——
+    而"没带原始输入"恰恰是它最需要说话的时候。
+    """
+    state = analysis.record.state
+    topics = state.candidate_topics
+    if not topics:
+        return _unknown(
+            "RULE-017", "trend_score 必须能从观测输入复算", "gate",
+            "本次运行没有任何候选选题，这条判不了",
+        )
+    if not state.trend_inputs:
+        return _unknown(
+            "RULE-017", "trend_score 必须能从观测输入复算", "gate",
+            f"{len(topics)} 个候选选题都没有带打分的原始输入（state.trend_inputs），"
+            f"分数无法复算",
+        )
+
+    by_topic: dict[str, dict[str, Any]] = {}
+    for entry in state.trend_inputs:
+        if isinstance(entry, dict) and entry.get("topic_id"):
+            by_topic[str(entry["topic_id"])] = entry
+
+    problems: list[str] = []
+    checked = 0
+    details: list[str] = []
+    for topic in topics:
+        label = topic.topic_id or topic.title
+        entry = by_topic.get(topic.topic_id)
+        if entry is None:
+            problems.append(f"{label}「{topic.title}」没有对应的 trend_inputs 条目，分数无法复算")
+            continue
+        observed_at = topic.observed_at or _as_aware(entry.get("observed_at"))
+        if observed_at is None:
+            problems.append(f"{label}「{topic.title}」缺 observed_at，窗口右端不知道，分数无法复算")
+            continue
+
+        items = [
+            _scan_item(raw) for raw in (entry.get("items") or []) if isinstance(raw, dict)
+        ]
+        claimed = int(entry.get("claimed_sources", 0))
+        recomputed = score_topic(items, observed_at=observed_at, claimed_sources=claimed)
+        again = score_topic(items, observed_at=observed_at, claimed_sources=claimed)
+        if recomputed != again:
+            problems.append(f"{label}「{topic.title}」同一组输入两次打分结果不同——打分不是纯函数")
+
+        for field in _REPRODUCIBLE_FIELDS:
+            stored = getattr(topic, field)
+            fresh = getattr(recomputed, field)
+            if _differs(stored, fresh):
+                problems.append(
+                    f"{label}「{topic.title}」的 {field} 记录为 {stored}，"
+                    f"用同一组输入复算得到 {fresh}"
+                )
+        for field in ("first_seen_at", "latest_seen_at"):
+            stored = getattr(topic, field)
+            fresh = getattr(recomputed, field)
+            if (stored is None) != (fresh is None) or (
+                stored is not None and fresh is not None and _as_aware(stored) != fresh
+            ):
+                problems.append(
+                    f"{label}「{topic.title}」的 {field} 记录为 {stored}，复算得到 {fresh}"
+                )
+        checked += 1
+        details.append(
+            f"{label}：trend_score {topic.trend_score:.2f} = 复算 "
+            f"{recomputed.trend_score:.2f}（{len(items)} 条材料 / "
+            f"{recomputed.author_count} 位作者）"
+        )
+
+    if problems:
+        return _fail(
+            "RULE-017", "trend_score 必须能从观测输入复算", "gate",
+            "；".join(problems[:5]) + ("…" if len(problems) > 5 else ""),
+            *problems,
+        )
+    return _pass(
+        "RULE-017", "trend_score 必须能从观测输入复算", "gate",
+        f"{checked} 个候选选题的分数都能从原始输入原样复算出来，且两次一致",
+        *details,
+    )
+
+
+def rule_018_stale_topics_are_not_marked_fresh(analysis: RunAnalysis) -> RuleResult:
+    """查什么：过了 stale 时限的话题，不得被判成 `qualified`，也不得被选中研究。
+
+    按每个候选选题自己的 `observed_at` 与 `latest_seen_at` 算年龄：
+    a) 年龄 > `STALE_AFTER_HOURS` ⇒ `qualification` 必须是 `stale`；
+    b) 同上 ⇒ `lifecycle` 不得是 `researching`（选一个旧闻去研究是纯粹的浪费预算）；
+    c) `latest_seen_at` 缺失（时间都不知道）却判 qualified / 在研究 ⇒ 同样算失败。
+
+    为什么值得查：工作单第二十六节的原话是 "stale topic 不得被标记为 fresh"。
+    这一条与 RULE-015 是**两把不同的尺子**，不能互相替代：015 量的是
+    "有多少人在说"，018 量的是"这件事还在不在发生"。一条五个作者、
+    八条材料、互动很高的旧帖，在 015 眼里完全合格，在 018 眼里则早就过期了
+    ——而"看起来像热点"正是旧闻最容易被误判成新鲜的方式。
+
+    时间取 `latest_seen_at` 而不是 `first_seen_at`：一个话题很久以前开始、
+    到现在还在被讨论，它就是活的。
+
+    (c) 单独列出来是因为它是**同一个错误的另一条路径**：没有时间戳的话题在
+    `trends.qualify` 里被判 stale（"我们没法证明它新"），所以从打分侧走进来的
+    数据不会带着一个可疑的 qualified；但如果有人绕开了打分，缺时间就会被
+    当成"没有坏消息"。
+
+    判不出来时：没有任何候选选题 ⇒ unavailable。
+    """
+    topics = analysis.record.state.candidate_topics
+    if not topics:
+        return _unknown(
+            "RULE-018", "stale 话题不得被标记为 fresh", "gate",
+            "本次运行没有任何候选选题，这条判不了",
+        )
+
+    problems: list[str] = []
+    ages: list[str] = []
+    for topic in topics:
+        label = topic.topic_id or topic.title
+        title = topic.title
+        marked_fresh = (
+            topic.qualification == TopicQualification.QUALIFIED
+            or topic.lifecycle in (TopicLifecycle.RESEARCHING, TopicLifecycle.QUALIFIED)
+        )
+        if topic.observed_at is None or topic.latest_seen_at is None:
+            if marked_fresh:
+                problems.append(
+                    f"{label}「{title}」没有任何可用的时间戳，却被判 "
+                    f"{topic.qualification.value}/{topic.lifecycle.value}——"
+                    f"我们无法证明它新"
+                )
+            ages.append(f"{label}：时间未知")
+            continue
+
+        age_hours = (topic.observed_at - topic.latest_seen_at).total_seconds() / 3600.0
+        ages.append(f"{label}：最新一条 {age_hours:.1f} 小时前（stale 线 {STALE_AFTER_HOURS:g} 小时）")
+        if age_hours <= STALE_AFTER_HOURS:
+            continue
+        if topic.qualification != TopicQualification.STALE:
+            problems.append(
+                f"{label}「{title}」最新一条已是 {age_hours:.1f} 小时前（超过 "
+                f"{STALE_AFTER_HOURS:g} 小时），却被判 {topic.qualification.value}"
+            )
+        if topic.lifecycle == TopicLifecycle.RESEARCHING:
+            problems.append(
+                f"{label}「{title}」已经是 {age_hours:.1f} 小时前的旧闻，"
+                f"却被选中继续研究（lifecycle={topic.lifecycle.value}）"
+            )
+
+    if problems:
+        return _fail(
+            "RULE-018", "stale 话题不得被标记为 fresh", "gate",
+            "；".join(problems[:5]) + ("…" if len(problems) > 5 else ""),
+            *problems,
+        )
+    return _pass(
+        "RULE-018", "stale 话题不得被标记为 fresh", "gate",
+        f"{len(topics)} 个候选选题的新鲜度判定都与时间一致",
+        *ages,
+    )
+
+
 #: 全部规则，按编号顺序。报告按这个顺序渲染。
 RULES: tuple[Callable[[RunAnalysis], RuleResult], ...] = (
     rule_001_actions_are_defined,
@@ -829,6 +1265,10 @@ RULES: tuple[Callable[[RunAnalysis], RuleResult], ...] = (
     rule_012_no_duplicate_research,
     rule_013_wrapup_converges,
     rule_014_executed_action_was_allowed,
+    rule_015_a_single_post_cannot_make_a_trend,
+    rule_016_delivery_path_went_through_evidence,
+    rule_017_trend_score_is_reproducible,
+    rule_018_stale_topics_are_not_marked_fresh,
 )
 
 
@@ -846,6 +1286,10 @@ GATE_RULE_IDS: tuple[str, ...] = (
     "RULE-008",
     "RULE-009",
     "RULE-010",
+    "RULE-015",
+    "RULE-016",
+    "RULE-017",
+    "RULE-018",
 )
 
 
