@@ -32,8 +32,8 @@ PostgreSQL 的事务管不到网络调用，X API v2 也没有幂等键。因此
 import logging
 from dataclasses import dataclass
 
+from app.diagnostics import describe as _describe
 from app.models.published_post import STATUS_FAILED, STATUS_PUBLISHED, STATUS_UNKNOWN
-from app.redaction import redact
 from app.repositories import (
     PUBLISHABLE_RUN_STATUSES,
     REVIEW_STATUS_TO_RUN_STATUS,
@@ -65,33 +65,6 @@ OUTCOME_RESOLVED = "resolved"
 
 # 允许发布的前置审核结论。reject 不在其中——被拒绝的内容绝不允许发布。
 REVIEW_ACTIONS_FOR_PUBLISH = ("approve", "edit")
-
-# 诊断信息沿异常链往下挖的层数上限。链本身应该很浅，设上限只是为了防止
-# 意外的循环引用把一条错误信息撑成一篇日志。
-_MAX_CAUSE_DEPTH = 5
-
-
-def _describe(exc: BaseException) -> str:
-    """把异常连同它的原因链拼成可读诊断，再整体脱敏。
-
-    只看 `str(exc)` 是不够的：httpx 在连接失败时经常抛一个 `str()` 为空的
-    ConnectError，真正的原因（DNS、代理、TLS）藏在 `__cause__` 里。结果是库里
-    留下 `"X API request could not be sent: "` 这种冒号后什么都没有的记录——
-    而这是排障时唯一能拿到的线索（见 2026-09-23 实机验证）。
-
-    空消息退化成类名，保证至少能知道异常类型。链条走完仍然只有类名时，说明
-    上游确实没提供更多信息，此时如实记录比编造更有用。
-    """
-    parts: list[str] = []
-    seen: set[int] = set()
-    current: BaseException | None = exc
-    while current is not None and id(current) not in seen and len(parts) < _MAX_CAUSE_DEPTH:
-        seen.add(id(current))
-        text = str(current).strip() or type(current).__name__
-        if text not in parts:
-            parts.append(text)
-        current = current.__cause__ or current.__context__
-    return redact(" | ".join(parts))
 
 
 @dataclass(frozen=True)
