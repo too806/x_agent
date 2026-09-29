@@ -1,6 +1,8 @@
 # 在另一台机器上跑起本项目
 
 > 写于 2026-09-26，对应 `master = 60be14b`（Phase 5A 收口）。
+> 2026-09-29 按 `225c263` 修订 §3 / §7 / §9：依赖安装改走 `requirements.lock.txt`、
+> 解释器路径统一为 `<PYTHON>`、补上"测试不能并发跑"这条限制。
 > 这份文档的目标读者是"换一台机器的人"，不是第一次读代码的人。
 
 ---
@@ -36,11 +38,27 @@ cd X_Agent
 ## 3. Python 环境
 
 ```bash
+# 路线 A：venv
 python -m venv .venv
-.venv\Scripts\python.exe -m pip install -e ".[dev]"
+.venv\Scripts\python.exe -m pip install -r requirements.lock.txt
+.venv\Scripts\python.exe -m pip install -e . --no-deps
+
+# 路线 B：conda（开发机实测走的是这条，环境名 2026-agent）
+conda create -n 2026-agent python=3.12
+%CONDA_PREFIX%\python.exe -m pip install -r requirements.lock.txt
+%CONDA_PREFIX%\python.exe -m pip install -e . --no-deps
 ```
 
-`.[dev]` 会带上 pytest；不装的话跑不了测试。
+**先装锁文件，再装项目本身**，顺序不能反。下文用 `<PYTHON>` 指代你选的那条
+路线的解释器（`.venv\Scripts\python.exe` 或 `%CONDA_PREFIX%\python.exe`）。
+
+- `requirements.lock.txt` 是验证过的依赖快照（67 包）。`pyproject.toml` 的约束
+  全是 `>=`、没有上界，只按它装会拿到"当下最新"——`langgraph>=0.2` 现已解析到
+  1.2.12，跨大版本。
+- `--no-deps` 是关键：项目本身由 `-e .` 装，别让它把锁好的依赖重新解一遍。
+- 锁文件已含 `[dev]`（pytest / pytest-asyncio 在其中），不必再装 `.[dev]`。
+- 锁文件是 Windows / CPython 3.12 快照，含平台特有包（`psycopg-binary`、
+  `colorama`、`watchfiles`），换平台不能直接套用；见 `docs/env-handoff.md` §8.2。
 
 ---
 
@@ -119,7 +137,7 @@ cmd：
 set HTTPS_PROXY=http://127.0.0.1:7890
 set HTTP_PROXY=http://127.0.0.1:7890
 set NO_PROXY=api.deepseek.com,localhost,127.0.0.1
-.venv\Scripts\python.exe run.py
+<PYTHON> run.py
 ```
 
 PowerShell（Win11 默认终端）：
@@ -128,7 +146,7 @@ PowerShell（Win11 默认终端）：
 $env:HTTPS_PROXY="http://127.0.0.1:7890"
 $env:HTTP_PROXY="http://127.0.0.1:7890"
 $env:NO_PROXY="api.deepseek.com,localhost,127.0.0.1"
-.venv\Scripts\python.exe run.py
+<PYTHON> run.py
 ```
 
 **前端**：
@@ -185,11 +203,17 @@ netstat -ano | grep :8000
 
 ```bash
 set PYTHONPATH=<仓库绝对路径>;<仓库绝对路径>\tests
-.venv\Scripts\python.exe -m pytest -q
+<PYTHON> -m pytest -q
 ```
 
 测试库 `xagent_test` 由 `tests/conftest.py` 自行建库建表并逐测清表，**不碰 `xagent` 主库**。
 X API 与 LLM 一律 Mock，不消耗真实 credits。
+
+> **⚠️ 同一时刻只能有一份 pytest 在跑。** `tests/conftest.py` 的 `session_factory`
+> 在每个测试前 `TRUNCATE` 全部业务表，而 `xagent_test` 是**跨进程共用**的一个库。
+> 两份 suite 并发时两边互相清表，会出现"失败集合每轮都不一样"的假故障：同一棵树
+> 实测分别得到 57 / 27 / 17 failed，单跑其中一个测试文件却全绿，无人打扰时
+> **266 passed**。看到这种零散且每轮不同的失败，先确认没有另一份 pytest 在跑。
 
 ---
 
