@@ -19,10 +19,10 @@ from app.agent.schemas import (
     AgentDecision,
     Angle,
     Candidate,
+    CandidateTopic,
     CriticResult,
     DecisionTraceEntry,
     EvidencePack,
-    TopicCandidate,
 )
 from app.agent.schemas import merge_trace
 from app.schemas import ResearchResult
@@ -42,8 +42,9 @@ class RunState(TypedDict, total=False):
 
     Phase 5A（`goal` 非空时使用）：
     - goal: 用户给 Agent 的目标。**它也是拓扑判别式**。
-    - candidate_topics: discover 发现的候选选题。
-    - selected_topic: 已选定的题目（由 research_topic 落定）。
+    - candidate_topics: discover 发现并**已由 Python 打好分**的候选选题
+      （见 app/agent/trends.py）。列表按 trend_score 降序，topic_id 即名次。
+    - selected_topic: 已选定的题目（由 select_topic 落定，research_topic 也会写）。
     - evidence_pack: 可追溯的证据包。
     - angles / selected_angle: 候选观点与选定观点。
     - candidates: 候选正文池（revise 原地替换其中一条）。
@@ -73,7 +74,10 @@ class RunState(TypedDict, total=False):
 
     # --- Phase 5A ---
     goal: str
-    candidate_topics: list[TopicCandidate]
+    candidate_topics: list[CandidateTopic]
+    #: 已选定的题目**文本**（不是 topic_id）：下游的 prompt 模板、run 记录列表、
+    #: `set_run_topic` 全都按文本用，改存 id 会让五处都要多一次查表。
+    #: 候选集本身带 topic_id，两者要对应时按 title 回查即可。
     selected_topic: str
     evidence_pack: EvidencePack
     angles: list[Angle]

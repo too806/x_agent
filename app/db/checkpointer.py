@@ -27,8 +27,22 @@ SERDE = JsonPlusSerializer(
         # Phase 5A Agent Brain：见 app/agent/schemas.py
         ("app.agent.schemas", "AgentAction"),
         ("app.agent.schemas", "AgentDecision"),
+        ("app.agent.schemas", "CandidateTopic"),
+        # Phase 5B.1 新增的枚举与 LLM 输出壳。枚举也必须登记：它们同样是
+        # **按类名**反序列化的（`str` 混入只影响取值形态，不影响还原路径）。
+        ("app.agent.schemas", "TopicLifecycle"),
+        ("app.agent.schemas", "TopicQualification"),
+        ("app.agent.schemas", "TopicClusterDraft"),
+        ("app.agent.schemas", "TopicClusterDraftList"),
+        # Phase 5A 的类名，现在指向 CandidateTopic（见 schemas.py 的说明）。
+        # 登记一个**已经不再写出**的名字是刻意的：历史 checkpoint 是按类名还原的，
+        # 去掉它会让那批 Run 的 candidate_topics 通道降级成 dict（LangGraph 对未登记
+        # 类型只告警、不报错），而下游是按属性读的，读出来就是空标题。
         ("app.agent.schemas", "TopicCandidate"),
-        ("app.agent.schemas", "TopicCandidateList"),
+        # 注意：Phase 5A 的 `TopicCandidateList` **不在**这里。它只是 discover 的
+        # 解析目标，从来没进过 RunState，所以没有 checkpoint 需要还原它；
+        # 而它的类名在新代码里已经不存在了，登记一个解析不到的名字只会把
+        # "少登记一个类型"换成"登记错一个名字"，两种都难查。
         ("app.agent.schemas", "EvidenceFact"),
         ("app.agent.schemas", "EvidencePack"),
         ("app.agent.schemas", "Angle"),

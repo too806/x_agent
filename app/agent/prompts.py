@@ -18,9 +18,9 @@ from app.agent.persona import Persona
 from app.agent.schemas import (
     AgentAction,
     Candidate,
+    CandidateTopic,
     CriticResult,
     EvidencePack,
-    TopicCandidate,
 )
 from app.agent.schemas import DecisionTraceEntry
 from app.config import settings
@@ -114,7 +114,8 @@ def format_critics(results: list[CriticResult]) -> str:
 # 与 AgentAction 枚举放在一起会更好，但那是 schema，不该混入 prompt 文案。
 # 这里漏掉一个动作时会被 test_planner_prompt_covers_every_action 抓到。
 ACTION_HINTS: dict[AgentAction, str] = {
-    AgentAction.DISCOVER_TOPICS: "从目标出发检索，发现若干候选选题",
+    AgentAction.DISCOVER_TOPICS: "从目标出发检索最近的材料，发现若干候选选题并打分",
+    AgentAction.SELECT_TOPIC: "在候选选题里选定一个（target 填 topic_id 或标题原文）",
     AgentAction.RESEARCH_TOPIC: "围绕某个候选选题取回材料（target 填候选选题原文）",
     AgentAction.DEEPEN_RESEARCH: "针对已知的空白再检索一轮（arguments 里给一个不同的检索词）",
     AgentAction.EXTRACT_EVIDENCE: "把已有材料提炼成可追溯的证据包",
@@ -155,10 +156,24 @@ def _int(state: Mapping[str, Any], key: str) -> int:
     return value if isinstance(value, int) and not isinstance(value, bool) else 0
 
 
-def _topics(topics: list[TopicCandidate]) -> str:
+def _topics(topics: list[CandidateTopic]) -> str:
+    """候选选题摘要：编号、分数、分档，**不带模型的自述**。
+
+    `why_now` 之类是模型写的解释，不印进 Planner 的 state 摘要：Planner 要做的是
+    从候选里选一个，而选哪个已经有 `trend_score` 这个确定性的依据。
+    把解释塞进来只会让"说得最漂亮的那个"看起来像最该选的那个。
+
+    分档（qualification）必须印：没有它，Planner 看不出"这条只有一位作者参与、
+    分数是被封顶过的"，而 `select_topic` 恰恰会优先选 qualified 的，
+    两边看到的东西不一致时，回退就会显得莫名其妙。
+    """
     if not topics:
         return "（尚未发现）"
-    return "；".join(f"{t.topic}（把握 {t.confidence:.2f}）" for t in topics)
+    return "；".join(
+        f"{t.topic_id} {t.title}（{t.trend_score:.1f} 分/{t.qualification.value}，"
+        f"{t.author_count} 位作者）"
+        for t in topics
+    )
 
 
 def format_state(state: Mapping[str, Any]) -> str:
@@ -177,7 +192,9 @@ def format_state(state: Mapping[str, Any]) -> str:
     critic = state.get("critic_result")
 
     lines = [
-        f"- 候选选题：{len(state.get('candidate_topics') or [])} 个 —— {_topics(state.get('candidate_topics') or [])}",
+        f"- 候选选题：{len(state.get('candidate_topics') or [])} 个"
+        f"（按 trend_score 降序，t1 是分最高的）"
+        f" —— {_topics(state.get('candidate_topics') or [])}",
         f"- 已选定题：{state.get('selected_topic') or '（未选定）'}",
         f"- 研究材料：{len(state.get('research_item_ids') or [])} 条",
         f"- 证据：{len(facts)} 条事实，{len(unknowns)} 处未知"

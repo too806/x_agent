@@ -28,21 +28,35 @@ RESEARCH_RESULTS = 10
 def _choose_topic(state, decision) -> tuple[str, str]:
     """决定研究哪个题目，返回 (题目, 说明怎么选出来的)。
 
-    Planner 的 target 只有在**确实是候选之一**时才被采信。不采信一个不存在的
-    题目名（可能是模型记错或改了措辞），是因为按它去搜索会得到一批与任何候选都
-    对不上的材料，而证据阶段再拿这些材料去支撑观点，整条链就脱离了 topic 候选集。
-    回退到置信度最高的候选，并在 trace 里写明发生了回退。
+    优先级是刻意的，从"已经定下来的"到"临时猜的"：
+
+    1. **`selected_topic` 已经有值** → 直接用它。这个值要么来自 `select_topic`
+       （分数排序的结果），要么来自上一轮 research；两种情况下重新挑一次都等于
+       把已经落在 state 上的决定再推翻一遍。
+    2. Planner 的 target 只有在**确实是候选之一**时才被采信（认标题或 topic_id）。
+       不采信一个不存在的题目名（可能是模型记错或改了措辞）：按它去搜索会得到
+       一批与任何候选都对不上的材料，而证据阶段再拿这些材料去支撑观点，
+       整条链就脱离了 topic 候选集。
+    3. 回退到**分数最高**的候选，并在 trace 里写明发生了回退。
+    4. 一个候选都没有（Goal 直接指定题目的场景）：用目标文本兜底。
     """
+    if state.get("selected_topic"):
+        return str(state["selected_topic"]), "沿用已选定的题目"
+
     candidates = state.get("candidate_topics") or []
-    names = [c.topic for c in candidates]
-    if decision.target and decision.target in names:
-        return decision.target, "按决策选定"
+    if decision.target:
+        chosen = next(
+            (c for c in candidates if c.title == decision.target or c.topic_id == decision.target),
+            None,
+        )
+        if chosen is not None:
+            return chosen.title, "按决策选定"
 
     if candidates:
-        best = max(candidates, key=lambda c: c.confidence)
+        best = max(candidates, key=lambda c: c.trend_score)
         if decision.target:
-            return best.topic, f"决策给出的「{decision.target}」不在候选列表里，回退到置信度最高的"
-        return best.topic, "决策未指定题目，取置信度最高的候选"
+            return best.title, f"决策给出的「{decision.target}」不在候选列表里，回退到分数最高的"
+        return best.title, "决策未指定题目，取分数最高的候选"
 
     # 一个候选都没有：用目标本身兜底，至少让这一轮取回的材料与目标相关。
     return str(state.get("goal") or state.get("topic") or ""), "无候选选题，用目标文本兜底"

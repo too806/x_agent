@@ -96,7 +96,12 @@ async def create_research_items(
             likes=r.likes,
             reposts=r.reposts,
             replies=r.replies,
+            quote_count=r.quote_count,
             published_at=r.published_at,
+            # 三个时间原样落库，不做任何兜底：`observed_at` 缺失就是缺失
+            # （老数据、或调用方没提供），拿 `published_at` 或插入时刻顶上
+            # 等于把"没观察到"伪装成"观察过"。
+            observed_at=r.observed_at,
         )
         for r in results
     ]

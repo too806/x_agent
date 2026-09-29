@@ -30,14 +30,19 @@ from fakes import (
     revise_payload,
     topics_payload,
 )
-from support import api_for, runtime_with_checkpointer
+from support import FIXED_NOW, api_for, runtime_with_checkpointer
 
 GOAL = "今天帮我找一个值得在中文科技 X 圈讨论的 AI 话题，并形成一条有明确观点的中文帖子。"
 
-# 一条完整的自主路径：发现 → 研究 → 证据 → 观点 → 选观点 → 写稿 → 评审 → 收尾。
+# 一条完整的自主路径：发现 → 选题 → 研究 → 证据 → 观点 → 选观点 → 写稿 → 评审 → 收尾。
+#
+# select_topic 显式带上 target=t1，而不是留给回退逻辑：回退虽然也会选到同一个，
+# 但它同时会往 summary 里写一句"决策无效，已回退"——那样这条测试就分不清
+# "按决策选定"和"回退兜底"哪条路走通了。
 HAPPY_PATH = (
     decision("discover_topics", reason="还没有任何候选选题"),
-    decision("research_topic", reason="选题里最值得做的那个材料还不够", target="候选选题 1"),
+    decision("select_topic", reason="t1 分数最高且判定达标", target="t1"),
+    decision("research_topic", reason="选题定了，材料还不够"),
     decision("extract_evidence", reason="材料够了，先把事实固定下来"),
     decision("generate_angles", reason="有了事实，可以形成观点"),
     decision("select_angle", reason="观点 1 的把握最高", target="a1"),
@@ -142,7 +147,9 @@ async def test_decision_trace_records_every_step(session_factory):
 
         # target 被如实记下来（没有 target 的步骤为 None，不是空串）
         by_action = {r.action: r for r in rows}
-        assert by_action["research_topic"].target == "候选选题 1"
+        # 选题目那一步把 Planner 给的编号原样记了下来——事后要能回答
+        # "当时为什么研究的是这个"，靠的就是这一列（而不是靠分数自己猜）。
+        assert by_action["select_topic"].target == "t1"
         assert by_action["discover_topics"].target is None
 
         # 输入摘要是"看到了什么"，**不是完整 prompt**（工作单第十五节）
@@ -176,8 +183,8 @@ async def test_finalize_marks_the_finish_step_with_what_it_delivered(session_fac
 async def test_infeasible_decision_is_replaced_deterministically(session_factory):
     """模型选了一个此刻不可行的动作时，换做什么由代码说了算，不是重问模型。"""
     decisions = list(HAPPY_PATH)
-    # 开局就要求研究：那时还没有任何候选选题，没有可研究的对象
-    decisions[0] = decision("research_topic", reason="我想先研究", target="候选选题 1")
+    # 开局就要求写稿：没有观点、没有证据，这一步无论怎么排都轮不到
+    decisions[0] = decision("generate_candidates", reason="我想直接写")
     llm = happy_llm()
     llm.decisions = decisions
 
@@ -196,13 +203,16 @@ async def test_infeasible_decision_is_replaced_deterministically(session_factory
 async def test_research_budget_caps_actual_x_calls(session_factory):
     """研究预算必须真的挡住对 X 的调用——"模型说想研究"不能变成每次都去搜。"""
     client = FakeXApiClient()
-    x_service = XService(client)
+    x_service = XService(client, clock=lambda: FIXED_NOW)
     calls: list[str] = []
     original = x_service.research
 
-    async def counting_research(query: str, max_results: int = 10):
+    # 关键字参数必须原样转下去：discover 现在会传扫描窗口
+    # （start_time / end_time / observed_at），一个只认位置参数的替身会把
+    # "窗口有没有真的传下去"这件事变成一个 TypeError，而不是一条断言。
+    async def counting_research(query: str, max_results: int = 10, **kwargs):
         calls.append(query)
-        return await original(query, max_results=max_results)
+        return await original(query, max_results=max_results, **kwargs)
 
     x_service.research = counting_research  # type: ignore[method-assign]
 
@@ -556,7 +566,9 @@ async def test_agent_run_state_is_resumable_from_checkpoint(session_factory):
         snapshot = await runtime.graph.aget_state(config)
         # 每一步的结构化产物都能从 checkpoint 里原样读回来
         assert isinstance(snapshot.values["evidence_pack"], EvidencePack)
-        assert snapshot.values["candidate_topics"][0].topic == "候选选题 1"
+        # 候选按 trend_score 降序落进 state，t1 就是分数最高的那个
+        assert snapshot.values["candidate_topics"][0].title == "候选选题 1"
+        assert snapshot.values["candidate_topics"][0].topic_id == "t1"
         assert snapshot.values["selected_angle"].angle_id == "a1"
         assert snapshot.values["critic_result"].candidate_id == "c1"
         assert len(snapshot.values["decision_trace"]) == len(HAPPY_PATH)

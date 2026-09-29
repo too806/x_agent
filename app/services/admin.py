@@ -399,7 +399,12 @@ class AdminService:
                     likes=item.likes,
                     reposts=item.reposts,
                     replies=item.replies,
+                    quote_count=item.quote_count,
                     published_at=item.published_at,
+                    # 原样透出，**不拿 created_at 兜底**：老数据这一列为 NULL，
+                    # 那正是"我们不知道什么时候观察的"。顶上会让一条三天前的
+                    # 讨论看起来刚刚被抓取。
+                    observed_at=item.observed_at,
                     created_at=item.created_at,
                 )
                 for item in items

@@ -58,11 +58,12 @@ class GraphDeps:
     session_factory: async_sessionmaker[AsyncSession]
 
 
-# 由工具执行的 9 个动作（`finish` 不是工具，它走 finalize）。
+# 由工具执行的动作（`finish` 不是工具，它走 finalize）。
 # 名字顺序即 Graph 里注册的节点名顺序，节点名 = 动作值，于是 checkpoint 里
 # 每一步的节点名就是那个动作名，人读起来不用再对照一张表。
 TOOL_ACTIONS: tuple[AgentAction, ...] = (
     AgentAction.DISCOVER_TOPICS,
+    AgentAction.SELECT_TOPIC,
     AgentAction.RESEARCH_TOPIC,
     AgentAction.DEEPEN_RESEARCH,
     AgentAction.EXTRACT_EVIDENCE,

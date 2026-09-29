@@ -10,10 +10,10 @@ from app.agent.persona import load_persona
 from app.agent.schemas import (
     Angle,
     Candidate,
+    CandidateTopic,
     CriticResult,
     EvidenceFact,
     EvidencePack,
-    TopicCandidate,
 )
 from app.agent.tools.critic import _bind_to_candidates, _choose_focus, make_critic_tool
 from app.agent.tools.evidence import _keep_traceable
@@ -121,9 +121,16 @@ def test_facts_without_any_source_are_never_kept():
 # --------------------------------------------------------------------------
 
 
-def topics(count: int = 3) -> list[TopicCandidate]:
+def topics(count: int = 3) -> list[CandidateTopic]:
+    """候选选题，分数递减——"取分数最高的那个"于是有唯一正确答案。"""
     return [
-        TopicCandidate(topic=f"选题 {i}", confidence=round(0.9 - i * 0.1, 2))
+        CandidateTopic(
+            topic_id=f"t{i}",
+            title=f"选题 {i}",
+            trend_score=round(90.0 - i * 10, 2),
+            author_count=2,
+            discussion_count=2,
+        )
         for i in range(1, count + 1)
     ]
 
@@ -135,13 +142,38 @@ def test_planner_target_is_honoured_only_when_it_is_a_real_candidate():
     assert "按决策" in how
 
 
-def test_invalid_topic_falls_back_to_the_most_confident_and_says_so():
+def test_topic_target_also_accepts_the_topic_id():
+    """target 认编号也认标题：Planner 在 prompt 里两个都看得到，
+    只认一种的话，另一种写法会被当成"无效决策"而触发一次莫名其妙的回退。"""
+    chosen, how = _choose_topic(
+        {"candidate_topics": topics(), "goal": "目标"},
+        AgentDecision(action="research_topic", reason="x", target="t2"),
+    )
+    assert chosen == "选题 2"
+    assert "按决策" in how
+
+
+def test_invalid_topic_falls_back_to_the_highest_scoring_and_says_so():
     state = {"candidate_topics": topics(), "goal": "目标"}
     chosen, how = _choose_topic(
         state, AgentDecision(action="research_topic", reason="x", target="模型改了措辞的题目")
     )
     assert chosen == "选题 1"
     assert "回退" in how
+
+
+def test_an_already_selected_topic_wins_over_the_decision():
+    """已经选定过就不再重挑。
+
+    `select_topic` 的结果是确定性排序算出来的，而 Planner 的 target 只是措辞——
+    让措辞盖过排序，等于把"选哪个"这件事又交回给模型。
+    """
+    state = {"candidate_topics": topics(), "selected_topic": "已经定下的题", "goal": "目标"}
+    chosen, how = _choose_topic(
+        state, AgentDecision(action="research_topic", reason="x", target="选题 2")
+    )
+    assert chosen == "已经定下的题"
+    assert "沿用" in how
 
 
 def test_topic_falls_back_to_the_goal_when_nothing_was_discovered():

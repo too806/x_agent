@@ -60,8 +60,13 @@ FALLBACK_ORDER: tuple[AgentAction, ...] = (
     AgentAction.GENERATE_ANGLES,
     AgentAction.EXTRACT_EVIDENCE,
     AgentAction.DEEPEN_RESEARCH,
-    AgentAction.RESEARCH_TOPIC,
+    AgentAction.SELECT_TOPIC,
+    # DISCOVER_TOPICS 排在 RESEARCH_TOPIC 前面：开局两者都可行时（还没有任何候选），
+    # 回退应当选**制造选项**的那一个。RESEARCH_TOPIC 在没有候选时只能用目标原文
+    # 去搜（见 tools/research.py::_choose_topic），那是"跳过发现"的退化路径——
+    # 一个都不认识就往下走，等于把本阶段最要紧的"选什么值得写"整个跳掉。
     AgentAction.DISCOVER_TOPICS,
+    AgentAction.RESEARCH_TOPIC,
     AgentAction.FINISH,
 )
 
@@ -139,7 +144,26 @@ def allowed_actions(state: Mapping[str, Any], budget: AgentBudget) -> tuple[Agen
 
     allowed: list[AgentAction] = []
 
-    if filled(state, "candidate_topics") and research < budget.max_research_calls:
+    # 选定候选选题。
+    #
+    # `not filled(selected_topic)` 这个条件让 SELECT_TOPIC 自动成为**一次性**的：
+    # 选完之后它不再可行，Planner 换不了题。这是刻意的——换题会让已经取回的
+    # 材料、已经形成的证据与新的选题对不上，而 state 里没有任何字段能表达
+    # "这些材料属于上一个题"。要换题就得新开一次运行。
+    if filled(state, "candidate_topics") and not filled(state, "selected_topic"):
+        allowed.append(AgentAction.SELECT_TOPIC)
+
+    # research_topic **不再要求先有过候选选题**（Phase 5B.1 第八节）。
+    #
+    # 理由：Goal 决定 Agent 从哪里开始。"帮我研究 OpenAI 最近发布的某功能"
+    # 这种目标里题目已经给定了，强行先做一轮 discovery 只会多花一次 X 调用、
+    # 多花一步预算，还可能把用户指定的题目换成一个"趋势更好"的。
+    # 没有候选时 research 工具用目标文本兜底（见 tools/research.py::_choose_topic）。
+    #
+    # 它**只**受研究预算约束，不因为 selected_topic 已经有值而被关掉：
+    # "研究了 A 发现材料不对，改研究 B"是合法的自主行为（候选集里本来就有多个），
+    # 关掉它等于把"研究了一个不合适的题"变成一条死路。
+    if research < budget.max_research_calls:
         allowed.append(AgentAction.RESEARCH_TOPIC)
 
     if (

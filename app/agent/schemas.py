@@ -24,11 +24,20 @@ class AgentAction(str, Enum):
     进 PostgreSQL（decision trace 的 action 列）。普通 Enum 在后两个地方会序列化成
     整数或报错。
 
-    刻意**不含** `select_topic`：选题由 `research_topic` 的 `target` 表达
-    （"研究 Topic A"本身就意味着选定了 A），多一个纯记录动作只会让 trace 更啰嗦。
+    Phase 5B.1 把 `select_topic` 加了回来，推翻了 Phase 5A 那条"选题由
+    `research_topic` 的 target 表达"的判断。改变的是前提取材方式：现在
+    `discover_topics` 产出的是**带确定性分数的候选集**，"选哪一个"是一个有
+    分数可依据、事后要能复核的**独立判断**，而不是研究动作的附带参数。
+    把它并进 `research_topic` 会让 decision trace 里看不出"当时为什么选它"，
+    而 `select_topic` 那一步恰好是唯一能回答这个问题的记录。
+
+    `finish` 之外的每个动作都对应一个 Tool（见 app/agent/tools/__init__.py）。
     """
 
     DISCOVER_TOPICS = "discover_topics"
+    #: 在候选选题里选定一个。**不调 LLM**：分数已经由 trends.py 算好了，
+    #: 再让模型"选一次"等于把同一个判断做两遍，还给了它推翻确定性排序的机会。
+    SELECT_TOPIC = "select_topic"
     RESEARCH_TOPIC = "research_topic"
     DEEPEN_RESEARCH = "deepen_research"
     EXTRACT_EVIDENCE = "extract_evidence"
@@ -59,23 +68,142 @@ class AgentDecision(BaseModel):
     arguments: dict[str, Any] = Field(default_factory=dict)
 
 
-class TopicCandidate(BaseModel):
-    """Discover 阶段发现的一个候选选题。"""
+class TopicLifecycle(str, Enum):
+    """话题在本次 Run 生命周期里处在哪一步。
 
-    topic: str = Field(min_length=1)
-    # 为什么是"现在"——时效性是选题质量的核心，缺了它候选就退化成关键词。
+    继承 `str` 与 `AgentAction` 同理：这个值要进 msgpack（checkpoint）与 JSON，
+    普通 Enum 在那些地方会变成整数。
+
+    与 `TopicQualification` 分开是因为两者回答不同的问题：lifecycle 说"它现在
+    处在哪一步"（流程位置），qualification 说"凭什么这么判"（判定理由）。
+    合成一个枚举就必须在"某个话题既 stale 又被研究过"这类情形里二选一。
+    """
+
+    #: 发现过，但没达到"值得继续研究"的门槛。
+    DISCOVERED = "discovered"
+    #: 已经过了门槛，可以被 select_topic 选中。
+    QUALIFIED = "qualified"
+    #: 被 select_topic 选中，正在围绕它做研究。
+    RESEARCHING = "researching"
+    #: 太旧了。分档与分数分开：stale 是**事实**（时间），不是打分结果。
+    STALE = "stale"
+    #: 支撑结构太薄（单条帖子 / 单一作者），不再追。
+    DISCARDED = "discarded"
+
+
+class TopicQualification(str, Enum):
+    """这个候选选题**值不值得继续研究**（Phase 5B.1 工作单第六节）。
+
+    刻意把"有讨论"与"值得继续研究"分开：一条爆款帖子证明的是前者，
+    而本阶段真正要判断的是后者。两者的判据不同（见 app/agent/trends.py::qualify），
+    所以不能共用一个字段。
+    """
+
+    QUALIFIED = "qualified"
+    #: 有讨论，但支撑太薄（作者数或可核验来源数不足）。**与分数无关**。
+    WEAK_SUPPORT = "weak_support"
+    #: 最新一条已经超出 stale 时限。
+    STALE = "stale"
+    #: 支撑结构够，但分数没到门槛。
+    LOW_SIGNAL = "low_signal"
+
+
+class TopicClusterDraft(BaseModel):
+    """LLM 对"哪几条帖子在讲同一件事"的分组结果。
+
+    **这里没有任何分数字段，这是刻意的。** 分数量的是"有多值得继续看"，
+    而一个语言模型没有能力对"不同作者数""可核验引用比例"这类量做算术；
+    让它给一个数，得到的会是一个看起来很像分数的措辞。
+    分数一律由 `app/agent/trends.py` 从真实观测算出来（工作单第九节）。
+
+    模型负责的三件事，恰好是它擅长的：**分组**（哪几条在讲同一件事）、
+    **命名**（给这组起一个能被独立理解的标题）、**解释**（为什么是现在、
+    还有什么不知道）。
+
+    `source_ids` 必须逐字来自 prompt 里印出的 material id。工具会拿它去
+    `research_item` 里核验：核验不上的**不丢弃、但要扣分**——见
+    `trends.score_source_quality`。
+    """
+
+    title: str = Field(min_length=1)
+    description: str = ""
+    keywords: list[str] = Field(default_factory=list)
     why_now: str = ""
-    signal: str = ""
-    # 指向已落库的 research_item id。可能为空（模型判断不出出处时宁可留空，
-    # 也不要编一个看起来像 id 的字符串）。
+    unknowns: list[str] = Field(default_factory=list)
     source_ids: list[str] = Field(default_factory=list)
-    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
 
 
-class TopicCandidateList(BaseModel):
+class TopicClusterDraftList(BaseModel):
     """Discover 的 LLM 输出外壳（json_mode 要求顶层是对象）。"""
 
-    topics: list[TopicCandidate] = Field(default_factory=list)
+    topics: list[TopicClusterDraft] = Field(default_factory=list)
+
+
+class CandidateTopic(BaseModel):
+    """一个候选选题：LLM 的分组 + Python 的确定性打分。
+
+    字段分三类，混在一起会看不清哪些能信：
+
+    1. **模型给的**（title / description / keywords / why_now / unknowns）——
+       是文本，不是判断依据。下游按分数排序，不按这些描述排序。
+    2. **观测到的**（source_post_ids / first_seen_at / latest_seen_at /
+       discussion_count / author_count / engagement_signal / observed_at）——
+       全部来自本次扫描真实取回的材料，`engagement_signal` 是
+       like/reply/repost/quote 的加权和，不是"热度"。
+    3. **算出来的**（五项 sub-score + trend_score）——由 trends.py 计算，
+       可复现、可解释。`trend_score` 是排序用的值，`trend_score_raw` 是
+       封顶前的值（见 trends.py 的"单一来源上限"）。
+
+    `source_post_ids` 指向本系统的 `research_item.id`，与 EvidenceFact.source_ids
+    同一套句柄——两处都引同一个 id 空间，追溯链才不会在中间换一次尺子。
+    """
+
+    # 由工具赋值（t1、t2…，按 trend_score 降序重排后）。不采信模型给的值，
+    # 与 fact_id / angle_id / candidate_id 同一套做法。
+    topic_id: str = ""
+    title: str = Field(min_length=1)
+    description: str = ""
+    keywords: list[str] = Field(default_factory=list)
+
+    source_post_ids: list[str] = Field(default_factory=list)
+    first_seen_at: datetime | None = None
+    latest_seen_at: datetime | None = None
+    #: 本次扫描的观察时刻，同时是打分窗口的右端
+    #: （左端 = observed_at − trends.TREND_WINDOW_HOURS）。存下来是为了
+    #: **事后能复算**：没有它，novelty 的窗口位置就成了一个无法回溯的数。
+    observed_at: datetime | None = None
+
+    discussion_count: int = 0
+    author_count: int = 0
+    #: 观测到的加权互动量（原始值，未归一化）。
+    engagement_signal: int = 0
+
+    recency_score: float = 0.0
+    spread_score: float = 0.0
+    novelty_score: float = 0.0
+    source_quality_score: float = 0.0
+    engagement_score: float = 0.0
+
+    trend_score: float = 0.0
+    trend_score_raw: float = 0.0
+    #: 每个分项的分子分母，形如"3 位不同作者参与，spread 0.7500（满值 4 人）"。
+    #: 由 Python 生成——"可解释"意味着人能拿着它回原始材料复核，而不是看到一句
+    #: 模型写的"这个话题很有讨论价值"。
+    trend_reasons: list[str] = Field(default_factory=list)
+
+    why_now: str = ""
+    unknowns: list[str] = Field(default_factory=list)
+
+    qualification: TopicQualification = TopicQualification.LOW_SIGNAL
+    lifecycle: TopicLifecycle = TopicLifecycle.DISCOVERED
+
+
+# Phase 5A 的类名。历史 checkpoint 里的 candidate_topics 是**按类名**反序列化的
+# （见 app/db/checkpointer.py），留着这个名字，那些 Run 恢复时才能拿到对象而不是
+# 一个降级后的 dict。旧字段（topic / signal / confidence）不在新模型里，会被
+# pydantic 忽略，`title` 落到默认值——即旧 Run 恢复后标题为空。这**只**影响
+# 恢复一个已经跑完的旧 Run，所以选择"留一个别名"而不是"保留一份旧 schema"。
+TopicCandidate = CandidateTopic
 
 
 class EvidenceFact(BaseModel):

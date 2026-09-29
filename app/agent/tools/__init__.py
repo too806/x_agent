@@ -1,9 +1,11 @@
 """Agent 的工具集与「动作 → 工具」的唯一映射表。
 
-工作单第六节列了 7 个工具。这里的表比它多两条，说明如下：
+工作单第六节列了 7 个工具。这里的表比它多几条，说明如下：
 
-- `select_angle` 与 7 个工具并列，但它**不调 LLM**：Planner 已经在决策里给出了
-  target，再让模型"选择"一次是把同一个判断做两遍。它仍然是动作，仍然要记 trace。
+- `select_angle` 与 `select_topic` 不调 LLM：Planner 已经在决策里给出了 target，
+  再让模型"选择"一次是把同一个判断做两遍。它们仍然是动作，仍然要记 trace。
+  `select_topic` 更彻底一点——候选本身已经带了确定性分数，"选哪个"有算术依据，
+  不该由措辞决定（见 tools/discover.py）。
 - `deepen_research` 与 `research_topic` 是两个动作、两个实现，因为它们的**检索词
   来源不同**（见 tools/research.py）。合成一个工具就会丢掉"这次搜的是哪个空白"。
 
@@ -20,7 +22,7 @@ from app.agent.tools.angles import make_angles_tool, make_select_angle_tool
 from app.agent.tools.base import Tool, ToolResult
 from app.agent.tools.candidates import make_candidates_tool
 from app.agent.tools.critic import make_critic_tool
-from app.agent.tools.discover import make_discover_tool
+from app.agent.tools.discover import make_discover_tool, make_select_topic_tool
 from app.agent.tools.evidence import make_evidence_tool
 from app.agent.tools.research import make_deepen_tool, make_research_tool
 from app.agent.tools.revise import make_revise_tool
@@ -39,6 +41,7 @@ def build_tools(deps, budget: AgentBudget) -> Mapping[AgentAction, Tool]:
         AgentAction.DISCOVER_TOPICS: make_discover_tool(
             deps.x_service, deps.llm_service, deps.session_factory
         ),
+        AgentAction.SELECT_TOPIC: make_select_topic_tool(),
         AgentAction.RESEARCH_TOPIC: make_research_tool(deps.x_service, deps.session_factory),
         AgentAction.DEEPEN_RESEARCH: make_deepen_tool(deps.x_service, deps.session_factory),
         AgentAction.EXTRACT_EVIDENCE: make_evidence_tool(deps.llm_service),

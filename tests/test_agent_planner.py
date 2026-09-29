@@ -71,13 +71,50 @@ async def test_invalid_decision_surfaces_as_llm_error():
 # --------------------------------------------------------------------------
 
 
-def test_nothing_is_possible_before_discovery_but_discovery():
-    """开局只有一条路：去发现选题。
+def test_opening_moves_are_exactly_discovery_or_directed_research():
+    """开局只有两条路：去发现选题，或者直接研究目标里已经指定的题目。
+
+    第二条是 Phase 5B.1 加的（工作单第八节"Goal 决定 Agent 从哪里开始"）：
+    用户说"研究 OpenAI 最近发布的某功能"时，题目已经给定了，逼 Agent 先做一轮
+    发现只会多花一次 X 调用、还可能把用户指定的题目换掉。
 
     注意 finish **不在**里面——没有正文的收尾必然失败，把它摆成选项只是给
     Planner 一次注定失败的选择。
     """
-    assert allowed_actions({}, BUDGET) == (AgentAction.DISCOVER_TOPICS,)
+    assert allowed_actions({}, BUDGET) == (
+        AgentAction.RESEARCH_TOPIC,
+        AgentAction.DISCOVER_TOPICS,
+    )
+
+
+def test_select_topic_is_available_only_between_discovery_and_selection():
+    """选题目是**一次性**的：选完之后它不再可行。
+
+    换题会让已经取回的材料、已经形成的证据与新的选题对不上，而 state 里没有
+    任何字段能表达"这些材料属于上一个题"。要换题就得新开一次运行。
+    """
+    discovered = {"candidate_topics": [object()]}
+    assert AgentAction.SELECT_TOPIC in allowed_actions(discovered, BUDGET)
+
+    chosen = {**discovered, "selected_topic": "题目"}
+    assert AgentAction.SELECT_TOPIC not in allowed_actions(chosen, BUDGET)
+
+
+def test_topic_selection_beats_research_in_the_fallback_order():
+    """回退顺序里 select_topic 排在 research_topic 前面。
+
+    没有候选时两者都不可行，测不出差别；有候选而还没选时，正确的一步是**先选**：
+    直接去 research 会绕开打分排序，等于把确定性排序丢掉。
+    """
+    state = {"candidate_topics": [object()]}
+    assert pick_fallback(state, BUDGET) is AgentAction.SELECT_TOPIC
+
+
+def test_discovery_is_closed_once_topics_exist():
+    """发现过一次就不再发现：否则"没发现出好东西"会变成一个可以无限重试的动作。"""
+    assert AgentAction.DISCOVER_TOPICS not in allowed_actions(
+        {"candidate_topics": [object()]}, BUDGET
+    )
 
 
 def test_finish_is_blocked_until_candidates_are_critiqued():

@@ -35,9 +35,9 @@ from app.agent.budget import AgentBudget
 from app.agent.schemas import (
     Angle,
     Candidate,
+    CandidateTopic,
     CriticResult,
     EvidencePack,
-    TopicCandidate,
 )
 
 __all__ = [
@@ -98,10 +98,16 @@ class AgentRunState(BaseModel):
     topic: str = ""
 
     # --- 研究 ---
-    candidate_topics: list[TopicCandidate] = Field(default_factory=list)
+    candidate_topics: list[CandidateTopic] = Field(default_factory=list)
     selected_topic: str = ""
     # 只数条数，不读正文（正文可能很长，评估不需要）。
     research_item_ids: list[str] = Field(default_factory=list)
+
+    #: 打分的**原始输入**（可选的额外字段，`extra="allow"` 收下）。
+    #: 有它，评估就能拿 `app/agent/trends.py` **重算**一遍候选上的 trend_score，
+    #: 把"分数是确定性的"从一句声明变成一条可执行的断言；没有它就只校验结构边界。
+    #: 形状见 evals/behavior/rules.py::rule_017_*。
+    trend_inputs: list[dict[str, Any]] = Field(default_factory=list)
 
     # --- 推理 ---
     evidence_pack: EvidencePack | None = None

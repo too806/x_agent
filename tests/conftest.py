@@ -86,6 +86,18 @@ def _prepare_test_db():
         # UndefinedColumn: goal。
         conn.execute(text("ALTER TABLE agent_run ADD COLUMN IF NOT EXISTS goal TEXT"))
         conn.execute(text("ALTER TABLE agent_run ALTER COLUMN topic DROP NOT NULL"))
+        # Phase 5B.1：research_item 的来源口径两列。与 alembic
+        # b7c2e94f1a03 对应 —— 迁移文件管生产库，这里管复用的测试库，
+        # 两处必须同步，漏了这里就是 UndefinedColumn。
+        conn.execute(
+            text(
+                "ALTER TABLE research_item ADD COLUMN IF NOT EXISTS "
+                "quote_count INTEGER NOT NULL DEFAULT 0"
+            )
+        )
+        conn.execute(
+            text("ALTER TABLE research_item ADD COLUMN IF NOT EXISTS observed_at TIMESTAMPTZ")
+        )
     sync_eng.dispose()
     yield
 

@@ -1,6 +1,7 @@
 """Phase 3 测试共用工具：Runtime 构造（真实 PostgreSQL checkpointer）、API client、常量。"""
 
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 
 from httpx import ASGITransport, AsyncClient
 
@@ -20,6 +21,21 @@ ADMIN_SYNC = f"{_DB_BASE}/postgres"
 TEST_URL = f"{_DB_BASE}/xagent_test"
 CHECKPOINT_URL = to_libpq_url(TEST_URL)
 _ALL_TABLES = "account, agent_run, research_item, draft, review, published_post, agent_decision"
+
+# 固定的"现在"。`SAMPLE_X_RESPONSE` 里的 `created_at` 是写死的，而 Phase 5B.1 的
+# trend 打分按"材料离现在多久"算 recency / novelty —— 不把观察时刻钉死的话，
+# 同一份 fixture 会随着挂钟漂移：今天判 qualified、下个月判 stale，
+# 而失败信息里只会写"分数对不上"。
+#
+# 2026-09-18T12:00Z 与样本里的两条帖子（10:00 与前一天 08:30）配成
+# "2 小时前"和"27.5 小时前"，都在 72 小时的扫描窗口内。
+FIXED_NOW = datetime(2026, 9, 18, 12, 0, tzinfo=timezone.utc)
+
+
+def agent_x_service(raw=None) -> XService:
+    """观察时刻钉死的 XService（默认配 `SAMPLE_X_RESPONSE`）。"""
+    return XService(FakeXApiClient(raw=raw), clock=lambda: FIXED_NOW)
+
 
 PERSONA = Persona(
     name="default",
@@ -44,7 +60,7 @@ async def runtime_with_checkpointer(
     跑完，否则测试要么跑十几轮假 LLM，要么根本验不到终止条件。
     """
     async with create_checkpointer(CHECKPOINT_URL) as checkpointer:
-        resolved_x_service = x_service or XService(FakeXApiClient())
+        resolved_x_service = x_service or agent_x_service()
         deps = GraphDeps(
             x_service=resolved_x_service,
             llm_service=llm_service or FakeLLMService(text=draft_json()),

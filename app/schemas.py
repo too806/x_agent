@@ -5,7 +5,27 @@ from pydantic import BaseModel, Field, TypeAdapter, field_validator, model_valid
 
 
 class ResearchResult(BaseModel):
-    """X API 搜索结果映射后的研究条目。"""
+    """X API 搜索结果映射后的研究条目。
+
+    **三个时间字段的语义必须分清**（Phase 5B.1 第一节）：
+
+    - `published_at` —— X 侧原帖的发布时间。**来源给的时间**，可能缺失
+      （X 对 search/recent 通常会给 `created_at`，但这里不假设它一定有）。
+    - `observed_at` —— 本次从 X API **取回**这条帖子的时刻。由 `XService` 在
+      映射时统一打上，同一次 search 取回的所有条目共享同一个值（一次检索
+      就是一次观察）。
+    - `created_at` —— 行落库的时刻，属于数据库层（`research_item.created_at`），
+      不在本模型里。
+
+    `observed_at` 与 `created_at` 在正常路径上几乎同时，但它们是**两件事**：
+    前者是"Agent 什么时候看到的这条讨论"，后者是"这行什么时候写进库"。
+    Phase 5B.1 之前 second 的语义被隐含在 `created_at` 里，于是"帖子多新"
+    和"这条记录多新"分不开——而 trend 的时效判断必须问的是前者。
+
+    `likes` / `reposts` / `replies` / `quote_count` 是 **observed engagement**：
+    X 在响应里给出的四个公开计数，原样记录，不做任何解释或加权。它们**不是**
+    "热度排名"，也不代表 X 官方的任何排序信号。
+    """
 
     platform_post_id: str
     author_username: str | None = None
@@ -14,7 +34,12 @@ class ResearchResult(BaseModel):
     likes: int = 0
     reposts: int = 0
     replies: int = 0
+    # X v2 `public_metrics` 里就有这一项，Phase 5B.1 之前映射时被丢掉了。
+    # 丢掉会让 trend 的 engagement 口径不完整：引用是"讨论被放大"的信号，
+    # 与转发（分发）和点赞（认可）不是同一件事。
+    quote_count: int = 0
     published_at: datetime | None = None
+    observed_at: datetime | None = None
 
 
 class GeneratedDraft(BaseModel):
@@ -271,7 +296,20 @@ class DecisionTraceRecord(BaseModel):
 
 
 class ResearchItemRecord(BaseModel):
-    """research_item 表里真实落库的一条研究材料。"""
+    """research_item 表里真实落库的一条研究材料。
+
+    `published_at` / `observed_at` / `created_at` 三个时间在这里同时出现，
+    刻意**不合并、不互相兜底**（Phase 5B.1 第一节）：
+
+    - `published_at`：原帖在 X 上的发布时间（来源时间）
+    - `observed_at`：Agent 从 X API 取回它的时间（观察时间）
+    - `created_at`：这行写进本地库的时间（记录时间）
+
+    控制台上三者都要能分别看到。把 `observed_at` 显示成 `created_at` 会让人
+    以为"这条是刚发生的"，而它可能是一小时前抓取、三天前发布的。`observed_at`
+    对老数据可能为 NULL —— 那一列是 Phase 5B.1 才加的，历史行没有这个信息，
+    UI 必须把 None 显示成 `—` 而不是拿 `created_at` 顶上。
+    """
 
     item_id: str
     platform_post_id: str
@@ -281,7 +319,9 @@ class ResearchItemRecord(BaseModel):
     likes: int = 0
     reposts: int = 0
     replies: int = 0
+    quote_count: int = 0
     published_at: datetime | None = None
+    observed_at: datetime | None = None
     created_at: datetime
 
 

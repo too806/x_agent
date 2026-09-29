@@ -1,9 +1,20 @@
+from datetime import datetime, timezone
 from typing import Protocol
 
 import httpx
 
 from app.config import settings
 from app.services.x_oauth import build_authorization_header
+
+
+def _rfc3339(value: datetime) -> str:
+    """X 的 search 端点要求 RFC3339（例如 2026-09-26T12:00:00Z）。
+
+    统一转成 UTC 再去掉微秒：本地时区的 `+08:00` 偏移 X 也接受，但传 UTC
+    可以让"扫描窗口"在日志与告警里只有一个写法，排查"到底扫的是哪一段"时
+    不用在脑子里做时区换算。
+    """
+    return value.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 class XApiError(Exception):
@@ -49,8 +60,18 @@ class XApiTransportError(XApiError):
 
 
 class XApiClient(Protocol):
-    async def search_recent_tweets(self, query: str, max_results: int = 10) -> dict:
-        """返回 /2/tweets/search/recent 的原始 JSON dict（data/includes/meta）。"""
+    async def search_recent_tweets(
+        self,
+        query: str,
+        max_results: int = 10,
+        *,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
+    ) -> dict:
+        """返回 /2/tweets/search/recent 的原始 JSON dict（data/includes/meta）。
+
+        `start_time` / `end_time` 是 X 侧的过滤窗口（RFC3339）。
+        """
 
     async def create_post(self, text: str) -> str:
         """发布一条推文，返回 X 侧的 post id。"""
@@ -112,15 +133,35 @@ class RealXApiClient:
             if should_close:
                 await client.aclose()
 
-    async def search_recent_tweets(self, query: str, max_results: int = 10) -> dict:
+    async def search_recent_tweets(
+        self,
+        query: str,
+        max_results: int = 10,
+        *,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
+    ) -> dict:
+        """GET /2/tweets/search/recent。
+
+        只读：本方法（以及整个读路径）不写任何东西到 X。发布走 `create_post`，
+        两者共用凭据字段但用不同的认证方式（见类注释）。
+
+        `start_time` / `end_time` 交给 X 侧过滤。**不在本地过滤**是刻意的：
+        `max_results` 是"返回多少条"，如果窗口外的帖子也占额度，那么一次
+        72 小时窗口的扫描可能一条新材料都拿不回来，而调用方会以为"最近没人讨论"。
+        """
         url = f"{self._base_url}/2/tweets/search/recent"
-        params = {
+        params: dict[str, object] = {
             "query": query,
             "max_results": max_results,
             "tweet.fields": "author_id,created_at,public_metrics",
             "expansions": "author_id",
             "user.fields": "username,name",
         }
+        if start_time is not None:
+            params["start_time"] = _rfc3339(start_time)
+        if end_time is not None:
+            params["end_time"] = _rfc3339(end_time)
         headers = {"Authorization": f"Bearer {self._bearer_token}"}
 
         resp = await self._request("GET", url, params=params, headers=headers)

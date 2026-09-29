@@ -58,8 +58,27 @@ class FakeXApiClient:
         self._post_id = post_id
         self._post_error = post_error
         self.created: list[str] = []
+        # 每次检索的 (query, max_results, start_time, end_time)。
+        # 扫描窗口是 Phase 5B.1 的一等公民（"最近"必须有定义），所以测试要能
+        # 断言它确实被传下去了，而不是被悄悄丢掉。
+        self.searches: list[dict] = []
 
-    async def search_recent_tweets(self, query: str, max_results: int = 10) -> dict:
+    async def search_recent_tweets(
+        self,
+        query: str,
+        max_results: int = 10,
+        *,
+        start_time=None,
+        end_time=None,
+    ) -> dict:
+        self.searches.append(
+            {
+                "query": query,
+                "max_results": max_results,
+                "start_time": start_time,
+                "end_time": end_time,
+            }
+        )
         if self._error is not None:
             raise self._error
         return self._raw
@@ -209,16 +228,26 @@ class ScriptedLLMService:
 
 
 def topics_payload(count: int = 5):
+    """发现阶段的假聚类结果。
+
+    **第一组引用全部材料**：`SAMPLE_X_RESPONSE` 的两条帖子来自两位不同作者，
+    于是第一组同时满足"作者数 ≥2、可核验来源 ≥2"，能真的被判成 qualified；
+    其余各组只引用最后一条（单一作者），会被单一来源上限压住、判成 weak_support。
+
+    这个不平均是刻意的：它让一条 fixture 同时覆盖"达标 / 不达标"两条支路，
+    也让 `select_topic` 该选哪个有唯一正确答案——全是同分的话，
+    "选对了"就退化成"碰巧排序站在这一边"。
+    """
     def build(prompt: str) -> str:
         ids = source_ids_in(prompt)
         topics = [
             {
-                "topic": f"候选选题 {i}",
+                "title": f"候选选题 {i}",
+                "description": f"第 {i} 组材料在讲同一件事",
+                "keywords": [f"关键词{i}"],
                 "why_now": "刚刚发生，讨论还在早期",
-                "signal": "出现了分歧",
-                "source_ids": ids[:1],
-                # 置信度递减，让"取置信度最高的那个"有一个确定的答案
-                "confidence": round(0.9 - i * 0.1, 2),
+                "unknowns": [f"还没查到第 {i} 组的某个数字"],
+                "source_ids": ids[:2] if i == 1 else ids[-1:],
             }
             for i in range(1, count + 1)
         ]
