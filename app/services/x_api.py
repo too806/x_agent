@@ -1,10 +1,29 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Protocol
 
 import httpx
 
 from app.config import settings
 from app.services.x_oauth import build_authorization_header
+
+#: X 硬性要求 `end_time` 至少比**请求时刻**早 10 秒，否则整个请求 400：
+#:
+#:     Invalid 'end_time': '...'. 'end_time' must be a minimum of 10 seconds
+#:     prior to the request time.
+#:
+#: 这条规则只有在真机上才撞得到——离线测试的 fake 客户端不检查它，于是
+#: "窗口右端 = 观察时刻"看着完全合理，实际每次运行都会 400（Phase 5B.1 的
+#: 五次 smoke run 第一次跑就是 4/5 撞在这上面）。
+#:
+#: 因此在**客户端**这一层兜住，而不是让每个调用方自己记得退 10 秒：
+#: 窗口是调用方表达"我在看哪一段时间"的方式，这条则纯粹是 X 的接口约束，
+#: 属于最靠近 X 的地方。
+#:
+#: 取 15 秒而不是 10 秒：X 是拿它**自己的**请求时刻做比较的，而我们只能用
+#: 本机的 `datetime.now()`。本机时钟若快 1 秒，"now − 10s"在 X 看来就是
+#: 只早了 9 秒，于是照旧 400。多留的 5 秒是时钟偏差余量，代价是 72 小时窗口
+#: 又被剥掉 5 秒——这个取舍显然划算。
+END_TIME_MIN_LAG = timedelta(seconds=15)
 
 
 def _rfc3339(value: datetime) -> str:
@@ -149,6 +168,10 @@ class RealXApiClient:
         `start_time` / `end_time` 交给 X 侧过滤。**不在本地过滤**是刻意的：
         `max_results` 是"返回多少条"，如果窗口外的帖子也占额度，那么一次
         72 小时窗口的扫描可能一条新材料都拿不回来，而调用方会以为"最近没人讨论"。
+
+        `end_time` 会被**向后收 10 秒**（`END_TIME_MIN_LAG`），因为 X 不接受
+        比请求时刻晚 10 秒以内的窗口右端。收窄的是"最后那 10 秒"，而那 10 秒
+        是 X 无论怎么问都不会给我们的；调用方声明的窗口语义不变。
         """
         url = f"{self._base_url}/2/tweets/search/recent"
         params: dict[str, object] = {
@@ -161,7 +184,10 @@ class RealXApiClient:
         if start_time is not None:
             params["start_time"] = _rfc3339(start_time)
         if end_time is not None:
-            params["end_time"] = _rfc3339(end_time)
+            # 见 END_TIME_MIN_LAG：不退这 10 秒，请求一定会被 X 判成参数非法。
+            now = datetime.now(timezone.utc)
+            latest_allowed = now - END_TIME_MIN_LAG
+            params["end_time"] = _rfc3339(min(end_time, latest_allowed))
         headers = {"Authorization": f"Bearer {self._bearer_token}"}
 
         resp = await self._request("GET", url, params=params, headers=headers)

@@ -21,6 +21,10 @@
 - **用户没有给具体题目时**，先 discover_topics 找出最近值得讨论的候选；候选出来后
   select_topic 选定一个，再围绕它 research_topic。
 - **用户已经指定了题目时**，可以直接 research_topic，不必先做一轮发现。
+- 做 discover_topics 时**必须**在 arguments.query 里给出检索词：几个词，不是整句话。
+  用户的"今天帮我找一个值得讨论的 AI Agent 话题"是一句**委托**，不是搜索词——
+  拿它去检索 X 只会按字面分词匹配，回来的材料与"AI Agent 的讨论"没有关系。
+  把它收敛成用户真正想看的那类内容的关键词（例如 `"AI Agent" 智能体 讨论`）。
 - 候选选题上的 trend_score 是系统根据真实材料算出来的（作者数、发布时间、互动计数），
   不是模型给的印象分。选哪个以它为依据；你不需要、也不应该自己重新估一个。
   分档 qualified 表示它同时满足了"够多作者、够多可核验来源"。select_topic 会优先选它们。
@@ -44,4 +48,7 @@
    - select_angle：已生成观点的 id（如 a2）
    - revise：候选 id（如 c1），不确定就填 null
    - 其他动作一般不需要 target，填 null
-6. arguments 目前只在 deepen_research 时有用：{"query": "<一个与之前不同的检索词>"}。
+6. arguments 在 discover_topics 与 deepen_research 上都要给检索词：
+   - discover_topics：{"query": "<把目标收敛成的检索词>"}（见上面的判断依据）
+   - deepen_research：{"query": "<一个与之前不同的检索词>"}
+   两者都填**检索词**，不要把整句目标原样抄进去。

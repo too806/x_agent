@@ -1,9 +1,11 @@
 import json
+from datetime import datetime, timezone
 
 import httpx
 import pytest
 
 from app.services.x_api import (
+    END_TIME_MIN_LAG,
     RealXApiClient,
     XApiConfigError,
     XApiError,
@@ -245,5 +247,70 @@ async def test_create_post_2xx_without_id_is_indeterminate():
             await client.create_post("hi")
         assert excinfo.value.status_code == 200
         assert not (400 <= excinfo.value.status_code < 500)
+    finally:
+        await http_client.aclose()
+
+
+# ---------------------------------------------------------------------------
+# 窗口右端：X 不接受"离现在不到 10 秒"的 end_time
+# ---------------------------------------------------------------------------
+
+
+def _parse_end_time(request) -> datetime:
+    raw = dict(request.url.params)["end_time"]
+    return datetime.fromisoformat(raw.replace("Z", "+00:00"))
+
+
+async def test_search_pushes_end_time_back_from_now():
+    """`end_time = now` 会被 X 判成参数非法——这是真机上 4/5 次失败的原因。
+
+    离线测试的 fake 客户端不检查这条规则，所以这个缺陷只有在真机 smoke run
+    里才暴露得出来；正因为如此，这里必须把修正后的行为钉住：
+    发出去的 end_time 至少要比本机当前时刻早 `END_TIME_MIN_LAG`。
+    """
+
+    def handler(request):
+        assert _parse_end_time(request) <= datetime.now(timezone.utc) - END_TIME_MIN_LAG
+        return httpx.Response(200, json={"data": [], "meta": {"result_count": 0}})
+
+    client, http_client = _make(handler)
+    try:
+        await client.search_recent_tweets("ai", end_time=datetime.now(timezone.utc))
+    finally:
+        await http_client.aclose()
+
+
+async def test_search_does_not_move_an_older_end_time_forward():
+    """已经在过去很久的右端原样送出。
+
+    收窄只发生在"太靠近现在"这一侧：如果无条件改成 now − lag，
+    一次针对历史窗口的扫描会被悄悄拉到最近，而那是最难发现的一类错误——
+    回来的数据看着正常，只是不是被问到的那一段。
+    """
+    old = datetime(2026, 9, 20, 12, 0, tzinfo=timezone.utc)
+    seen: list[datetime] = []
+
+    def handler(request):
+        seen.append(_parse_end_time(request))
+        return httpx.Response(200, json={"data": [], "meta": {"result_count": 0}})
+
+    client, http_client = _make(handler)
+    try:
+        await client.search_recent_tweets("ai", end_time=old)
+        assert seen == [old]
+    finally:
+        await http_client.aclose()
+
+
+async def test_search_without_end_time_sends_no_window():
+    """不传右端时**不要**自作主张补一个：那是调用方在说"我不限定右端"。"""
+
+    def handler(request):
+        assert "end_time" not in dict(request.url.params)
+        return httpx.Response(200, json={"data": [], "meta": {"result_count": 0}})
+
+    client, http_client = _make(handler)
+    try:
+        await client.search_recent_tweets("ai")
     finally:
         await http_client.aclose()

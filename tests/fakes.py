@@ -127,6 +127,10 @@ PROMPT_MARKERS: dict[str, str] = {
 _UUID_RE = re.compile(r"\[([0-9a-fA-F-]{36})\]")
 _FACT_ID_RE = re.compile(r"\[(f\d+)\]")
 _CANDIDATE_ID_RE = re.compile(r"\[(c\d+)\]")
+#: 材料在 discover prompt 里的短编号。让模型照抄 36 位 UUID 会被抄错（真机上
+#: 一整轮 7 个簇全部核验不上），所以发现那一步给的是 `m1`、`m2`…（见
+#: app/agent/tools/discover.py::_material_aliases）。
+_MATERIAL_ALIAS_RE = re.compile(r"\[(m\d+)\]")
 
 
 def source_ids_in(prompt: str) -> list[str]:
@@ -137,6 +141,20 @@ def source_ids_in(prompt: str) -> list[str]:
     """
     seen: list[str] = []
     for match in _UUID_RE.finditer(prompt):
+        if match.group(1) not in seen:
+            seen.append(match.group(1))
+    return seen
+
+
+def material_aliases_in(prompt: str) -> list[str]:
+    """discover prompt 里出现过的材料短编号（`m1`、`m2`…），按顺序去重。
+
+    与 `source_ids_in` 是同一个角色，只是发现那一步的 prompt 里印的是短编号。
+    假 LLM 必须引用**prompt 里真实出现过**的编号，工具才会把它们翻回真 id；
+    照着 prompt 里的东西抄，正是这条测试要模拟的行为。
+    """
+    seen: list[str] = []
+    for match in _MATERIAL_ALIAS_RE.finditer(prompt):
         if match.group(1) not in seen:
             seen.append(match.group(1))
     return seen
@@ -239,7 +257,8 @@ def topics_payload(count: int = 5):
     "选对了"就退化成"碰巧排序站在这一边"。
     """
     def build(prompt: str) -> str:
-        ids = source_ids_in(prompt)
+        # 发现那一步的 prompt 印的是 m1/m2… 短编号，不是 UUID。
+        ids = material_aliases_in(prompt)
         topics = [
             {
                 "title": f"候选选题 {i}",

@@ -98,6 +98,32 @@ def _scan_items(item_ids: list[str], results: list) -> list[TopicScanItem]:
     return items
 
 
+def _material_aliases(item_ids: list[str]) -> dict[str, str]:
+    """材料在 prompt 里的短编号（m1、m2…）→ 真实的 `research_item.id`。
+
+    为什么不让模型直接照抄 research_item id：那是一个 36 位的 UUID。一次发现要
+    模型在 5～12 个簇里各抄若干条，抄错一位就核验不上。真机第一次跑的结果是
+    **7 个簇全部作废**（`kept=0, dropped=7`），整轮发现退化成"一条帖子一个候选"——
+    而那正是本阶段最想要的能力，它在界面上和"最近确实没什么可讨论的"长得一样。
+
+    `fact_id` / `angle_id` / `candidate_id` 都已经由工具赋短编号（见
+    `app/agent/schemas.py`），材料这里沿用同一套：**短编号由工具定，模型只负责
+    逐字照抄**。翻不回来的编号原样保留，于是"编一个不存在的编号"照旧算作
+    "声称过但没核验上"，`source_quality` 的扣分逻辑一点都不受影响。
+    """
+    return {f"m{index}": item_id for index, item_id in enumerate(item_ids, start=1)}
+
+
+def _apply_aliases(drafts, aliases: dict[str, str]) -> None:
+    """把模型给的短编号翻回真 id。就地改，不返回新对象。
+
+    `aliases.get(alias, alias)` 而不是过滤掉认不出的那些：过滤等于把"编了一个
+    不存在的编号"变成"没有声称过这条来源"，那会让编造反而免于扣分。
+    """
+    for draft in drafts:
+        draft.source_ids = [aliases.get(source, source) for source in draft.source_ids]
+
+
 def _fallback_cluster(items: list[TopicScanItem], contents: dict[str, str]) -> list[dict]:
     """确定性兜底：一条帖子一个候选选题。
 
@@ -202,9 +228,19 @@ def make_discover_tool(x_service: XService, llm_service: LLMService, session_fac
         goal = state.get("goal") or state.get("topic") or ""
 
         # 检索词优先取 Planner 给的 arguments.query：把"今天帮我找一个值得讨论的
-        # AI 话题"这种自然语言目标直接丢给 X 搜索效果很差，而 Planner 有能力
-        # 把它收敛成检索词。target 与 goal 是逐级降级的兜底。
+        # AI 话题"这种自然语言目标直接丢给 X 搜索效果很差——X 只按字面分词匹配，
+        # 回来的材料与用户想看的内容没有关系。target 与 goal 是逐级降级的兜底。
         query = str(decision.arguments.get("query") or decision.target or goal)
+        if not decision.arguments.get("query"):
+            # 降级路径要留痕：检索词退化成整句目标时，回来的候选会很差，
+            # 而"候选很差"从结果上看和"最近确实没什么可讨论的"长得一模一样。
+            # 一条 warning 至少让这两种情况在日志里分得开。
+            logger.warning(
+                "agent discover has no search query from planner (run_id=%s), "
+                "falling back to %r",
+                run_id,
+                decision.target or goal,
+            )
 
         # 一次扫描 = 一个观察时刻。窗口的右端、材料的 observed_at、打分用的
         # observed_at 共用它，三处不同就会让 novelty 出现无法解释的偏差。
@@ -230,6 +266,7 @@ def make_discover_tool(x_service: XService, llm_service: LLMService, session_fac
 
         delta = append_research(state, results, item_ids)
 
+        aliases = _material_aliases(item_ids)
         prompt = render(
             load_prompt("discover"),
             GOAL=goal,
@@ -237,11 +274,17 @@ def make_discover_tool(x_service: XService, llm_service: LLMService, session_fac
             MAX_TOPICS=MAX_TOPICS,
             WINDOW_HOURS=int(TREND_WINDOW_HOURS),
             WINDOW_START=window_start.isoformat(),
-            RESEARCH=format_sources(pairs(item_ids, results)),
+            # 给模型看的是 m1、m2… 这样的短编号，不是 UUID（见 _material_aliases）。
+            RESEARCH=format_sources(
+                [(alias, result.content) for alias, result in zip(aliases, results)]
+            ),
         )
         parsed: TopicClusterDraftList = await complete_json(
             llm_service, prompt, TopicClusterDraftList
         )
+        # 解析之后立刻翻回真 id：往下的核验、打分、`source_post_ids` 全部在
+        # 真实 id 空间里进行，短编号不越过这一行。
+        _apply_aliases(parsed.topics, aliases)
 
         items = _scan_items(item_ids, results)
         items_by_id = {item.item_id: item for item in items}
@@ -260,7 +303,7 @@ def make_discover_tool(x_service: XService, llm_service: LLMService, session_fac
             )
             contents = {item_id: r.content for item_id, r in zip(item_ids, results)}
             topics, _ = _build_topics(
-                _fallback_cluster(items, contents, observed_at), items_by_id, observed_at
+                _fallback_cluster(items, contents), items_by_id, observed_at
             )
             fallback_note = (
                 f"（模型只给出 {kept_from_llm} 个可用选题，已退化为按帖子分组）"
