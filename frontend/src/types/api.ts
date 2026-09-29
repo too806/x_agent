@@ -122,7 +122,22 @@ export interface ResearchItemRecord {
   likes: number
   reposts: number
   replies: number
+  /**
+   * 引用数（Phase 5B.1 新增）。与另外三项一样是**观测到的**互动量，
+   * 不是 X 的官方热度值——trend_score 由后端实算，这一列只用于展示。
+   */
+  quote_count: number
+  /** 原帖在 X 上的发布时间。不是被我们抓回来的时间。 */
   published_at: string | null
+  /**
+   * Agent 从 X API 取回它的时间（Phase 5B.1 新增）。
+   *
+   * **对 Phase 5B.1 之前的行是 null** —— 那一列是后加的，历史行没有这个信息。
+   * 界面上必须把 null 显示成 `—`，不能拿 `created_at` 顶上：两者在正常路径上
+   * 几乎同时，但它们是两件事（见 app/schemas.py 的说明）。
+   */
+  observed_at: string | null
+  /** 这行写进本地库的时间。与上面两个都不同。 */
   created_at: string
 }
 

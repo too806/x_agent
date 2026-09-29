@@ -16,6 +16,9 @@ import { EMPTY, agentActionLabel } from '../src/utils/format.ts'
 // 与后端 `app/agent/schemas.py::AgentAction` 的取值一致。
 const ACTIONS = [
   'discover_topics',
+  // Phase 5B.1 加回来的动作。漏了这一项，这条测试就一直绿着——
+  // 它断言的是"列在这里的都有中文"，列漏了当然不会失败。
+  'select_topic',
   'research_topic',
   'deepen_research',
   'extract_evidence',

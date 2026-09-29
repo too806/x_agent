@@ -26,6 +26,10 @@ export type TraceKind = 'plan' | 'research' | 'generate' | 'critic' | 'revise' |
  */
 const TRACE_KINDS: Record<string, TraceKind> = {
   discover_topics: 'plan',
+  // `select_topic` 归到 plan 而不是 research：它是一次**方向选择**
+  // （在已打分的候选里选定一个），到这一步还没有开始研究。归到 research
+  // 会让"选话题"和"研究话题"在时间线上看起来是同一件事。
+  select_topic: 'plan',
   research_topic: 'research',
   deepen_research: 'research',
   extract_evidence: 'research',

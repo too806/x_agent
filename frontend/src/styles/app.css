@@ -2435,6 +2435,15 @@ p.scope-note {
   font-size: var(--text-sm);
 }
 
+/* 三个时间（发布 / 抓取 / 入库）。比互动数字更弱：它是背景信息，
+   读的时候要能一眼看出"这三个不是一回事"。 */
+.research-item__times {
+  margin-top: var(--space-2);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
 /* 字数计数：编辑稿的硬上限。用等宽数字，避免打字时数字宽度跳动 */
 .counter {
   font-variant-numeric: tabular-nums;

@@ -11,11 +11,12 @@ import { traceKind, traceReason, traceSummary } from '../src/utils/trace.ts'
  * 而它们的错误表现都是"界面上少了一段或者空了一块"，没有异常、没有日志。
  */
 
-test('十个已知动作各自归到它那一类', () => {
+test('十一个已知动作各自归到它那一类', () => {
   // 取值来自 app/agent/schemas.py::AgentAction。前端不新增也不改名，
   // 这个表只是把动作归到视觉分组上。
   const expected: Record<string, string> = {
     discover_topics: 'plan',
+    select_topic: 'plan',
     research_topic: 'research',
     deepen_research: 'research',
     extract_evidence: 'research',

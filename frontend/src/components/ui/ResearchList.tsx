@@ -1,7 +1,7 @@
 import { useState } from 'react'
 
 import type { ResearchItemRecord } from '../../types/api'
-import { dateTime } from '../../utils/format'
+import { researchItemTimes } from '../../utils/format'
 
 /**
  * 研究素材列表。
@@ -61,9 +61,13 @@ function ResearchItem({ item }: { item: ResearchItemRecord }) {
     <li className="research-item">
       <div className="row row--between">
         <strong>{item.author_username ? `@${item.author_username}` : '作者未知'}</strong>
+        {/*
+          四项互动量**一个都不省**，包括 0。少了"引用"这一项尤其会误导：
+          trend 打分里引用/转发是"选择放大"，权重高于点赞，而界面上看得见
+          的却只有点赞——那会让人以为分数是从点赞数来的。
+        */}
         <span className="research-item__stats">
-          {item.likes} 点赞 · {item.reposts} 转发 · {item.replies} 回复
-          {item.published_at ? ` · ${dateTime(item.published_at)}` : ''}
+          {item.likes} 点赞 · {item.reposts} 转发 · {item.replies} 回复 · {item.quote_count} 引用
         </span>
       </div>
       <div className="body-block">{item.content}</div>
@@ -76,6 +80,12 @@ function ResearchItem({ item }: { item: ResearchItemRecord }) {
           <span className="cell-muted">{item.platform_post_id}</span>
         )}
       </div>
+      {/*
+        三个时间单独一行，不复用上面的互动数字行：那一行是"这条帖子有多热"，
+        这一行是"这条数据有多旧"，回答的不是同一个问题。分开的理由见
+        `researchItemTimes` 的说明。
+      */}
+      <div className="research-item__times">{researchItemTimes(item)}</div>
     </li>
   )
 }

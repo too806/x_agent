@@ -175,9 +175,18 @@ export function publishStatusLabel(status: string | null | undefined): string {
  *
  * 与状态映射同一套规矩：查不到就原样返回英文枚举。Agent 加了新动作而前端还没跟上时，
  * 时间线上会出现一个没翻译的英文词——那是**看得见的缺口**，比一句"未知步骤"有用。
+ *
+ * Phase 5B.1 有两处调整，都不改后端枚举，只是让中文名跟得上动作的**实际含义**：
+ *
+ * - `discover_topics` 从"发现候选"改成"发现并评估话题"。它现在不只列候选，
+ *   还会给每个候选算出确定性分数并给出达标判定（`app/agent/trends.py`）。
+ *   沿用旧名会让人以为这一步只是收集，看不出分数是这里产生的。
+ * - 新增 `select_topic`。**它不调 LLM**，是在已打分的候选里按确定性排序选定一个；
+ *   与 `select_angle`（选观点）是**两个不同的判断**，所以中文名必须能分开。
  */
 const AGENT_ACTION_LABELS: Record<string, string> = {
-  discover_topics: '发现候选',
+  discover_topics: '发现并评估话题',
+  select_topic: '选定话题',
   research_topic: '研究主题',
   deepen_research: '深入研究',
   extract_evidence: '提炼证据',
@@ -223,6 +232,34 @@ export function codePointLength(value: string): number {
 /** 把可能的 null 压成空串，供搜索框等受控输入使用。 */
 export function orEmpty(value: string | null | undefined): string {
   return value ?? ''
+}
+
+/**
+ * 一条研究素材的三个时间，**各显示各的，一个都不顶替另一个**。
+ *
+ * 后端把三者的语义分得很清（见 `app/schemas.py::ResearchItemRecord`）：
+ *
+ *   - `published_at` 发布——原帖在 X 上的发布时间
+ *   - `observed_at`  抓取——我们从 X API 取回它的时刻（Phase 5B.1 新增）
+ *   - `created_at`   入库——这行写进本地库的时刻
+ *
+ * 这三个数值在正常路径上常常只差几秒，所以很容易被"反正差不多"合并成一个。
+ * 但它们回答的是不同的问题：一条三小时前发布的帖子如果是一分钟前才抓到的，
+ * 那么"这个话题现在还有人在说"这个判断依据的是三小时前的数据——**只看入库时间
+ * 会把它误读成刚刚发生的事**。缺失的那个显示 `—`，不拿另一个顶上。
+ *
+ * 全部返回字符串而不是数组：调用方要的就是一行字，中间用什么分隔是这里的事。
+ */
+export function researchItemTimes(item: {
+  published_at: string | null
+  observed_at: string | null
+  created_at: string | null
+}): string {
+  return [
+    `发布 ${dateTime(item.published_at)}`,
+    `抓取 ${dateTime(item.observed_at)}`,
+    `入库 ${dateTime(item.created_at)}`,
+  ].join(' · ')
 }
 
 /**
