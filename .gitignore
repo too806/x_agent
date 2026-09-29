@@ -38,3 +38,7 @@ Thumbs.db
 # *.zip：会话转录等本地产物
 *.bundle
 *.zip
+
+# 集成前的本地安全检查点（bundle / diff / status 快照）。
+# 它是"动手改历史之前先留一手"的产物，不是仓库内容。
+.integration-backup/
