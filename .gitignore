@@ -32,3 +32,9 @@ htmlcov/
 # OS
 .DS_Store
 Thumbs.db
+
+# Migration / session artifacts —— 不要进仓库
+# *.bundle：旧机器迁移用的仓库快照，内容已在本仓历史里
+# *.zip：会话转录等本地产物
+*.bundle
+*.zip

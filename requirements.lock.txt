@@ -1,0 +1,89 @@
+# X_Agent 依赖锁 —— 由 `python -m pip freeze` 于 2026-09-27 生成。
+#
+# 用法（新机器，先装好 Python 3.12）：
+#   conda create -n 2026-agent python=3.12 && conda activate 2026-agent
+#   python -m pip install -r requirements.lock.txt
+#   python -m pip install -e . --no-deps   # 装项目本身，别动已锁的依赖
+#
+# 本机用的是 conda 环境 2026-agent（不是 .venv）。走 venv 的机器只需把
+# 建环境那行换成 python -m venv .venv，其余不变。
+#
+# 为什么要它：pyproject.toml 里的约束全是 `>=`、没有上界，
+# `langgraph>=0.2` 在 2026-09 的实际解析结果是 1.2.12（跨大版本）。
+# 只按 pyproject 装，新机器拿到的是"当下最新"而不是"验证过的这一套"。
+#
+# 这是 Windows / CPython 3.12 的快照，含平台特有包（psycopg-binary、
+# colorama、watchfiles 等）。换平台不要直接用它。
+#
+# 项目自身不在此列：`pip install -e .` 会把本地 editable 记成
+# gitee 的 VCS URL 并钉在某个 commit 上（见 setup-new-machine.md）。
+# 本文件含 [dev] extra（pytest / pytest-asyncio 在其中）。
+# 改动 pyproject.toml 的依赖后，要重新生成本文件。
+
+alembic==1.20.0
+annotated-doc==0.0.5
+annotated-types==0.8.0
+anyio==4.15.1
+certifi==2026.7.22
+charset-normalizer==3.5.1
+click==8.5.0
+colorama==0.4.6
+distro==1.9.0
+fastapi==0.141.1
+greenlet==3.5.6
+h11==0.16.0
+httpcore==1.0.9
+httpcore2==2.13.1
+httptools==0.8.0
+httpx==0.28.1
+httpx2==2.13.1
+idna==3.20
+iniconfig==2.3.0
+jiter==0.17.0
+jsonpatch==1.33
+jsonpointer==3.1.1
+langchain-core==1.6.5
+langchain-protocol==0.0.19
+langgraph==1.2.12
+langgraph-checkpoint==4.2.0
+langgraph-checkpoint-postgres==3.1.2
+langgraph-prebuilt==1.1.0
+langgraph-sdk==0.4.5
+langsmith==0.14.1
+Mako==1.4.3
+MarkupSafe==3.0.3
+openai==3.19.2
+orjson==3.12.0
+ormsgpack==1.12.2
+packaging==26.3
+pluggy==1.6.0
+psycopg==3.3.6
+psycopg-binary==3.3.6
+psycopg-pool==3.3.3
+pydantic==2.13.5
+pydantic-settings==2.15.0
+pydantic_core==2.46.5
+Pygments==2.21.0
+pytest==9.1.1
+pytest-asyncio==1.4.0
+python-dotenv==1.2.3
+PyYAML==6.0.3
+requests==2.34.2
+requests-toolbelt==1.0.0
+setuptools==83.0.0
+sniffio==1.3.1
+SQLAlchemy==2.1.1
+starlette==1.7.0
+tenacity==9.1.4
+truststore==0.10.4
+typing-inspection==0.4.4
+typing_extensions==4.16.0
+tzdata==2026.4
+urllib3==2.8.0
+uuid_utils==0.17.1
+uvicorn==0.54.0
+watchfiles==1.3.0
+websockets==16.1.1
+wheel==0.47.0
+xxhash==4.0.1
+zstandard==0.25.0

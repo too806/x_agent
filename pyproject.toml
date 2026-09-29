@@ -11,12 +11,17 @@ dependencies = [
     "fastapi>=0.110",
     "uvicorn[standard]>=0.29",
     "sqlalchemy[asyncio]>=2.0.30",
-    "psycopg[binary]>=3.1.18",
+    # pool extra 是必须的：app/db/checkpointer.py 顶层 import psycopg_pool，
+    # 此前只声明 [binary]，靠 langgraph-checkpoint-postgres 的传递依赖才装得上。
+    "psycopg[binary,pool]>=3.1.18",
     "alembic>=1.13",
     "pydantic>=2.7",
     "pydantic-settings>=2.2",
     "langgraph>=0.2",
     "langgraph-checkpoint-postgres>=3.1",
+    # 直接使用：app/db/checkpointer.py 顶层 import langgraph.checkpoint.serde。
+    # 与 psycopg 的 pool 同一类：实际靠 langgraph 的传递依赖才装得上。
+    "langgraph-checkpoint>=4.1",
     "openai>=1.40",
     # 直接使用：app/services/x_api.py 顶层 import（此前只写在 dev extras 里，
     # 实际靠 openai 的传递依赖才装得上）
