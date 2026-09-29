@@ -6,7 +6,12 @@
  * 像渲染出错。所有 `—` 都只是空值的表示，绝不代表某个猜测出来的默认值。
  */
 
-import type { PublishStatus, ReviewStatus, RunStatus } from '../types/api'
+import type {
+  AgentQualityMetrics,
+  PublishStatus,
+  ReviewStatus,
+  RunStatus,
+} from '../types/api'
 
 export const EMPTY = '—'
 
@@ -172,21 +177,36 @@ export function publishStatusLabel(status: string | null | undefined): string {
  * 时间线上会出现一个没翻译的英文词——那是**看得见的缺口**，比一句"未知步骤"有用。
  */
 const AGENT_ACTION_LABELS: Record<string, string> = {
-  discover_topics: '发现选题',
-  research_topic: '研究选题',
-  deepen_research: '深化研究',
-  extract_evidence: '抽取证据',
-  generate_angles: '生成观点',
-  select_angle: '选定观点',
+  discover_topics: '发现候选',
+  research_topic: '研究主题',
+  deepen_research: '深入研究',
+  extract_evidence: '提炼证据',
+  generate_angles: '生成观点角度',
+  select_angle: '选择观点角度',
   generate_candidates: '生成候选',
-  criticize: '评审候选',
-  revise: '改写候选',
-  finish: '收尾',
+  criticize: '内容评估',
+  revise: '修改内容',
+  finish: '完成',
 }
 
 export function agentActionLabel(action: string | null | undefined): string {
   if (!action) return EMPTY
   return AGENT_ACTION_LABELS[action] ?? action
+}
+
+/**
+ * 把 Critic 的三种结论压成一行："评了 7 条：通过 3 / 要求改稿 3 / 否决 1"。
+ *
+ * 三种计数**必须一直显示**，包括 0——"这次一条都没否决"和"这次压根没评过"
+ * 是两件完全不同的事，把 0 省掉就分不出来了（总数 0 时才是真的没评过）。
+ */
+export function criticOutcomeSummary(quality: AgentQualityMetrics): string {
+  const accept = quality.critic_accept_count
+  const revise = quality.critic_revise_count
+  const reject = quality.critic_reject_count
+  const total = accept + revise + reject
+  if (total === 0) return '这次运行没有产生评审结论'
+  return `评了 ${total} 条：通过 ${accept} / 要求改稿 ${revise} / 否决 ${reject}`
 }
 
 /**
@@ -203,6 +223,36 @@ export function codePointLength(value: string): number {
 /** 把可能的 null 压成空串，供搜索框等受控输入使用。 */
 export function orEmpty(value: string | null | undefined): string {
   return value ?? ''
+}
+
+/**
+ * 列表"主题"列显示什么。
+ *
+ * Agent 模式（Phase 5A）的 Run 在选出主题之前 `topic` 是 null，而 `goal` 是
+ * 人给的那句话。这里**不把 goal 当主题**：返回的字符串带"目标："前缀，是
+ * 为了让屏幕上永远能看出"这一格显示的不是主题，是它还没选主题时的输入"。
+ *
+ * 不带前缀地直接显示 goal 会让人以为那就是 Agent 选定的题目——一个还在选题的
+ * Run 和一个已经定了题的 Run 在列表里长得一样，是比空白更糟的误导。
+ *
+ * 两者都没有时返回 null，由调用方决定显示 `—` 还是别的。
+ */
+export function runTitle(row: { topic: string | null; goal: string | null }): string | null {
+  if (row.topic) return row.topic
+  if (row.goal) return `目标：${row.goal}`
+  return null
+}
+
+/**
+ * 长 ID 的短形式：只取前 8 位。
+ *
+ * 用于列表里"能一眼区分两条记录、又不撑爆列宽"的场合。**不能拿它去查询**——
+ * 它只是显示形式，完整值始终在 `title` 属性和详情里。ID 短于 8 位时原样返回，
+ * 免得把别的东西（比如一个数字 ID）截成看起来正常其实残缺的样子。
+ */
+export function shortId(value: string | null | undefined): string {
+  if (!value) return EMPTY
+  return value.length <= 8 ? value : value.slice(0, 8)
 }
 
 /**

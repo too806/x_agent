@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="X AI Content Agent">
+  <rect width="32" height="32" rx="7" fill="#111827" />
+  <!-- 一个时间线节点：这个控制台的核心是 Agent 的决策轨迹。 -->
+  <path d="M11 8v16" stroke="#4b5563" stroke-width="2" stroke-linecap="round" />
+  <circle cx="11" cy="11" r="3" fill="#60a5fa" />
+  <circle cx="11" cy="21" r="3" fill="#f59e0b" />
+  <path d="M17 11h7M17 21h5" stroke="#9ca3af" stroke-width="2" stroke-linecap="round" />
+</svg>

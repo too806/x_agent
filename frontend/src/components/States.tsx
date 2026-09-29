@@ -2,6 +2,8 @@ import type { ReactNode } from 'react'
 
 import { ApiError } from '../api/client'
 import { backendErrorLabel, httpStatusLabel } from '../utils/format'
+import { IconRefresh } from './ui/icons'
+import { SkeletonCards, SkeletonLines, SkeletonTable } from './ui/Skeleton'
 
 /**
  * 加载 / 空 / 错误 三种状态的统一呈现。
@@ -10,15 +12,47 @@ import { backendErrorLabel, httpStatusLabel } from '../utils/format'
  * 一片空白或一个白屏，使用者既不知道发生了什么，也不知道能做什么。
  */
 
-export function LoadingState({ message = '加载中…' }: { message?: string }) {
-  return <div className="skeleton">{message}</div>
+/**
+ * 加载态。
+ *
+ * 之前这里是"加载中…"四个字：内容还没到时页面塌成一行高，数据回来再撑开，
+ * 切换筛选时每切一次跳一次。现在占位块撑住即将出现的内容的高度，跳就不见了。
+ *
+ * `message` 仍然保留，但它改成**只给屏幕阅读器**：视觉上骨架屏自己会说
+ * "正在加载"，再叠一行字是多余的；而读屏用户看不到骨架屏，需要这句话，
+ * 并且需要 `role="status"` 让它被播报出来。
+ */
+export function LoadingState({
+  message = '加载中…',
+  variant = 'lines',
+}: {
+  message?: string
+  /** 占位的形状。'table' 用于列表页，'cards' 用于 KPI 行。 */
+  variant?: 'lines' | 'table' | 'cards'
+}) {
+  return (
+    <div aria-busy="true">
+      <span className="sr-only" role="status">
+        {message}
+      </span>
+      {variant === 'table' ? (
+        <SkeletonTable />
+      ) : variant === 'cards' ? (
+        <SkeletonCards />
+      ) : (
+        <SkeletonLines />
+      )}
+    </div>
+  )
 }
 
 export function EmptyState({ title, hint }: { title: string; hint?: ReactNode }) {
   return (
     <div className="state">
       <div className="state__title">{title}</div>
-      {hint ? <div>{hint}</div> : null}
+      {/* 空态必须说清"为什么是空的"，以及"什么情况下会有东西"。
+          只说"暂无数据"等于让人自己猜是没数据还是坏了。 */}
+      {hint ? <div className="state__hint">{hint}</div> : null}
     </div>
   )
 }
@@ -46,7 +80,7 @@ export function ErrorDetail({ error }: { error: ApiError }) {
   return (
     <>
       <div>{label}</div>
-      <div className="cell-muted mono" style={{ marginTop: 4 }}>
+      <div className="cell-muted mono" style={{ marginTop: 'var(--space-1)' }}>
         {error.message}
       </div>
     </>
@@ -62,13 +96,16 @@ export function ErrorDetail({ error }: { error: ApiError }) {
  */
 export function ErrorState({ error, what, onRetry }: ErrorStateProps) {
   return (
-    <div className="state state--error">
+    <div className="state state--error" role="alert">
       <div className="state__title">{what}</div>
-      <div>{httpStatusLabel(error.status)}</div>
-      <ErrorDetail error={error} />
+      <div className="state__hint">
+        <div>{httpStatusLabel(error.status)}</div>
+        <ErrorDetail error={error} />
+      </div>
       {onRetry ? (
         <div className="state__actions">
-          <button type="button" className="btn btn--sm" onClick={onRetry}>
+          <button type="button" className="btn" onClick={onRetry}>
+            <IconRefresh size={14} />
             重试
           </button>
         </div>

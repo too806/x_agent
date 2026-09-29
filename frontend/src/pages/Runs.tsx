@@ -5,11 +5,12 @@ import { Pagination } from '../components/Pagination'
 import { RunDetailDrawer } from '../components/RunDetailDrawer'
 import { EmptyState, ErrorState, LoadingState } from '../components/States'
 import { StatusBadge } from '../components/StatusBadge'
+import { IconAlert, IconRefresh } from '../components/ui/icons'
 import { useAsync } from '../hooks/useAsync'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
 import { usePageClamp } from '../hooks/usePageClamp'
 import { RUN_STATUSES } from '../types/api'
-import { EMPTY, dateTime, runStatusLabel } from '../utils/format'
+import { EMPTY, dateTime, relativeTime, runStatusLabel, runTitle, shortId } from '../utils/format'
 
 const TOPIC_DEBOUNCE_MS = 400
 
@@ -42,10 +43,29 @@ function localDateToIso(value: string, addDays = 0): string | undefined {
   return new Date(year, month - 1, day + addDays).toISOString()
 }
 
+/**
+ * 运行记录 —— "Agent 跑过哪些次"的探索器。
+ *
+ * 列的取舍：
+ *
+ * - **主题**（可截断 + 悬停看全文）下面挂一行 Run ID。中文主题长度不可控，
+ *   不截断的话一行能撑到屏幕外面；而 Run ID 是排查时唯一能把界面、日志、
+ *   数据库对起来的东西，藏在抽屉里意味着每查一次要多点一下。
+ * - **运行状态 / 审核状态 / 发布状态**三列并排。它们是三个不同权威：
+ *   Run 状态说的是"Agent 走到哪了"，审核状态说的是"人做了什么决定"，
+ *   发布状态来自发布记录、说的是"X 上到底发生了什么"。合并或省掉任何一个，
+ *   都会让人拿其中一个去猜另外两个。
+ * - **创建时间 / 完成时间**：绝对时间在上（用来对账），相对时间在下（用来判断
+ *   新鲜度）。只给相对时间的话，"3 天前"是哪天还得心算。
+ * - **操作**：显式的"查看"。这一版把整行的 `role="button"` 去掉了——
+ *   一个 `role="button"` 的 `<tr>` 在无障碍树里不再是表格行，读屏用户会失去
+ *   整个表头对应关系；而键盘用户本来就有这个按钮可达。
+ */
 export function Runs() {
   const [filters, setFilters] = useState<Filters>(NO_FILTERS)
   const [page, setPage] = useState(1)
   const [openRunId, setOpenRunId] = useState<string | null>(null)
+  const [compact, setCompact] = useState(false)
 
   const debouncedTopic = useDebouncedValue(filters.topic, TOPIC_DEBOUNCE_MS)
 
@@ -80,9 +100,35 @@ export function Runs() {
       <section className="section">
         <div className="section__head">
           <h2 className="section__title">运行记录</h2>
-          <button type="button" className="btn btn--sm" onClick={reload} disabled={loading}>
-            刷新
-          </button>
+          <div className="row row--tight">
+            {data ? (
+              <span className="cell-muted">
+                {dirty ? `筛选结果 ${data.page.total} 条` : `共 ${data.page.total} 条`}
+              </span>
+            ) : null}
+            <div className="segmented" role="group" aria-label="表格密度">
+              <button
+                type="button"
+                className={compact ? 'segmented__item' : 'segmented__item is-active'}
+                aria-pressed={!compact}
+                onClick={() => setCompact(false)}
+              >
+                舒适
+              </button>
+              <button
+                type="button"
+                className={compact ? 'segmented__item is-active' : 'segmented__item'}
+                aria-pressed={compact}
+                onClick={() => setCompact(true)}
+              >
+                紧凑
+              </button>
+            </div>
+            <button type="button" className="btn btn--sm" onClick={reload} disabled={loading}>
+              <IconRefresh size={14} />
+              刷新
+            </button>
+          </div>
         </div>
 
         <div className="card">
@@ -157,6 +203,8 @@ export function Runs() {
                 />
               </div>
 
+              <div className="filter-bar__spacer" />
+
               <button
                 type="button"
                 className="btn"
@@ -171,26 +219,29 @@ export function Runs() {
       </section>
 
       <section className="section">
-        {loading && !data ? <LoadingState message="正在加载运行记录…" /> : null}
-        {error ? (
-          <ErrorState error={error} what="加载运行记录失败。" onRetry={reload} />
-        ) : null}
+        {loading && !data ? <LoadingState message="正在加载运行记录…" variant="table" /> : null}
+        {error ? <ErrorState error={error} what="加载运行记录失败。" onRetry={reload} /> : null}
 
         {data ? (
-          <div className="card card--flush" style={{ opacity: loading ? 0.6 : 1 }}>
+          <div className={loading ? 'card card--flush is-loading' : 'card card--flush'}>
             {data.items.length === 0 ? (
               <EmptyState
-                title="没有符合筛选条件的运行记录"
+                title={dirty ? '没有符合筛选条件的运行记录' : '还没有任何运行记录'}
                 hint={
-                  dirty
-                    ? '可以清除某个筛选条件，或把日期范围放宽一些。'
-                    : '目前还没有任何运行记录。'
+                  dirty ? (
+                    <>当前的筛选条件没有匹配到任何 Run。可以清除某个条件，或把日期范围放宽一些。</>
+                  ) : (
+                    <>
+                      每当 Agent 开始一次新的运行，这里就会多一条记录。
+                      如果预期这里应该有内容，先确认后端服务在运行。
+                    </>
+                  )
                 }
               />
             ) : (
               <>
                 <div className="table-wrap">
-                  <table className="table">
+                  <table className={compact ? 'table table--compact' : 'table'}>
                     <thead>
                       <tr>
                         <th>主题</th>
@@ -201,32 +252,43 @@ export function Runs() {
                         <th title="该 Run 已到达终态的时间。未结束的 Run 没有这个值。">
                           完成时间
                         </th>
-                        <th title="该 Run 存有错误信息">错误</th>
+                        <th>
+                          <span className="sr-only">操作</span>
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
                       {data.items.map((run) => (
                         <tr
                           key={run.run_id}
-                          className="table__row--clickable"
-                          role="button"
-                          tabIndex={0}
+                          className={
+                            run.run_id === openRunId
+                              ? 'table__row--clickable table__row--selected'
+                              : 'table__row--clickable'
+                          }
                           onClick={() => setOpenRunId(run.run_id)}
-                          onKeyDown={(event) => {
-                            if (event.key === 'Enter' || event.key === ' ') {
-                              event.preventDefault()
-                              setOpenRunId(run.run_id)
-                            }
-                          }}
                         >
-                          {/* 题目为 `—` = Agent 模式的 Run 还没选出主题（Phase 5A）。
-                              这里**不显示 goal** 顶替：goal 是人给的输入，topic 是 Agent
-                              的选择，混在一起会看不出 Agent 到底选了没有。 */}
                           <td className="table__topic">
-                            {run.topic ?? <span className="cell-muted">{EMPTY}</span>}
+                            {/* 主题最多两行，超出打点，完整值在悬停提示和抽屉里。
+                                `table__clamp` 自己就是 `-webkit-box`，不需要再包一层。 */}
+                            <span className="table__clamp" title={runTitle(run) ?? undefined}>
+                              {runTitle(run) ?? <span className="cell-muted">{EMPTY}</span>}
+                            </span>
+                            {/* Run ID：等宽、只显示前 8 位，完整值在悬停和抽屉里。
+                                等宽字体 + 定宽截断是刻意的——UUID 一旦完整铺开，
+                                这一列会把主题和状态一起挤窄。 */}
+                            <div className="table__secondary mono" title={run.run_id}>
+                              {shortId(run.run_id)}
+                            </div>
                           </td>
                           <td>
                             <StatusBadge status={run.run_status} kind="run" />
+                            {run.error ? (
+                              <span className="cell-error" title={run.error}>
+                                <IconAlert size={12} />
+                                有错误
+                              </span>
+                            ) : null}
                           </td>
                           <td>
                             <StatusBadge status={run.review_status} kind="review" />
@@ -236,16 +298,28 @@ export function Runs() {
                                 笼统的说法，更不能用左边的 Run 状态去顶替。 */}
                             <StatusBadge status={run.publish_status} kind="publish" />
                           </td>
-                          <td className="cell-muted cell-nowrap">{dateTime(run.created_at)}</td>
-                          <td className="cell-muted cell-nowrap">{dateTime(run.finished_at)}</td>
                           <td className="cell-nowrap">
-                            {run.error ? (
-                              <span className="err-dot" title={run.error}>
-                                ●
-                              </span>
-                            ) : (
-                              <span className="cell-muted">{EMPTY}</span>
-                            )}
+                            <div className="table__time-abs">{dateTime(run.created_at)}</div>
+                            <div className="table__time-rel">{relativeTime(run.created_at)}</div>
+                          </td>
+                          <td className="cell-nowrap">
+                            <div className="table__time-abs">{dateTime(run.finished_at)}</div>
+                            {run.finished_at ? (
+                              <div className="table__time-rel">{relativeTime(run.finished_at)}</div>
+                            ) : null}
+                          </td>
+                          <td className="table__actions">
+                            <button
+                              type="button"
+                              className="btn btn--sm"
+                              onClick={(event) => {
+                                // 整行可点，但按钮不该冒泡成第二遍——点按钮只开一次。
+                                event.stopPropagation()
+                                setOpenRunId(run.run_id)
+                              }}
+                            >
+                              查看
+                            </button>
                           </td>
                         </tr>
                       ))}

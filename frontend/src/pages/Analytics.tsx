@@ -5,8 +5,9 @@ import { api } from '../api/client'
 import { EmptyState, ErrorState, LoadingState } from '../components/States'
 import { StatusBadge } from '../components/StatusBadge'
 import { TrendChart } from '../components/TrendChart'
+import { IconRefresh } from '../components/ui/icons'
 import { useAsync } from '../hooks/useAsync'
-import { duration } from '../utils/format'
+import { EMPTY, duration } from '../utils/format'
 import type {
   AverageRunDuration,
   PublishOutcomeDistribution,
@@ -17,16 +18,28 @@ import type {
 /**
  * 系统运行分析。
  *
- * 这个页面**不含任何 X 的内容表现指标**（impressions / likes / engagement）。
- * 系统没有回读 X 的机制，那类数字在库里根本不存在，所以这里既不显示它们，
- * 也不显示 0——一张"阅读量为 0"的图会被读成"这篇没人看"，而事实是"我们不知道"。
- * 相关的数据缺口在页面末尾单独列成一栏，把"缺什么、为什么缺"说清楚。
+ * 页面按**四层**组织，而不是把每个后端字段各开一节：
  *
- * 第二个贯穿全页的口径问题：**窗口内 vs 全量**。后端只有 run_volume 与两张日
- * 趋势图带日期过滤，review / publish / duration / topic 四块都是全库统计
- * （见 `app/services/admin.py` 的 `analytics()`，那几个查询根本没传 date_from）。
- * 与其在界面上把它们笼统地放进"最近 N 天"，不如每块自带范围标注。混在一起报，
- * 使用者会拿一个含全部历史的分布去解释一个只覆盖 7 天的趋势。
+ *   1. 核心数字 —— 四个能直接回答"最近怎么样"的数
+ *   2. 趋势     —— 两张日粒度折线
+ *   3. 分布     —— 三组构成（审核决定 / 发布结果 / 主题）
+ *   4. 明细     —— 每一块的口径与缺口，一张表说清
+ *
+ * 之前是七个平级 section，其中四个各自只装一张卡。这种"一字段一节"的排法在视觉上
+ * 把"窗口内 Run 数"和"平均运行时长"摆成同等重要的两件事，读者没有层级可循——正
+ * 是"12 个半成品"的那种观感。现在只有四层，层内是同类的块。
+ *
+ * 三件贯穿全页的诚实性约束：
+ *
+ * - **不含任何 X 的内容表现指标**（impressions / likes / engagement）。系统没有回读
+ *   X 的机制，那类数字在库里根本不存在，所以这里既不显示它们，也不显示 0——一张
+ *   "阅读量为 0"的图会被读成"这篇没人看"，而事实是"我们不知道"。
+ * - **算不出来的不给 0，也不给占位符。** 平均运行时长在样本不足时显示"暂无足够数据"
+ *   并说明缺的是哪一类 Run。计数类的 0 是**真实测量值**（窗口内确实一条都没有），
+ *   照常显示，但用弱化样式，免得一个 0 看起来像个成绩。
+ * - **窗口内 vs 全库必须分开标注。** 后端只有 run_volume 与两张日趋势图带日期过滤，
+ *   review / publish / duration / topic 四块都是全库统计（见 `app/services/admin.py`
+ *   的 `analytics()`，那几个查询根本没传 date_from）。第 4 层的表逐行列了范围。
  *
  * 口径说明（`publish_outcomes.note` / `*_reason`）后端下发的是**英文常量**，而且被
  * `tests/test_admin_api.py` 断言着，所以后端一个字节都没动。界面上的中文说明是这里
@@ -52,6 +65,25 @@ interface Row {
   tone: Tone
   /** 有状态语义的行给它一个徽标，纯文本行（话题）不给。 */
   kind?: 'run' | 'review' | 'publish'
+}
+
+/**
+ * 层内的一块。标题、hint、正文三件套统一，所以四层里的所有卡片长得一样。
+ *
+ * 不抽成全局 UI 组件：它的全部内容就是三个 class 名，别处也不长这个形状。
+ */
+function Block({ title, hint, children }: { title: string; hint?: ReactNode; children: ReactNode }) {
+  return (
+    <div className="card">
+      <div className="card__body">
+        <div className="block__head">
+          <h3 className="card__title">{title}</h3>
+          {hint ? <span className="card__hint">{hint}</span> : null}
+        </div>
+        {children}
+      </div>
+    </div>
+  )
 }
 
 function BarRow({
@@ -83,7 +115,7 @@ function BarRow({
 }
 
 /**
- * 一组计数。全为 0 时显示空态而不是四条零长度的横条——后者看起来像"有四个分类，
+ * 一组计数。全为 0 时显示空态而不是几条零长度的横条——后者看起来像"有四个分类，
  * 都很低"，而不是"什么记录都还没有"。
  */
 function Bars({ rows, empty }: { rows: Row[]; empty: { title: string; hint: string } }) {
@@ -156,48 +188,73 @@ function publishRows(counts: PublishOutcomeDistribution): Row[] {
 }
 
 /**
- * 平均运行时长。
+ * 一个计数型 KPI。
  *
- * `metric.reason` 后端下发的是英文常量（被测试断言着），所以这里不直接渲染它——
- * 不可用的原因只有一种，就是把后端那句话按同样的语义写成中文。少渲染一句话，
- * 换掉的是页面上唯一一段英文。
+ * 0 是**真实测量值**（这个窗口内确实一条都没有），不是缺失值，所以照常显示数字——
+ * 但加 `kpi--quiet` 把它压暗：一个孤零零的 0 摆在最显眼的位置会看起来像个成绩或
+ * 像个故障提示，而它两样都不是。
  */
-function DurationBlock({ metric }: { metric: AverageRunDuration }) {
-  if (!metric.available || metric.average_seconds === null) {
-    return (
-      <NotAvailable
-        what="平均运行时长"
-        reason="还没有任何一个终态 Run 同时具备 started_at 和 finished_at。只有终态（已发布 / 已拒绝 / 失败 / 已完成）才会写 finished_at；已批准、已编辑、待审核以及结果未定的发布都刻意留空。"
-      />
-    )
-  }
-  const partial = metric.sampled_runs < metric.total_runs
+function CountKpi({ label, value, sub }: { label: string; value: number; sub: string }) {
   return (
-    <div className="stack stack--tight">
-      <div className="kpi__value">{duration(metric.average_seconds)}</div>
-      <div className="kpi__sub">
-        取自 <strong>{metric.sampled_runs}</strong> 个 Run，共 {metric.total_runs} 个
-      </div>
-      {partial ? (
-        <div className="notice notice--warn">
-          只有到达终态的 Run 才同时有 <code>started_at</code> 和 <code>finished_at</code>
-          ，也只有这些能被测量。仍在等待审核的、已批准或已编辑但还没发布的、以及卡在结果未定
-          的发布里的 Run，<strong>都不在</strong>这个平均值里 —— 它不是全部{' '}
-          {metric.total_runs} 个 Run 的平均。
-        </div>
-      ) : null}
+    <div className={value === 0 ? 'kpi kpi--quiet' : 'kpi'}>
+      <div className="kpi__label">{label}</div>
+      <div className="kpi__value">{value}</div>
+      <div className="kpi__sub">{sub}</div>
     </div>
   )
 }
 
-function ScopeNote() {
+/**
+ * 平均运行时长。
+ *
+ * 它和上面三个计数不是同一类东西：分母不是"全部 Run"，而是"同时具备 started_at 与
+ * finished_at 的 Run"。样本为空时**显示"暂无足够数据"而不是 0 秒** —— 0 秒会被读成
+ * "跑得飞快"。样本不全时把缺口写在下面，因为拿它当全部 Run 的平均值会得出错误结论。
+ */
+function DurationKpi({ metric }: { metric: AverageRunDuration }) {
+  const value = metric.available ? metric.average_seconds : null
+
+  if (value === null) {
+    return (
+      <div className="kpi kpi--quiet">
+        <div className="kpi__label">平均运行时长</div>
+        <div className="kpi__value kpi__value--none">暂无足够数据</div>
+        <div className="kpi__sub">还没有任何一个 Run 同时具备开始与完成时间</div>
+      </div>
+    )
+  }
+
+  const partial = metric.sampled_runs < metric.total_runs
   return (
-    <div className="notice notice--info" style={{ marginBottom: 20 }}>
-      <div className="notice__title">窗口对哪些区块生效</div>
-      只有两张图和「窗口内 Run 数」会被上方选定的时间窗口过滤。审核决定分布、发布结果分布、
-      平均运行时长和主题排行都是<strong>全库统计</strong> —— 后端对这几项没有日期过滤参数。
-      每个区块都标了自己的范围，免得用一张 7 天的图去解释一个含全部历史的分布。
+    <div className={partial ? 'kpi kpi--attention' : 'kpi'}>
+      <div className="kpi__label">平均运行时长</div>
+      <div className="kpi__value">{duration(value)}</div>
+      <div className="kpi__sub">
+        取自 <strong>{metric.sampled_runs}</strong> 个 Run，共 {metric.total_runs} 个
+      </div>
     </div>
+  )
+}
+
+/** 明细表的一行。范围那一列是全页最要紧的信息，所以它单独成列而不是塞进说明里。 */
+function ScopeRow({
+  metric,
+  scope,
+  source,
+  note,
+}: {
+  metric: string
+  scope: ReactNode
+  source: string
+  note: ReactNode
+}) {
+  return (
+    <tr>
+      <td>{metric}</td>
+      <td className="cell-nowrap">{scope}</td>
+      <td className="cell-nowrap mono">{source}</td>
+      <td className="cell-muted">{note}</td>
+    </tr>
   )
 }
 
@@ -212,19 +269,28 @@ export function Analytics() {
   const unresolved =
     data ? data.publish_outcomes.publish_unknown + data.publish_outcomes.publishing : 0
 
+  const topicRows: Row[] =
+    data?.topic_distribution.map((item: TopicCount) => ({
+      key: item.topic,
+      label: item.topic,
+      count: item.count,
+      tone: 'grey',
+    })) ?? []
+
   return (
     <>
       <section className="section">
         <div className="section__head">
           <h2 className="section__title">系统活动</h2>
-          <div className="row">
+          <div className="row row--tight">
+            {/* 窗口是这一页唯一的输入，放在页头而不是每块里各来一个：
+                两个窗口控件迟早会不一致，而这张页面上所有数字都靠它限定范围。 */}
             <label className="cell-muted" htmlFor="analytics-window">
               时间窗口
             </label>
             <select
               id="analytics-window"
-              className="select"
-              style={{ width: 130 }}
+              className="select select--sm"
               value={days}
               onChange={(event) => setDays(Number(event.target.value))}
             >
@@ -235,82 +301,99 @@ export function Analytics() {
               ))}
             </select>
             <button type="button" className="btn btn--sm" onClick={reload} disabled={loading}>
+              <IconRefresh size={14} />
               刷新
             </button>
           </div>
         </div>
 
-        {loading && !data ? <LoadingState message="正在加载数据分析…" /> : null}
+        <p className="cell-muted scope-note">
+          时间窗口<strong>只对第 1 层里的「窗口内 Run 数」和第 2 层的两张图生效</strong>。
+          审核决定分布、发布结果分布、平均运行时长和主题分布都是全库统计 —— 后端对这几项
+          没有日期过滤参数。每块的范围在第 4 层的表里逐行列着，别拿一张 7 天的图去解释一个
+          含全部历史的分布。
+        </p>
+
+        {loading && !data ? <LoadingState message="正在加载数据分析…" variant="lines" /> : null}
         {error ? (
           <ErrorState error={error} what="加载数据分析失败。" onRetry={reload} />
         ) : null}
       </section>
 
       {data ? (
-        <>
-          <ScopeNote />
-
+        <div className={loading ? 'is-loading' : undefined}>
+          {/* ── 1. 核心数字 ─────────────────────────────────────────────── */}
           <section className="section">
             <div className="section__head">
-              <h2 className="section__title">总量</h2>
+              <h2 className="section__title">核心数字</h2>
             </div>
             <div className="kpi-grid">
-              <div className="kpi">
-                <div className="kpi__label">窗口内 Run 数</div>
-                <div className="kpi__value">{data.run_volume}</div>
-                <div className="kpi__sub">最近 {data.window_days} 天内创建的</div>
-              </div>
-              <div className="kpi">
-                <div className="kpi__label">审核决定数</div>
-                <div className="kpi__value">{decisionTotal}</div>
-                <div className="kpi__sub">全库 · 一次人工决定一行</div>
-              </div>
-              <div className="kpi">
-                <div className="kpi__label">发布记录数</div>
-                <div className="kpi__value">{outcomeTotal}</div>
-                <div className="kpi__sub">全库 · 每个 Run 最多一行</div>
-              </div>
+              <CountKpi
+                label="窗口内 Run 数"
+                value={data.run_volume}
+                sub={`最近 ${data.window_days} 天内创建的`}
+              />
+              <CountKpi
+                label="审核决定数"
+                value={decisionTotal}
+                sub="全库 · 一次人工决定一行"
+              />
+              <CountKpi
+                label="发布记录数"
+                value={outcomeTotal}
+                sub="全库 · 每个 Run 最多一行"
+              />
+              <DurationKpi metric={data.average_run_duration} />
             </div>
+
+            {/* 平均时长的缺口单独说清楚：它是这一行里唯一一个分母不是"全部 Run"的数。 */}
+            {data.average_run_duration.available &&
+            data.average_run_duration.sampled_runs < data.average_run_duration.total_runs ? (
+              <div className="notice notice--warn block-gap">
+                <div className="notice__title">平均运行时长不是全部 Run 的平均</div>
+                只有到终态的 Run 才同时有 <code>started_at</code> 和 <code>finished_at</code>
+                ，也只有这些能被测量。仍在等待审核的、已批准或已编辑但还没发布的、以及卡在
+                结果未定的发布里的 Run，<strong>都不在</strong>这个平均值里 —— 而它们通常正是
+                耗时最长的那一批。
+              </div>
+            ) : null}
           </section>
 
+          {/* ── 2. 趋势 ─────────────────────────────────────────────────── */}
           <section className="section">
             <div className="section__head">
-              <h2 className="section__title">每日活动</h2>
+              <h2 className="section__title">趋势</h2>
               <span className="section__hint">最近 {data.window_days} 天 · 按 UTC 自然日</span>
             </div>
             <div className="chart-grid">
-              <div className="card">
-                <div className="card__body">
-                  <div className="section__title">每日运行量</div>
-                  <TrendChart
-                    points={data.daily_runs}
-                    emptyHint="该窗口内没有创建过 Run。可以把窗口放宽，看得更远一些。"
-                  />
-                </div>
-              </div>
-              <div className="card">
-                <div className="card__body">
-                  <div className="section__title">每日发布量</div>
-                  <TrendChart
-                    points={data.daily_published}
-                    emptyHint="该窗口内没有发布尝试记录。这里统计的是尝试次数，不是成功次数 —— 失败或结果未定的尝试同样会出现在图上。"
-                  />
-                </div>
-              </div>
+              <Block title="每日运行量" hint="Run 被创建的时刻">
+                <TrendChart
+                  points={data.daily_runs}
+                  emptyHint="该窗口内没有创建过 Run。可以把窗口放宽，看得更远一些。"
+                />
+              </Block>
+              <Block title="每日发布量" hint="发布尝试开始的时刻">
+                <TrendChart
+                  points={data.daily_published}
+                  emptyHint="该窗口内没有发布尝试记录。这里统计的是尝试次数，不是成功次数 —— 失败或结果未定的尝试同样会出现在图上。"
+                />
+              </Block>
             </div>
-            <p className="cell-muted">
-              尝试按 <code>published_post.created_at</code> 归入某一天，也就是尝试开始的时刻 ——
-              不是按 <code>published_at</code>，那个只有成功的行才有。用后者会让这张图比现实好看。
+            <p className="cell-muted scope-note">
+              发布尝试按 <code>published_post.created_at</code> 归入某一天，也就是尝试开始的
+              时刻 —— 不是按 <code>published_at</code>，那个只有成功的行才有。用后者会让这张图
+              比现实好看。
             </p>
           </section>
 
+          {/* ── 3. 分布 ─────────────────────────────────────────────────── */}
           <section className="section">
             <div className="section__head">
-              <h2 className="section__title">审核决策分布</h2>
-              <span className="section__hint">全库</span>
+              <h2 className="section__title">分布</h2>
+              <span className="section__hint">全库 · 不受上面那个窗口影响</span>
             </div>
-            <div className="card">
-              <div className="card__body">
+            <div className="chart-grid">
+              <Block title="审核决策分布" hint={`${decisionTotal} 次决定`}>
                 <Bars
                   rows={decisions}
                   empty={{
@@ -319,23 +402,15 @@ export function Analytics() {
                   }}
                 />
                 {decisionTotal > 0 ? (
-                  <p className="cell-muted" style={{ marginBottom: 0 }}>
+                  <p className="cell-muted scope-note">
                     每个 Run 只决定一次。<strong>其他</strong>收的是三种已知决定之外的记录 ——
-                    实际上就是那些一直停在 <code>pending</code> 的审核行。把它显示出来而不是丢掉，
-                    是为了四个数字加起来始终等于总数。
+                    实际上就是那些一直停在 <code>pending</code> 的审核行。把它显示出来而不是
+                    丢掉，是为了四个数字加起来始终等于总数。
                   </p>
                 ) : null}
-              </div>
-            </div>
-          </section>
+              </Block>
 
-          <section className="section">
-            <div className="section__head">
-              <h2 className="section__title">发布结果分布</h2>
-              <span className="section__hint">全库</span>
-            </div>
-            <div className="card">
-              <div className="card__body">
+              <Block title="发布结果分布" hint={`${outcomeTotal} 条发布记录`}>
                 <Bars
                   rows={outcomes}
                   empty={{
@@ -346,83 +421,143 @@ export function Analytics() {
                 {/* 口径说明对应后端下发的 `publish_outcomes.note`（英文常量，被
                     tests/test_admin_api.py 断言着）。这里按同一份语义用中文重写，
                     不是逐字翻译：它讲的是这份数据本身怎么算出来的。 */}
-                <p className="cell-muted" style={{ marginBottom: 0 }}>
-                  计数按 <strong>Run</strong> 计（每个 Run 记它的当前结局），不是按尝试次数：
-                  <code>published_post</code> 每个 Run 最多一行、重试会复用同一行，所以被覆盖掉的
-                  那次失败不会出现在任何计数里。
-                </p>
-              </div>
+                {outcomeTotal > 0 ? (
+                  <p className="cell-muted scope-note">
+                    计数按 <strong>Run</strong> 计（每个 Run 记它的当前结局），不是按尝试次数：
+                    <code>published_post</code> 每个 Run 最多一行、重试会复用同一行，所以被
+                    覆盖掉的那次失败不会出现在任何计数里。
+                  </p>
+                ) : null}
+              </Block>
             </div>
+
+            {/* 结果未定是这一页上最需要人动一下的数字。用橙色那一套（只在"不知道"
+                这个语义上出现的颜色），并且把去处直接写出来。 */}
             {unresolved > 0 ? (
-              <div className="notice notice--warn" style={{ marginTop: 12 }}>
+              <div className="notice notice--unknown block-gap">
                 <div className="notice__title">
-                  {unresolved} 次发布尝试的结果未定
+                  {unresolved} 次发布尝试的结果未定，需要人去裁决
                 </div>
-                它们的发布状态是 <code>publish_unknown</code> 或 <code>publishing</code>。X 上可能
-                有这条帖子，也可能没有，所以它们既不算失败也不算成功。需要人到发布记录页裁决。
+                它们的发布状态是 <code>publish_unknown</code> 或 <code>publishing</code>。X 上
+                可能有这条帖子，也可能没有，所以它们<strong>既不算失败也不算成功</strong>，
+                在下面两张图里也不会体现成成功。请到发布记录页查看并在 X 上确认。
               </div>
             ) : null}
-          </section>
 
-          <section className="section">
-            <div className="section__head">
-              <h2 className="section__title">平均运行时长</h2>
-              <span className="section__hint">全库</span>
-            </div>
-            <div className="card">
-              <div className="card__body">
-                <DurationBlock metric={data.average_run_duration} />
-              </div>
-            </div>
-          </section>
-
-          <section className="section">
-            <div className="section__head">
-              <h2 className="section__title">主题分布</h2>
-              <span className="section__hint">全库 · 按 Run 数取前 10</span>
-            </div>
-            <div className="card">
-              <div className="card__body">
+            <div className="block-gap">
+              <Block title="主题分布" hint="全库 · 按 Run 数取前 10">
                 <Bars
-                  rows={data.topic_distribution.map((item: TopicCount): Row => ({
-                    key: item.topic,
-                    label: item.topic,
-                    count: item.count,
-                    tone: 'grey',
-                  }))}
+                  rows={topicRows}
                   empty={{
                     title: '没有可排行的 Run',
                     hint: '至少要有一个 Run，才有东西可以排。',
                   }}
                 />
                 {data.topic_distribution.length >= 10 ? (
-                  <p className="cell-muted" style={{ marginBottom: 0 }}>
+                  <p className="cell-muted scope-note">
                     只取使用最多的十个主题，所以这些计数加起来不等于 Run 总数。
                   </p>
                 ) : null}
-              </div>
+              </Block>
             </div>
           </section>
 
+          {/* ── 4. 明细 ─────────────────────────────────────────────────── */}
           <section className="section">
             <div className="section__head">
-              <h2 className="section__title">X 内容指标</h2>
+              <h2 className="section__title">口径与数据缺口</h2>
+              <span className="section__hint">上面每一个数字的来源与范围</span>
             </div>
-            <div className="card">
-              <div className="card__body">
+            <div className="card card--flush">
+              <div className="table-wrap">
+                <table className="table table--compact">
+                  <thead>
+                    <tr>
+                      <th>指标</th>
+                      <th>时间范围</th>
+                      <th>来源</th>
+                      <th>口径说明</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <ScopeRow
+                      metric="窗口内 Run 数"
+                      scope={`最近 ${data.window_days} 天`}
+                      source="agent_run.created_at"
+                      note="按创建时刻归入窗口，不是按完成时刻。"
+                    />
+                    <ScopeRow
+                      metric="每日运行量"
+                      scope={`最近 ${data.window_days} 天`}
+                      source="agent_run.created_at"
+                      note="后端补齐成连续日期序列，没有活动的日子是 0，不是缺失。"
+                    />
+                    <ScopeRow
+                      metric="每日发布量"
+                      scope={`最近 ${data.window_days} 天`}
+                      source="published_post.created_at"
+                      note="尝试次数，含失败与结果未定的尝试。"
+                    />
+                    <ScopeRow
+                      metric="审核决策分布"
+                      scope="全库"
+                      source="review"
+                      note="后端对这张表没有日期过滤参数。每个 Run 只决定一次。"
+                    />
+                    <ScopeRow
+                      metric="发布结果分布"
+                      scope="全库"
+                      source="published_post"
+                      note="后端没有日期过滤参数。按 Run 记当前结局，不是按尝试次数。"
+                    />
+                    <ScopeRow
+                      metric="平均运行时长"
+                      scope={data.average_run_duration.available ? '全库' : EMPTY}
+                      source="agent_run.started_at / finished_at"
+                      note="只有两者俱全的终态 Run 参与，不是全部 Run 的平均。"
+                    />
+                    <ScopeRow
+                      metric="主题分布"
+                      scope="全库 · 前 10"
+                      source="agent_run.topic"
+                      note="后端没有日期过滤参数。计数之和 ≠ Run 总数。"
+                    />
+                    <ScopeRow
+                      metric="X 内容指标"
+                      scope={EMPTY}
+                      source="未采集"
+                      note={<strong>暂未接入 X 内容指标同步</strong>}
+                    />
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="block-gap">
+              {/* 后端若某天开始下发这些字段，这里不能继续硬说"从来没采集过"——
+                  所以按 `available` 分支，而不是把结论写死在文案里。 */}
+              {data.x_content_performance.available ? (
+                <div className="notice">
+                  <div className="notice__title">X 内容指标：接口报告可用，但本页仍不显示</div>
+                  后端的可用性标记是 true，但当前的分析响应里没有逐条帖子的指标字段，所以
+                  这个控制台拿不到曝光 / 点赞 / 转发 / 收藏 / 互动率的数值。要显示它们，需要
+                  后端先下发这些字段 —— 在拿到之前这里<strong>不会</strong>用任何近似值填充。
+                </div>
+              ) : (
                 <NotAvailable
                   what={
                     <>
                       <strong>暂未接入 X 内容指标同步</strong>
                       ：曝光、点赞、回复、转发、收藏和互动率在本控制台里
-                      <strong>一律不显示</strong>。它们不是查询失败才拿不到 —— 是这些数据从来没有被采集过。
+                      <strong>一律不显示</strong>。它们不是查询失败才拿不到 —— 是这些数据从来
+                      没有被采集过。
                     </>
                   }
                 />
-              </div>
+              )}
             </div>
           </section>
-        </>
+        </div>
       ) : null}
     </>
   )

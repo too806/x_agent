@@ -222,6 +222,27 @@ export interface DecisionTraceEntry {
   created_at: string
 }
 
+/**
+ * 一次 Agent 运行的质量指标。
+ *
+ * 回答的是"决策循环本身健不健康"，不是"稿子写得好不好"——后者要人读。
+ * 只对 Agent 模式的 Run 存在：直接给主题的 Run 没有 planner 循环，
+ * 那几个计数恒为 0，报出来只会让人以为"这一轮什么都没做"。
+ */
+export interface AgentQualityMetrics {
+  total_steps: number
+  research_calls: number
+  revision_count: number
+  candidate_count: number
+  critic_accept_count: number
+  critic_revise_count: number
+  critic_reject_count: number
+  /** 步数是否撞到了上限。注意：这是拿**当前配置**的上限比的。 */
+  budget_exhausted: boolean
+  /** finish 那一步的理由原文；没有则空串。 */
+  finish_reason: string
+}
+
 export interface AdminRunDetail {
   run_id: string
   /** Agent 选定的主题。null = 还没选出来（不是"没有"这个字段的意思）。 */
@@ -245,6 +266,8 @@ export interface AdminRunDetail {
   research_items: ResearchItemRecord[]
   /** 来自 agent_decision 表（不是 checkpoint），按 step 升序。空数组 = 没有决策记录。 */
   decision_trace: DecisionTraceEntry[]
+  /** 只有 Agent 模式的 Run 才有；其余为 null。 */
+  quality: AgentQualityMetrics | null
   draft: DraftRecord | null
   review: ReviewRecord | null
   publish: PublishRecord | null

@@ -1,4 +1,26 @@
-/* 基础重置 */
+/**
+ * 运营控制台的样式表。
+ *
+ * 组织顺序：重置 → 可访问性 → 壳（侧栏 / 顶栏 / 内容区）→ 区块与卡片
+ * → KPI → 徽标 → 表格 → 控件 → 状态区 → 抽屉与对话框 → Toast
+ * → 生命周期时间线 → Agent 决策轨迹 → 研究列表 → 图表 → 工作台
+ * → 详情内部 → 响应式。
+ *
+ * 两条硬规则：
+ *   1. 所有颜色 / 版式间距 / 字号都取 `tokens.css` 里的变量。这里不写裸数值。
+ *      例外只有两类，都是**有理由的**：
+ *        a. Recharts 的 SVG 属性（它不吃 CSS 变量）与纯几何值（0 / 1px / 50%）。
+ *        b. 控件的光学内边距。按钮、输入框、徽标这类控件的上下内边距由字高决定，
+ *           13px 的字配 8px 内边距会显得虚胖、配 4px 又会发紧——按 4 的刻度走
+ *           反而让控件高矮不一。这些值（1–11px，主要出现在 `.btn` / `.input`
+ *           / `.badge` / `.segmented` 里）是**光学修正**，不参与版式节奏。
+ *           版式层面（区块、卡片、表格、抽屉、栅格）一律用 --space-*。
+ *   2. 类名描述**是什么**，不描述**长什么样**。`--danger` 表达语义，
+ *      `--red` 只表达颜色——后者改语义时要满文件搜。
+ */
+
+/* ============================================================ 重置与基础 */
+
 *,
 *::before,
 *::after {
@@ -17,7 +39,7 @@ body {
   color: var(--text);
   font-family: var(--font-sans);
   font-size: var(--text-base);
-  line-height: 1.5;
+  line-height: var(--leading-base);
   -webkit-font-smoothing: antialiased;
 }
 
@@ -42,11 +64,69 @@ h2,
 h3,
 h4 {
   margin: 0;
-  font-weight: 600;
-  line-height: 1.3;
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
 }
 
-/* ------------------------------------------------------------------ 骨架 */
+/* 所有数字列都对齐：翻页、扫视、比对时数字宽度不跳。 */
+.num,
+.kpi__value,
+.table td.num {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ============================================================ 可访问性 */
+
+/* 键盘用户按 Tab 第一下即可跳过导航直达内容。视觉上只在获得焦点时出现。 */
+.skip-link {
+  position: absolute;
+  top: var(--space-2);
+  left: var(--space-2);
+  z-index: var(--z-toast);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: #fff;
+  font-weight: var(--weight-semibold);
+  transform: translateY(-200%);
+}
+
+.skip-link:focus {
+  transform: translateY(0);
+}
+
+/* 屏幕阅读器专用文本。用在"只有图标没有文字"的元素上。 */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* 焦点可见性。
+   之前全站只有输入框有焦点样式，按钮 / 链接 / 导航 / 表格行用键盘走过时
+   完全没有视觉反馈。`:focus-visible` 而不是 `:focus`：鼠标点击不该留下焦点环。 */
+:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-radius: var(--radius-sm);
+}
+
+.sidebar :focus-visible {
+  box-shadow: var(--focus-ring-nav);
+}
+
+/* 危险操作（发布 / 裁决）用红色的焦点环，和按钮本身同色。 */
+.btn--danger:focus-visible {
+  box-shadow: var(--focus-ring-danger);
+}
+
+/* ============================================================ 外壳 */
 
 .app-shell {
   display: grid;
@@ -54,16 +134,19 @@ h4 {
   min-height: 100%;
 }
 
+/* ---------------------------------------------------------------- 侧栏 */
+
 .sidebar {
   position: sticky;
   top: 0;
+  z-index: var(--z-sticky);
   height: 100vh;
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
+  gap: var(--space-5);
   padding: var(--space-4) 0;
-  background: #101418;
-  color: #d7dce3;
+  background: var(--nav-bg);
+  color: var(--nav-text);
   border-right: 1px solid #000;
 }
 
@@ -73,15 +156,15 @@ h4 {
 
 .sidebar__brand-name {
   font-size: var(--text-md);
-  font-weight: 600;
-  color: #fff;
+  font-weight: var(--weight-semibold);
+  color: var(--nav-text-strong);
   letter-spacing: 0.01em;
 }
 
 .sidebar__brand-meta {
   margin-top: 2px;
   font-size: var(--text-xs);
-  color: #8b95a3;
+  color: var(--nav-text-faint);
 }
 
 .sidebar__nav {
@@ -94,52 +177,91 @@ h4 {
 .nav-item {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
+  gap: var(--space-3);
   padding: 7px var(--space-3);
-  border-radius: var(--radius-sm);
-  color: #c3cad4;
+  border-radius: var(--radius);
+  color: var(--nav-text);
   font-size: var(--text-base);
   text-decoration: none;
 }
 
 .nav-item:hover {
-  background: #1b2129;
-  color: #fff;
+  background: var(--nav-hover-bg);
+  color: var(--nav-text-strong);
   text-decoration: none;
 }
 
 .nav-item--active {
-  background: #232b35;
-  color: #fff;
-  font-weight: 600;
+  background: var(--nav-active-bg);
+  color: var(--nav-text-strong);
+  font-weight: var(--weight-semibold);
+}
+
+/* 当前页面除了反色，左侧再加一道竖条。只靠背景色深浅区分的话，
+   在低亮度屏幕 / 侧栏失焦时几乎看不出来。 */
+.nav-item--active {
+  position: relative;
+}
+
+.nav-item--active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: var(--accent);
+}
+
+.nav-item__icon {
+  flex: none;
+  color: var(--nav-text-faint);
+}
+
+.nav-item--active .nav-item__icon,
+.nav-item:hover .nav-item__icon {
+  color: inherit;
+}
+
+.nav-item__label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* 侧栏上的待办计数：控制台的核心用途就是"还有多少事没处理"，
    所以这个数字必须在导航上就能看到，不用点进去。 */
 .nav-item__count {
+  flex: none;
   min-width: 20px;
   padding: 0 6px;
-  border-radius: 10px;
+  border-radius: var(--radius-pill);
   background: var(--warn-border);
-  color: #4a2c06;
+  color: var(--unknown-text);
   font-size: var(--text-xs);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
   text-align: center;
 }
 
+/* 待裁决比待审核更急：后者只是"等一个人做决定"，前者可能是
+   "一条推文已经发出去了却没人知道"。所以它用实心橙——全站唯一的橙色。 */
 .nav-item__count--alert {
-  background: #f97066;
+  background: var(--unknown);
   color: #fff;
 }
 
 .sidebar__foot {
   margin-top: auto;
   padding: var(--space-3) var(--space-4) 0;
-  border-top: 1px solid #1e242c;
-  color: #78828f;
+  border-top: 1px solid var(--nav-border);
+  color: var(--nav-text-faint);
   font-size: var(--text-xs);
 }
+
+/* ---------------------------------------------------------------- 主区 */
 
 .main {
   display: flex;
@@ -150,7 +272,7 @@ h4 {
 .topbar {
   position: sticky;
   top: 0;
-  z-index: 10;
+  z-index: var(--z-sticky);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -161,26 +283,73 @@ h4 {
   border-bottom: 1px solid var(--border);
 }
 
+.topbar__head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
 .topbar__title {
   font-size: var(--text-lg);
 }
 
-.topbar__actions {
+/* 页面一句话说明。它不是装饰——五个页面的名字（"运行记录""发布记录"）
+   在中文里差别很小，第一次打开的人需要一句话知道这里在看什么。
+   窗口窄时先收掉它，标题优先。 */
+.topbar__blurb {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-faint);
+  font-size: var(--text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 顶栏右侧的常驻上下文。之前这里只是把侧栏的数字又说了一遍，
+   现在换成"服务状态 + 待办"，后者在侧栏失焦 / 页面变窄时仍然看得到。 */
+.topbar__context {
   display: flex;
   align-items: center;
-  gap: var(--space-3);
+  gap: var(--space-4);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+.topbar__stat {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  white-space: nowrap;
+}
+
+.topbar__stat-value {
+  color: var(--text);
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+.topbar__stat--alert .topbar__stat-value {
+  color: var(--unknown);
 }
 
 .content {
   flex: 1;
-  padding: var(--space-5) var(--space-6) var(--space-6);
   min-width: 0;
+  width: 100%;
+  max-width: var(--content-max);
+  padding: var(--space-5) var(--space-6) var(--space-7);
 }
 
-/* ------------------------------------------------------------------ 区块 */
+/* ============================================================ 区块与卡片 */
 
 .section {
-  margin-bottom: var(--space-6);
+  margin-bottom: var(--space-7);
+}
+
+.section:last-child {
+  margin-bottom: 0;
 }
 
 .section__head {
@@ -200,6 +369,21 @@ h4 {
   font-size: var(--text-sm);
 }
 
+/* 一层标题：页面里的第一层区块（系统健康、核心指标）。比二层大一号并带
+   一条底线，这样扫一眼就知道页面被分成了几段，而不是一排同重的标题。 */
+.section--lead {
+  padding-bottom: var(--space-5);
+  border-bottom: 1px solid var(--border);
+}
+
+.section--lead .section__head {
+  margin-bottom: var(--space-4);
+}
+
+.section--lead .section__title {
+  font-size: var(--text-lg);
+}
+
 .card {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -210,15 +394,100 @@ h4 {
   padding: var(--space-4);
 }
 
+/* 表格自己带内边距，卡片只当外壳。 */
 .card--flush .card__body {
   padding: 0;
 }
 
-/* ------------------------------------------------------------------ KPI */
+/* 需要整块强调的卡片（系统健康、未知发布提醒）。用左侧色条而不是整块染色：
+   整块染色会把卡片里的文字对比度一起拉低，而这几块恰恰是要人仔细读的。 */
+.card--alert {
+  border-left: 3px solid var(--unknown);
+}
+
+.card--attention {
+  border-left: 3px solid var(--warn-border);
+}
+
+
+/* 卡片头：标题 + 右侧操作 / 口径说明。 */
+.card__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border);
+}
+
+/* 卡片标题用 h3，但视觉上要比页面的 h2 小一档——一块区域里的分区标题
+   不该和区域标题一样响。 */
+.card__title {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0;
+}
+
+/* 分区标题下面的一句话：这块是干什么的。
+   比正文小一号、降色——它是路标，不是内容。 */
+.card__hint {
+  margin: 2px 0 0;
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+}
+
+/* 状态条：首页最上面那条"现在什么情况"。
+   一行放四组，每组一个标签一个值——比四张卡片轻，但比一句散文好扫。 */
+.status-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-6);
+  margin-top: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  font-size: var(--text-sm);
+}
+
+.status-strip__item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.status-strip__label {
+  color: var(--text-faint);
+}
+
+.status-strip__value {
+  color: var(--text);
+  font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+.status-strip__hint {
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+}
+
+/* 待处理工作：两个队列并排。
+   并排而不是上下堆叠，是因为"审核"和"裁决"是两类**同时存在**的待办，
+   上下放会让人以为下面那个是上一个的补充说明。 */
+.work-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+  gap: var(--space-4);
+  align-items: start;
+}
+
+/* ============================================================ KPI */
 
 .kpi-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: var(--space-3);
 }
 
@@ -237,8 +506,8 @@ h4 {
 .kpi__value {
   margin-top: 2px;
   font-size: var(--text-xl);
-  font-weight: 650;
-  font-variant-numeric: tabular-nums;
+  font-weight: var(--weight-semibold);
+  line-height: 1.15;
 }
 
 .kpi__sub {
@@ -254,28 +523,63 @@ h4 {
 }
 
 .kpi--critical {
-  border-left: 3px solid #f97066;
+  border-left: 3px solid var(--unknown);
 }
 
-/* ------------------------------------------------------------------ 状态徽标 */
+.kpi--ok {
+  border-left: 3px solid var(--ok);
+}
+
+/* 数字为 0 的 KPI：不是隐藏，而是把视觉重量降下来。
+   0 待审 = 当前无事，这是好消息，不该和"3 条待裁决"抢同样的注意力。 */
+.kpi--quiet .kpi__value {
+  color: var(--text-muted);
+}
+
+.kpi--critical.kpi--quiet .kpi__value {
+  color: var(--unknown);
+}
+
+/* 数值位放一句话而不是数字（"暂无足够数据"）。字号降到正文级：
+   维持 kpi__value 那个尺寸会让一句话看起来像一个被压扁的数字。 */
+.kpi__value--none {
+  font-size: var(--text-base);
+  font-weight: var(--weight-medium);
+  line-height: var(--leading-tight);
+}
+
+/* ============================================================ 状态徽标 */
 
 .badge {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   padding: 1px 7px;
   border: 1px solid var(--border-strong);
-  border-radius: 10px;
+  border-radius: var(--radius-pill);
   background: var(--surface-sunken);
   color: var(--text-muted);
   font-size: var(--text-xs);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   white-space: nowrap;
+}
+
+/* 状态不只靠颜色区分：前面还有一个小圆点。色盲用户 / 黑白打印下，
+   点 + 文字仍然分得开"待审核"和"发布结果未知"。 */
+.badge__dot {
+  flex: none;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.75;
 }
 
 /* 运行状态（agent_run.status） */
 .badge--running {
-  background: #e0f2fe;
-  border-color: #7dd3fc;
-  color: #075985;
+  background: var(--running-soft);
+  border-color: var(--running-border);
+  color: var(--running);
 }
 .badge--waiting_for_review {
   background: var(--warn-soft);
@@ -284,23 +588,19 @@ h4 {
 }
 .badge--approved {
   background: var(--accent-soft);
-  border-color: #a4cafe;
-  color: #1e40af;
+  border-color: var(--accent-border);
+  color: var(--accent-text);
 }
 .badge--edited {
-  background: #ede9fe;
-  border-color: #c4b5fd;
-  color: #5b21b6;
+  background: var(--violet-soft);
+  border-color: var(--violet-border);
+  color: var(--violet);
 }
-.badge--rejected {
-  background: #f2f4f7;
-  border-color: var(--border-strong);
-  color: #475467;
-}
+.badge--rejected,
 .badge--completed {
-  background: #f2f4f7;
+  background: var(--neutral-soft);
   border-color: var(--border-strong);
-  color: #475467;
+  color: var(--neutral);
 }
 
 /* 发布状态（published_post.status） */
@@ -315,19 +615,19 @@ h4 {
   color: var(--danger);
 }
 .badge--publishing {
-  background: #ede9fe;
-  border-color: #c4b5fd;
-  color: #5b21b6;
+  background: var(--violet-soft);
+  border-color: var(--violet-border);
+  color: var(--violet);
 }
 
 /* publish_unknown：整个控制台里最需要被看见的状态。
    在飞的那次可能已经发出去了——既不重试也不放过的判断只能由人来做，
    所以它用实心强调色，和上面所有描边徽标明显不同。 */
 .badge--publish_unknown {
-  background: #e8590c;
-  border-color: #c2410c;
+  background: var(--unknown);
+  border-color: var(--unknown-strong);
   color: #fff;
-  font-weight: 700;
+  font-weight: var(--weight-bold);
 }
 
 /* 审核决定 */
@@ -337,24 +637,24 @@ h4 {
   color: var(--ok);
 }
 .badge--edit {
-  background: #ede9fe;
-  border-color: #c4b5fd;
-  color: #5b21b6;
+  background: var(--violet-soft);
+  border-color: var(--violet-border);
+  color: var(--violet);
 }
 .badge--reject {
-  background: #f2f4f7;
+  background: var(--neutral-soft);
   border-color: var(--border-strong);
-  color: #475467;
+  color: var(--neutral);
 }
 
 .badge--none {
   background: transparent;
   border-color: transparent;
   color: var(--text-faint);
-  font-weight: 400;
+  font-weight: var(--weight-normal);
 }
 
-/* ------------------------------------------------------------------ 表格 */
+/* ============================================================ 表格 */
 
 .table-wrap {
   overflow-x: auto;
@@ -367,23 +667,36 @@ h4 {
 
 .table th,
 .table td {
-  padding: 8px var(--space-4);
+  padding: 9px var(--space-4);
   border-bottom: 1px solid var(--border);
   text-align: left;
-  vertical-align: top;
+  /* 居中对齐：第一列可能是两行（主题 + Run ID），顶对齐会让后面的状态徽标
+     浮在格子顶端、下面是空的。 */
+  vertical-align: middle;
 }
 
-.table th {
+/* 紧凑模式：行高收 4px。表格一屏能多显示 3~4 行，
+   代价是留白变少——所以它是一个可选开关，而不是默认。 */
+.table--compact th,
+.table--compact td {
+  padding: 5px var(--space-3);
+}
+
+/* 表头吸顶：长表格滚动时列名不该跟着滚走。 */
+.table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
   background: var(--surface-sunken);
   color: var(--text-muted);
   font-size: var(--text-xs);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   text-transform: uppercase;
   letter-spacing: 0.03em;
   white-space: nowrap;
 }
 
-.table tbody tr:last-child td {
+.table tbody tr:last-child > td {
   border-bottom: none;
 }
 
@@ -391,12 +704,140 @@ h4 {
   background: var(--surface-sunken);
 }
 
+/* 抽屉打开时，对应的那一行要留个记号：否则关掉抽屉就不知道刚才看的是哪条。 */
+.table__row--selected,
+.table__row--selected:hover {
+  background: var(--accent-soft);
+}
+
 .table__row--clickable {
   cursor: pointer;
 }
 
+.table__row--clickable:focus-visible {
+  position: relative;
+  z-index: 2;
+}
+
+/* 主题列。长题干不能把行高撑到半屏高——列表是用来扫视的，
+   完整内容在详情里。截断后用 title 给出全文。 */
 .table__topic {
-  max-width: 380px;
+  max-width: 420px;
+}
+
+.table__clamp {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+
+/* 时间列：绝对时间为主，相对时间做辅助。只用相对时间会让人算不出"到底哪天"，
+   只用绝对时间又看不出"等了多久"。 */
+.table__time {
+  white-space: nowrap;
+}
+
+.table__time-abs {
+  color: var(--text-muted);
+}
+
+.table__time-rel {
+  display: block;
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+}
+
+/* 行内一组操作：按钮之间要留得住手指，不能挤成一坨。 */
+.table__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  white-space: nowrap;
+}
+
+/* 主题格里的第二行：Run ID。等宽 + 定宽截断，完整值在 title 和抽屉里。
+   UUID 一旦完整铺开，这一列会把主题和三个状态一起挤窄。 */
+.table__secondary {
+  max-width: 14ch;
+  margin-top: 2px;
+  overflow: hidden;
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 有错误信息的 Run。图标 + 文字，不只靠颜色；完整错误文本在 title 里，
+   再完整的在抽屉里——列表里放不下，但"这条有麻烦"必须一眼可见。 */
+.cell-error {
+  display: flex;
+  width: fit-content;
+  margin-top: var(--space-1);
+  gap: 3px;
+  align-items: center;
+  color: var(--danger);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+  cursor: help;
+}
+
+/* 发布内容列。正文按原格式显示（推文里的换行有意义），
+   但行高收一点——这是列表，不是阅读器。 */
+.publish-body {
+  min-width: 240px;
+  max-width: 460px;
+}
+
+.body-preview {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: var(--leading-base);
+}
+
+.publish-body__toggle {
+  margin-top: var(--space-1);
+  font-size: var(--text-xs);
+}
+
+/* 最后错误挂在状态徽标下面。两行封顶 + title 给全文：
+   错误文本可能是一整段 Python 异常，列表里放不下，但"这条有麻烦"必须看得见。 */
+.publish-error {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  max-width: 260px;
+  margin-top: var(--space-1);
+  color: var(--danger);
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+  cursor: help;
+}
+
+.publish-action-hint {
+  font-size: var(--text-xs);
+}
+
+/* 结果未定的行：整行一道橙色左条 + 极浅的橙底。
+   它必须在一屏十几行里被一眼挑出来——那一行可能对应一条已经发出去、
+   但没有任何人知道的推文。 */
+.table__row--unknown > td {
+  background: var(--unknown-soft);
+}
+
+.table__row--unknown > td:first-child {
+  box-shadow: inset 3px 0 0 var(--unknown);
+}
+
+.table__row--unknown:hover > td {
+  background: var(--unknown-soft);
+}
+
+/* 裁决面板占满整行，铺在它自己那条记录下面。 */
+.resolve-cell {
+  padding: var(--space-4) var(--space-4) var(--space-5);
 }
 
 .cell-muted {
@@ -407,46 +848,37 @@ h4 {
   white-space: nowrap;
 }
 
-.num {
-  font-variant-numeric: tabular-nums;
-}
-
-/* 内容预览：保留换行意图但压成两行，列表里不该被长正文撑高 */
-.clamp-2 {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.clamp-3 {
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-/* ------------------------------------------------------------------ 控件 */
+/* ============================================================ 控件 */
 
 .btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 6px 12px;
+  box-sizing: border-box;
+  min-height: var(--control-h);
+  padding: 5px 12px;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius);
   background: var(--surface);
   color: var(--text);
   font-family: inherit;
   font-size: var(--text-base);
-  font-weight: 500;
+  font-weight: var(--weight-medium);
+  line-height: 1.3;
   cursor: pointer;
+  transition:
+    background var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease);
 }
 
 .btn:hover:not(:disabled) {
   background: var(--surface-sunken);
   border-color: var(--text-faint);
+}
+
+.btn:active:not(:disabled) {
+  background: var(--neutral-soft);
 }
 
 .btn:disabled {
@@ -465,6 +897,10 @@ h4 {
   border-color: var(--accent-hover);
 }
 
+.btn--primary:active:not(:disabled) {
+  background: var(--accent-hover);
+}
+
 .btn--danger {
   background: var(--danger);
   border-color: var(--danger);
@@ -472,16 +908,34 @@ h4 {
 }
 
 .btn--danger:hover:not(:disabled) {
-  background: #8f1d13;
-  border-color: #8f1d13;
+  background: var(--danger-hover);
+  border-color: var(--danger-hover);
+}
+
+.btn--danger:active:not(:disabled) {
+  background: var(--danger-hover);
+}
+
+/* 无边框按钮：用于表格行内的"查看"、卡片头上的次级动作。 */
+.btn--ghost {
+  border-color: transparent;
+  background: transparent;
+  color: var(--accent);
+}
+
+.btn--ghost:hover:not(:disabled) {
+  background: var(--accent-soft);
+  border-color: transparent;
 }
 
 .btn--sm {
+  min-height: var(--control-h-sm);
   padding: 3px 9px;
   font-size: var(--text-sm);
 }
 
 .btn--link {
+  min-height: 0;
   padding: 0;
   border: none;
   background: none;
@@ -493,11 +947,72 @@ h4 {
   text-decoration: underline;
 }
 
+/* 纯图标按钮。必须配 aria-label —— 图标本身说不出自己是什么。 */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--control-h);
+  height: var(--control-h);
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease);
+}
+
+.icon-btn:hover:not(:disabled) {
+  background: var(--surface-sunken);
+  color: var(--text);
+}
+
+.icon-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 二选一的分段控件（表格密度这类"视图偏好"）。
+   用两个按钮而不是 checkbox：它表达的是"当前是哪一个"，不是"开没开"。
+   当前项靠底色 + 加粗 + aria-pressed 三条通道表达，不只靠颜色。 */
+.segmented {
+  display: inline-flex;
+  padding: 1px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface-sunken);
+}
+
+.segmented__item {
+  padding: 2px 9px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: var(--text-xs);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease);
+}
+
+.segmented__item:hover {
+  color: var(--text);
+}
+
+.segmented__item.is-active {
+  background: var(--surface);
+  box-shadow: var(--shadow-md);
+  color: var(--text);
+  font-weight: var(--weight-semibold);
+}
+
 .input,
 .select,
 .textarea {
   width: 100%;
-  padding: 6px 10px;
+  min-height: var(--control-h);
+  padding: 5px 10px;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius);
   background: var(--surface);
@@ -506,29 +1021,71 @@ h4 {
   font-size: var(--text-base);
 }
 
+.select {
+  cursor: pointer;
+}
+
+/* 工具栏里的小号下拉框：和旁边的 btn--sm 一样高。
+   `.select` 默认 width:100%（表单里该这样），工具栏里必须收回自动宽度，
+   否则它会独占一整行。 */
+.select--sm {
+  width: auto;
+  min-height: var(--control-h-sm);
+  padding: 2px 6px;
+  font-size: var(--text-sm);
+}
+
 .input:focus,
 .select:focus,
 .textarea:focus {
-  outline: 2px solid var(--accent-soft);
+  outline: none;
   border-color: var(--accent);
+  box-shadow: var(--focus-ring);
+}
+
+.input::placeholder,
+.textarea::placeholder {
+  color: var(--text-faint);
+}
+
+.input:disabled,
+.select:disabled,
+.textarea:disabled {
+  background: var(--surface-sunken);
+  color: var(--text-muted);
+  cursor: not-allowed;
 }
 
 .textarea {
   min-height: 180px;
-  line-height: 1.6;
+  line-height: var(--leading-relaxed);
   resize: vertical;
+}
+
+/* 编辑框：这是"人写的东西"，比只读块更高一档。
+   加高 + 白底 + 加粗边框，一眼能分出"这个能改，上面那个不能"。 */
+.textarea--editor {
+  min-height: 240px;
+  border-color: var(--accent-border);
+  font-size: var(--text-md);
+  line-height: var(--leading-relaxed);
+}
+
+.textarea--editor:focus {
+  border-color: var(--accent);
 }
 
 .field {
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
+  min-width: 0;
 }
 
 .field__label {
   color: var(--text-muted);
   font-size: var(--text-sm);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
 }
 
 /* 表单就地校验提示。挂在字段下方，而不是弹 toast：提示要一直在，直到人真的改了它。 */
@@ -536,7 +1093,7 @@ h4 {
   margin-top: var(--space-1);
   color: var(--danger);
   font-size: var(--text-sm);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
 }
 
 .filter-bar {
@@ -555,10 +1112,14 @@ h4 {
   min-width: 220px;
 }
 
-/* ------------------------------------------------------------------ 状态区 */
+.filter-bar__spacer {
+  flex: 1;
+}
+
+/* ============================================================ 状态区 */
 
 .state {
-  padding: var(--space-6) var(--space-4);
+  padding: var(--space-7) var(--space-4);
   text-align: center;
   color: var(--text-muted);
 }
@@ -566,7 +1127,13 @@ h4 {
 .state__title {
   margin-bottom: var(--space-1);
   color: var(--text);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
+}
+
+.state__hint {
+  max-width: 46ch;
+  margin: 0 auto;
+  font-size: var(--text-sm);
 }
 
 .state--error .state__title {
@@ -577,11 +1144,74 @@ h4 {
   margin-top: var(--space-3);
 }
 
+/* ---------------------------------------------------------------- 骨架屏 */
+
+/* 加载时占住内容将要出现的位置与高度。
+   之前这里显示的是"加载中…"四个字：页面会先塌成一行高、数据到了再撑开，
+   每次切换筛选都要跳一下。骨架屏把这个跳动去掉，同时告诉人"这里将出现表格"。 */
 .skeleton {
-  padding: var(--space-6);
-  text-align: center;
-  color: var(--text-muted);
+  display: block;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(
+    90deg,
+    var(--surface-sunken) 0%,
+    var(--neutral-soft) 50%,
+    var(--surface-sunken) 100%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-sweep 1.4s ease-in-out infinite;
 }
+
+@keyframes skeleton-sweep {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+.skeleton--line {
+  height: 12px;
+}
+
+.skeleton--title {
+  height: 18px;
+}
+
+.skeleton-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+/* 表格骨架：表头 + N 行。行数固定，所以高度是稳定的。 */
+.skeleton-table {
+  display: flex;
+  flex-direction: column;
+}
+
+.skeleton-table__row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-4);
+  padding: 11px var(--space-4);
+  border-bottom: 1px solid var(--border);
+}
+
+.skeleton-table__row:last-child {
+  border-bottom: none;
+}
+
+/* 加载中的区域盖一层轻微遮罩，表示"这些数据正在被替换"。
+   比整块隐藏好：人还能看到上次的结果，位置也不跳。 */
+.is-loading {
+  opacity: 0.55;
+  transition: opacity var(--dur-base) var(--ease);
+  pointer-events: none;
+}
+
+/* ---------------------------------------------------------------- 提示条 */
 
 /* 行内提示条：用于"结果未知"这类必须在操作处就近提醒的场景 */
 .notice {
@@ -596,19 +1226,19 @@ h4 {
 .notice--warn {
   background: var(--warn-soft);
   border-color: var(--warn-border);
-  color: #6b3c05;
+  color: var(--warn-text);
 }
 
 .notice--danger {
   background: var(--danger-soft);
   border-color: var(--danger-border);
-  color: #7a271a;
+  color: var(--danger-text);
 }
 
 .notice--info {
   background: var(--accent-soft);
-  border-color: #a4cafe;
-  color: #1e3a8a;
+  border-color: var(--accent-border);
+  color: var(--accent-text);
 }
 
 .notice--ok {
@@ -617,11 +1247,69 @@ h4 {
   color: var(--ok);
 }
 
-.notice__title {
-  font-weight: 700;
+/* 未知发布：整站唯一的橙色提示条。 */
+.notice--unknown {
+  background: var(--unknown-soft);
+  border-color: var(--unknown);
+  border-left-width: 4px;
+  color: var(--unknown-text);
 }
 
-/* ------------------------------------------------------------------ 分页 */
+.notice__title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: var(--weight-bold);
+}
+
+/* 提示条里的按钮：靠右或靠左都行，但不能贴着正文没有间距。 */
+.notice__actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.notice__title + * {
+  margin-top: var(--space-1);
+}
+
+/* 段落间距：提示条里经常有多段话，默认都贴在一起读不动。 */
+.notice p {
+  margin: var(--space-2) 0 0;
+}
+
+.notice p:first-child {
+  margin-top: 0;
+}
+
+/* 口径说明：页面底部成段的"这个数字是怎么算出来的"。
+   刻意比正文小一号并降色——它必须能查到，但不该和正文抢注意力。 */
+.scope-note {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+/* 同一节里块与块之间的间隔。用一个类而不是给每个兄弟元素写 margin：
+   "第几块"只有写页面的人知道，浏览器选不中"除了第一个以外的孩子"而不误伤别处。 */
+.block-gap {
+  margin-top: var(--space-4);
+}
+
+/* 卡片内的小标题行：左边标题、右边范围/hint。 */
+.block__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-1);
+}
+
+p.scope-note {
+  margin: var(--space-3) 0 0;
+  line-height: var(--leading-relaxed);
+}
+
+/* ============================================================ 分页 */
 
 .pagination {
   display: flex;
@@ -637,34 +1325,83 @@ h4 {
 .pagination__controls {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--space-1);
 }
 
-/* ------------------------------------------------------------------ Drawer */
+/* 图标本身是向下的箭头，靠旋转指方向，省掉两个几乎一样的图标。
+   旋转后的箭头只是"还有下一页"的辅助——按钮上的"上一页/下一页"文字才是主体，
+   所以即使图形被吃掉也不会丢掉含义。 */
+.pagination__step svg {
+  transform: rotate(90deg);
+}
+.pagination__step--next svg {
+  transform: rotate(-90deg);
+}
+.pagination__step {
+  gap: var(--space-1);
+}
+.pagination__step:disabled svg {
+  opacity: 0.5;
+}
+
+.pagination__num {
+  min-width: var(--control-h-sm);
+  justify-content: center;
+  padding-left: var(--space-1);
+  padding-right: var(--space-1);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+/* 当前页：加粗 + 边框 + 底色，再配 aria-current。不靠单一颜色。 */
+.pagination__num.is-active {
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
+  color: var(--accent-text);
+  font-weight: var(--weight-semibold);
+}
+
+.pagination__gap {
+  padding: 0 var(--space-1);
+  color: var(--text-faint);
+}
+
+/* ============================================================ 抽屉 */
 
 .drawer-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 40;
+  z-index: var(--z-drawer);
   background: rgba(16, 20, 24, 0.4);
+  animation: fade-in var(--dur-base) var(--ease);
 }
 
 .drawer {
   position: fixed;
   top: 0;
   right: 0;
-  z-index: 41;
+  z-index: calc(var(--z-drawer) + 1);
   display: flex;
   flex-direction: column;
   width: min(var(--drawer-width), 100vw);
   height: 100vh;
   background: var(--surface);
   border-left: 1px solid var(--border);
+  box-shadow: var(--shadow-lg);
+  animation: slide-in-right var(--dur-base) var(--ease);
 }
 
 .drawer__head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-4);
   padding: var(--space-4) var(--space-5);
   border-bottom: 1px solid var(--border);
+}
+
+.drawer__head-main {
+  flex: 1;
+  min-width: 0;
 }
 
 .drawer__title {
@@ -672,11 +1409,26 @@ h4 {
   overflow-wrap: anywhere;
 }
 
+/* 标题下面那行：状态徽标 + Run ID。 */
+.drawer__subtitle {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.drawer__head-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-2);
+}
+
 .drawer__metagrid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: var(--space-3);
-  margin-top: var(--space-3);
+  gap: var(--space-3) var(--space-4);
 }
 
 .drawer__body {
@@ -685,17 +1437,543 @@ h4 {
   padding: var(--space-4) var(--space-5) var(--space-6);
 }
 
+/* 抽屉底部操作区：发布入口这类"重量级"操作固定在这里，
+   不随正文滚走。 */
 .drawer__foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
   padding: var(--space-3) var(--space-5);
   border-top: 1px solid var(--border);
   background: var(--surface-sunken);
 }
 
-.drawer__close {
-  position: absolute;
-  top: var(--space-4);
-  right: var(--space-5);
+/* ============================================================ 对话框 */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+  background: rgba(16, 20, 24, 0.5);
+  animation: fade-in var(--dur-fast) var(--ease);
 }
+
+.modal {
+  width: min(560px, 100%);
+  max-height: calc(100vh - var(--space-7));
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-lg);
+  animation: modal-in var(--dur-base) var(--ease);
+}
+
+.modal__head {
+  padding: var(--space-4) var(--space-5) 0;
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+}
+
+.modal__body {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-3) var(--space-5);
+}
+
+.modal__foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-5) var(--space-4);
+  border-top: 1px solid var(--border);
+}
+
+/* 危险操作对话框：顶部一道红条。它和普通确认框的区别必须一眼看得出来，
+   否则"发布到真实账号"点下去和"保存"点下去长得一样。 */
+.modal--danger {
+  border-top: 3px solid var(--danger);
+}
+
+.modal--warn {
+  border-top: 3px solid var(--unknown);
+}
+
+/* 对话框里的错误：写在正文之后、按钮之前。 */
+.modal__error {
+  margin-top: var(--space-3);
+}
+
+/* 风险提示：单独一块，位置固定在按钮正上方。
+   三个对话框（发布 / 重试 / 裁决）的"这一步真的会发生什么"都用它，
+   这样人不必在每个对话框里重新找一遍那句话在哪。 */
+.modal__risk {
+  margin: 0 var(--space-5);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--warn-border);
+  border-left: 3px solid var(--warn);
+  border-radius: var(--radius-sm);
+  background: var(--warn-soft);
+  color: var(--text);
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+}
+
+.modal--danger .modal__risk {
+  border-color: var(--danger-border);
+  border-left-color: var(--danger);
+  background: var(--danger-soft);
+}
+
+/* 风险块里的段落。浏览器默认的 <p> 上下边距在这里太大，
+   会把"风险"和"勾选框"拆成两块看起来无关的东西。 */
+.modal__risk p {
+  margin: 0;
+}
+
+.modal__risk p + p {
+  margin-top: var(--space-2);
+}
+
+/* 风险说明里的每一条。段间距由上面的 `p + p` 给，这里只负责"它是一句话"。
+   单独一个类而不是裸 `<p>`：勾选框那几行也是 `p`，它们需要的是同样的大小、
+   不同的排版（见 .checkbox-row）。 */
+.risk-line {
+  font-size: var(--text-sm);
+}
+
+.risk-line--strong {
+  font-size: var(--text-base);
+  font-weight: var(--weight-bold);
+}
+
+/* 对话框里的引导段与脚注。 */
+.modal-lede {
+  margin: 0;
+}
+
+.modal-note {
+  margin: var(--space-2) 0 0;
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+  font-size: var(--text-base);
+  cursor: pointer;
+}
+
+.checkbox-row input {
+  flex: none;
+  margin-top: 3px;
+}
+
+/* ============================================================ Toast */
+
+.toast-viewport {
+  position: fixed;
+  right: var(--space-5);
+  bottom: var(--space-5);
+  z-index: var(--z-toast);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: min(380px, calc(100vw - var(--space-5) * 2));
+  pointer-events: none;
+}
+
+/* 两个播报区各自成列，间距由类控制——不在 JSX 里写 margin。 */
+.toast-viewport__group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.toast-viewport__group:empty {
+  display: none;
+}
+
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow-md);
+  pointer-events: auto;
+  animation: toast-in var(--dur-base) var(--ease);
+}
+
+.toast__icon {
+  flex: none;
+  margin-top: 1px;
+}
+
+.toast__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.toast__title {
+  font-weight: var(--weight-semibold);
+}
+
+.toast__detail {
+  margin-top: 2px;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+.toast--ok {
+  border-left-color: var(--ok);
+}
+
+.toast--ok .toast__icon {
+  color: var(--ok);
+}
+
+.toast--danger {
+  border-left-color: var(--danger);
+}
+
+.toast--danger .toast__icon {
+  color: var(--danger);
+}
+
+.toast--warn {
+  border-left-color: var(--unknown);
+}
+
+.toast--warn .toast__icon {
+  color: var(--unknown);
+}
+
+.toast--info {
+  border-left-color: var(--accent);
+}
+
+.toast--info .toast__icon {
+  color: var(--accent);
+}
+
+/* ============================================================ 生命周期时间线 */
+
+/* Run 从创建到发布的六个阶段。做成**四列的行**（点 / 阶段 / 时刻 / 摘要）
+   而不是一排药丸标签：药丸只能塞下阶段名，摘要就没地方写了，而"这一步留下了
+   什么"恰恰是最该看的。四列在整个抽屉宽度上排得下，也不会把信息藏进 tooltip。 */
+.lifecycle {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.lifecycle__step {
+  display: grid;
+  grid-template-columns: 16px 84px 136px minmax(0, 1fr);
+  gap: var(--space-3);
+  align-items: baseline;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.lifecycle__step:last-child {
+  border-bottom: none;
+}
+
+.lifecycle__dot {
+  align-self: center;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--border-strong);
+}
+
+.lifecycle__label {
+  font-size: var(--text-base);
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+}
+
+.lifecycle__time {
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.lifecycle__note {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+/* 已走过：中性。它只是"发生过了"，不表示成功。 */
+.lifecycle__step--done .lifecycle__dot {
+  background: var(--text-faint);
+}
+
+/* 当前停在的阶段：蓝。 */
+.lifecycle__step--current {
+  background: var(--accent-soft);
+}
+
+.lifecycle__step--current .lifecycle__dot {
+  background: var(--accent);
+}
+
+.lifecycle__step--current .lifecycle__label {
+  color: var(--accent-text);
+  font-weight: var(--weight-semibold);
+}
+
+/* 走完了并且是好结果：绿。 */
+.lifecycle__step--ok .lifecycle__dot {
+  background: var(--ok);
+}
+
+.lifecycle__step--ok .lifecycle__label {
+  color: var(--ok);
+}
+
+/* 结果读不到：橙。和 publish_unknown 同一族颜色，因为它们是同一件事——
+   "走到了，但系统说不出结果"。 */
+.lifecycle__step--unknown {
+  background: var(--unknown-soft);
+}
+
+.lifecycle__step--unknown .lifecycle__dot {
+  background: var(--unknown);
+}
+
+.lifecycle__step--unknown .lifecycle__label {
+  color: var(--unknown-text);
+}
+
+/* 确定是坏的：红。 */
+.lifecycle__step--failed {
+  background: var(--danger-soft);
+}
+
+.lifecycle__step--failed .lifecycle__dot {
+  background: var(--danger);
+}
+
+.lifecycle__step--failed .lifecycle__label {
+  color: var(--danger);
+}
+
+/* 还没到的阶段：淡，但不隐藏——"还有哪几步"本身是信息。 */
+.lifecycle__step--pending {
+  background: var(--surface-sunken);
+}
+
+.lifecycle__step--pending .lifecycle__dot {
+  background: transparent;
+  border: 1px solid var(--border-strong);
+}
+
+.lifecycle__step--pending .lifecycle__label,
+.lifecycle__step--pending .lifecycle__note {
+  color: var(--text-faint);
+  font-weight: var(--weight-normal);
+}
+
+/* 不会走到了（内容被拒绝，发布这一阶段永远不会发生）。
+   和 pending 的区别必须在视觉上成立：pending 是"还没到"，skipped 是"不会到"。 */
+.lifecycle__step--skipped .lifecycle__dot {
+  background: transparent;
+  border: 1px dashed var(--border-strong);
+}
+
+.lifecycle__step--skipped .lifecycle__note {
+  font-style: italic;
+}
+
+/* ============================================================ Agent 决策轨迹 */
+
+/* 整个控制台里最能说明"这是一个 Agent"的地方。
+   做成竖向时间线而不是一列卡片：每一步都由上一步推出下一步，
+   纵向排列让这条因果链读起来是连续的。左侧竖线 + 节点标记承担"顺序"。 */
+.trace {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.trace__item {
+  position: relative;
+  display: grid;
+  grid-template-columns: 22px 1fr;
+  gap: var(--space-3);
+  padding-bottom: var(--space-4);
+}
+
+.trace__item:last-child {
+  padding-bottom: 0;
+}
+
+/* 连接线：从本节点中心拉到下一个节点的中心。最后一个不画。 */
+.trace__item::before {
+  content: '';
+  position: absolute;
+  left: 10px;
+  top: 22px;
+  bottom: 0;
+  width: 2px;
+  background: var(--border);
+}
+
+.trace__item:last-child::before {
+  display: none;
+}
+
+.trace__marker {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 2px solid var(--surface);
+  border-radius: 50%;
+  background: var(--neutral-soft);
+  color: var(--neutral);
+  font-size: 10px;
+  font-weight: var(--weight-bold);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 步骤性质决定节点颜色，和状态徽标同一套语义色。 */
+.trace__item--research .trace__marker {
+  background: var(--running-soft);
+  color: var(--running);
+}
+
+.trace__item--generate .trace__marker {
+  background: var(--violet-soft);
+  color: var(--violet);
+}
+
+.trace__item--critic .trace__marker {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
+.trace__item--revise .trace__marker {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+
+.trace__item--finish .trace__marker {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+
+.trace__body {
+  min-width: 0;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.trace__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.trace__action {
+  font-size: var(--text-base);
+  font-weight: var(--weight-semibold);
+}
+
+.trace__time {
+  flex: none;
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 理由：唯一由 Agent 自己写的字段，也是这里最该被读的东西。
+   给它正文的尺寸、行高与颜色，而不是当成一行灰色小字。 */
+.trace__reason {
+  margin-top: var(--space-2);
+  color: var(--text);
+  line-height: var(--leading-relaxed);
+}
+
+.trace__target {
+  margin-top: var(--space-2);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+/* 这一步做成了什么。默认可见，所以它比"作用于"重、比理由轻：
+   理由是这个 Agent 自己写的动机（要读的东西），摘要是它的产出（要核对的东西）。 */
+.trace__result {
+  margin-top: var(--space-2);
+  color: var(--text);
+  font-size: var(--text-sm);
+  line-height: var(--leading-base);
+}
+
+/* 输入摘要与后端枚举值：给排查用。默认折起来 —— 它们是"当时手上有什么"的
+   机器记录，不是给人读的叙述。 */
+.trace__details {
+  margin-top: var(--space-2);
+}
+
+/* ============================================================ 折叠区 */
+
+/* 技术细节默认收起。人打开一条 Run 想先看懂"Agent 干了什么"，
+   一屏 JSON 会把这件事埋掉。 */
+.disclosure {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-sunken);
+}
+
+.disclosure > summary {
+  padding: var(--space-2) var(--space-3);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+  user-select: none;
+}
+
+.disclosure > summary:hover {
+  color: var(--text);
+}
+
+.disclosure[open] > summary {
+  border-bottom: 1px solid var(--border);
+}
+
+.disclosure__body {
+  padding: var(--space-3);
+}
+
+/* ============================================================ 键值 / 正文块 */
 
 .meta {
   display: flex;
@@ -721,109 +1999,6 @@ h4 {
   font-size: var(--text-sm);
 }
 
-/* ------------------------------------------------------------------ Tabs */
-
-.tabs {
-  display: flex;
-  gap: 2px;
-  border-bottom: 1px solid var(--border);
-  margin-bottom: var(--space-4);
-}
-
-.tab {
-  padding: 7px var(--space-3);
-  border: none;
-  border-bottom: 2px solid transparent;
-  background: none;
-  color: var(--text-muted);
-  font-family: inherit;
-  font-size: var(--text-base);
-  cursor: pointer;
-}
-
-.tab:hover {
-  color: var(--text);
-}
-
-.tab--active {
-  border-bottom-color: var(--accent);
-  color: var(--text);
-  font-weight: 600;
-}
-
-/* ------------------------------------------------------------------ Timeline */
-
-.timeline {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-1);
-  margin: var(--space-3) 0 0;
-  padding: 0;
-  list-style: none;
-  font-size: var(--text-sm);
-}
-
-.timeline__step {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-}
-
-.timeline__dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--border-strong);
-}
-
-.timeline__step--done .timeline__dot {
-  background: var(--ok);
-}
-
-.timeline__step--current .timeline__dot {
-  background: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
-}
-
-.timeline__step--alert .timeline__dot {
-  background: #e8590c;
-  box-shadow: 0 0 0 3px #ffedd5;
-}
-
-.timeline__step--pending .timeline__label {
-  color: var(--text-faint);
-}
-
-.timeline__label {
-  color: var(--text-muted);
-  white-space: nowrap;
-}
-
-.timeline__sep {
-  color: var(--text-faint);
-  padding: 0 2px;
-}
-
-/* ------------------------------------------------------------------ 键值列表 */
-
-.kv {
-  margin: 0;
-  display: grid;
-  grid-template-columns: max-content 1fr;
-  gap: 6px var(--space-4);
-  font-size: var(--text-base);
-}
-
-.kv dt {
-  color: var(--text-muted);
-}
-
-.kv dd {
-  margin: 0;
-  overflow-wrap: anywhere;
-}
-
 /* 正文块：保留原格式（推文正文里的换行是有意义的） */
 .body-block {
   padding: var(--space-3);
@@ -832,7 +2007,7 @@ h4 {
   background: var(--surface-sunken);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  line-height: 1.65;
+  line-height: var(--leading-relaxed);
 }
 
 .body-block--mono {
@@ -840,7 +2015,20 @@ h4 {
   font-size: var(--text-sm);
 }
 
-/* ------------------------------------------------------------------ 图表 */
+/* 只读内容（原始稿、审计记录）：视觉上要弱于可编辑的内容。
+   人得一眼看出"上面这块我改不了，下面这块我能改"。 */
+.body-block--readonly {
+  border-style: dashed;
+  color: var(--text-muted);
+}
+
+/* 实际会发出去的那一份正文：正片，给实线边框和一个浅底。 */
+.body-block--authoritative {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+}
+
+/* ============================================================ 图表 */
 
 .chart-grid {
   display: grid;
@@ -848,14 +2036,18 @@ h4 {
   gap: var(--space-4);
 }
 
-/* Recharts 的 ResponsiveContainer 需要一个有确定高度的父元素，
-   否则会得到 0 高度并把图整张吞掉。 */
+/* 两张图统一高度。高度不一致时并排看起来像是两个不同分量的东西。 */
 .chart-box {
-  height: 200px;
+  height: 220px;
   margin-top: var(--space-3);
 }
 
-/* ------------------------------------------------------------------ 分布条 */
+.recharts-default-tooltip {
+  font-family: var(--font-sans) !important;
+  font-size: var(--text-sm) !important;
+}
+
+/* ============================================================ 分布条 */
 
 /* 计数分布（审核决定 / 发布结局 / 话题排名）。
    条长按**组内最大值**归一化，不是按总数：一组 3/2/1 与一组 300/200/100 的形状
@@ -868,7 +2060,7 @@ h4 {
 
 .bar-row {
   display: grid;
-  grid-template-columns: 150px 1fr 52px;
+  grid-template-columns: 168px 1fr 52px;
   align-items: center;
   gap: var(--space-3);
 }
@@ -893,9 +2085,7 @@ h4 {
   border-radius: var(--radius-sm) 0 0 var(--radius-sm);
 }
 
-/* 色名对应用色语义，具体哪个状态取哪个色由调用方决定。
-   green / red / violet 与徽标用的是同一组值，orange 是 publish_unknown 的专用色
-   ——整个界面里它只出现在这一个状态上。 */
+/* 色名对应用色语义，具体哪个状态取哪个色由调用方决定。 */
 .bar__fill--green {
   background: var(--ok);
 }
@@ -905,11 +2095,11 @@ h4 {
 }
 
 .bar__fill--orange {
-  background: #e8590c;
+  background: var(--unknown);
 }
 
 .bar__fill--violet {
-  background: #5b21b6;
+  background: var(--violet);
 }
 
 .bar__fill--grey {
@@ -918,7 +2108,8 @@ h4 {
 
 .bar-row__value {
   text-align: right;
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums;
 }
 
 /* 明确算不出来的指标。刻意不用 .state（空态）：那不是"没有数据"，
@@ -931,108 +2122,22 @@ h4 {
 }
 
 .na__title {
-  font-weight: 700;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  font-size: var(--text-xs);
-  letter-spacing: 0.04em;
   margin-bottom: var(--space-2);
-}
-
-/* ------------------------------------------------------------------ 详情抽屉 */
-
-.detail-section {
-  margin-top: var(--space-5);
-  padding-top: var(--space-4);
-  border-top: 1px solid var(--border);
-}
-
-/* 护栏结论：只有"通过 / 未通过 / 读不到"三种，读不到必须看起来
-   和另外两种都不一样——它是缺数据，不是结论。 */
-.guard {
+  color: var(--text-muted);
   font-size: var(--text-xs);
-  font-weight: 700;
-  letter-spacing: 0.03em;
+  font-weight: var(--weight-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
-.guard--pass {
-  color: var(--ok);
-}
+/* ============================================================ 工作台 */
 
-.guard--fail {
-  color: var(--danger);
-}
-
-.guard--unknown {
-  color: var(--text-faint);
-  font-weight: 400;
-}
-
-.reason-list {
-  margin: var(--space-2) 0 0;
-  padding-left: 18px;
-}
-
-.research-list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-}
-
-.research-item {
-  padding: var(--space-3);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-}
-
-.research-item .body-block {
-  margin: var(--space-2) 0;
-}
-
-/* Agent 决策轨迹（Phase 5A）。
-   与 .research-item 是同一套视觉语言（同样的边框与留白），但多一条左侧竖线：
-   研究材料是一袋彼此无关的条目，轨迹是**有序**的一步步过程，顺序本身就是信息。 */
-.trace-list {
-  margin: 0;
-  padding: 0 0 0 var(--space-3);
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  border-left: 2px solid var(--border);
-}
-
-.trace-item {
-  padding: var(--space-3);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-}
-
-.trace-item .body-block {
-  margin: var(--space-2) 0;
-}
-
-.trace-item__step {
-  color: var(--text-faint);
-  font-weight: 400;
-  margin-right: var(--space-2);
-}
-
-/* Runs 表里的"这一行有 error"标记。只给一个点，具体内容在 title 里，
-   表格里铺开错误正文会把行高撑垮。 */
-.err-dot {
-  color: var(--danger);
-  cursor: help;
-}
-
-/* ------------------------------------------------------------------ 工作台 */
-
+/* 审核工作台：左队列、右材料。
+   右栏用 minmax(0, 1fr) 而不是 1fr —— 不这么写，里面长正文的最小宽度
+   会把右栏撑破，整页出现横向滚动条。 */
 .workspace {
   display: grid;
-  grid-template-columns: 300px 1fr;
+  grid-template-columns: 320px minmax(0, 1fr);
   gap: var(--space-4);
   align-items: start;
 }
@@ -1057,6 +2162,7 @@ h4 {
   font-size: var(--text-base);
   text-align: left;
   cursor: pointer;
+  transition: background var(--dur-fast) var(--ease);
 }
 
 .queue-item:hover {
@@ -1069,7 +2175,7 @@ h4 {
 }
 
 .queue-item__title {
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   overflow-wrap: anywhere;
 }
 
@@ -1078,6 +2184,133 @@ h4 {
   color: var(--text-muted);
   font-size: var(--text-xs);
 }
+
+.queue-item__foot {
+  margin-top: var(--space-1);
+}
+
+/* 审核动作条：固定在右栏底部。
+   之前三个按钮跟在整篇研究 + 草稿后面，稿子一长就要滚到底才找得到 ——
+   而这是这个页面**唯一**要做的动作。 */
+.action-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: var(--z-sticky);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-md);
+}
+
+.action-bar__hint {
+  margin-left: auto;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+/* 审核面板头部那一行：状态徽标 + 时间 + Run ID。 */
+.review-head {
+  margin-top: var(--space-2);
+}
+
+.review-head__id {
+  gap: var(--space-1);
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+}
+
+/* Run ID 完整显示（这是详情区，不是列表），但要能被压缩：
+   UUID 在窄栏里必须换行，不能把整行撑出去。 */
+.review-head__id .mono {
+  max-width: 32ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.review-head__error {
+  margin-top: var(--space-3);
+}
+
+/* 提示条里跟着正文的一句"接下来做什么"。 */
+.notice__follow {
+  margin-top: var(--space-1);
+}
+
+/* 发布结果里的 HTTP 状态码那一行：给排查用，所以等宽、降一档。
+   结论用中文，日志用英文枚举，两者都留着。 */
+.notice__meta {
+  margin-top: var(--space-2);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+/* 发布成功的凭据区：Post ID（可复制）、时间、去 X 看一眼。
+   三样并排，它们回答的是同一个问题——"真的发出去了吗"。 */
+.publish-proof {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-2) var(--space-5);
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.publish-result {
+  margin-top: var(--space-3);
+}
+
+/* 裁决提示条里那一行状态 + 时间。 */
+.resolve-meta {
+  margin-top: var(--space-2);
+}
+
+/* "系统无法确认……"那一句。整段文字的结论，单独成块。 */
+.resolve-verdict {
+  margin-top: var(--space-2);
+  font-weight: var(--weight-bold);
+}
+
+.resolve-actions {
+  gap: var(--space-2);
+}
+
+
+.edit-field {
+  margin-top: var(--space-4);
+}
+
+/* 计数器和它的口径说明。说明很长，用 flex 分开，
+   在窄栏里说明会折到计数器下面，而不是把它挤扁。 */
+.counter-row {
+  align-items: baseline;
+}
+
+.counter-row__note {
+  max-width: 46ch;
+  font-size: var(--text-xs);
+  line-height: var(--leading-base);
+}
+
+.textarea--reason {
+  min-height: 96px;
+}
+
+.reject-notice {
+  margin-top: var(--space-3);
+}
+
+
+/* ============================================================ 通用排布 */
 
 .stack {
   display: flex;
@@ -1100,54 +2333,106 @@ h4 {
   justify-content: space-between;
 }
 
-/* ------------------------------------------------------------------ 确认对话框 */
-
-.modal-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 50;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: var(--space-4);
-  background: rgba(16, 20, 24, 0.5);
-}
-
-.modal {
-  width: min(520px, 100%);
-  background: var(--surface);
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--border);
-}
-
-.modal__head {
-  padding: var(--space-4) var(--space-5) 0;
-  font-size: var(--text-md);
-  font-weight: 600;
-}
-
-.modal__body {
-  padding: var(--space-3) var(--space-5);
-}
-
-.modal__foot {
-  display: flex;
-  justify-content: flex-end;
+.row--tight {
   gap: var(--space-2);
-  padding: var(--space-3) var(--space-5) var(--space-4);
+}
+
+/* ============================================================ 详情内部 */
+
+/* 正文块上面那行标签。同一个区块里可能连着好几个正文块（原始稿 / 编辑稿 /
+  拒绝理由），没有间距它们会挤成一片，看不出哪行标签属于哪一块。 */
+.body-label {
+  margin-top: var(--space-3);
+  color: var(--text-muted);
+}
+
+.detail-notice {
+  margin-top: var(--space-4);
+}
+
+/* 详情区块里的操作（发布按钮、待裁决提示）。 */
+.detail-action {
+  margin-top: var(--space-3);
+}
+
+.drawer__id {
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+}
+
+.review-head__note {
+  margin-top: var(--space-2);
+}
+
+
+.detail-section {
+  margin-top: var(--space-5);
+  padding-top: var(--space-4);
   border-top: 1px solid var(--border);
 }
 
-.checkbox-row {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-2);
-  margin-top: var(--space-3);
-  font-size: var(--text-base);
+/* 护栏结论：只有"通过 / 未通过 / 读不到"三种，读不到必须看起来
+   和另外两种都不一样——它是缺数据，不是结论。 */
+.guard {
+  font-size: var(--text-xs);
+  font-weight: var(--weight-bold);
+  letter-spacing: 0.03em;
 }
 
-.checkbox-row input {
-  margin-top: 3px;
+.guard--pass {
+  color: var(--ok);
+}
+
+.guard--fail {
+  color: var(--danger);
+}
+
+.guard--unknown {
+  color: var(--text-faint);
+  font-weight: var(--weight-normal);
+}
+
+.reason-list {
+  margin: var(--space-2) 0 0;
+  padding-left: 18px;
+}
+
+/* ---------------------------------------------------------------- 研究列表 */
+
+.research-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.research-item {
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.research-item .body-block {
+  margin: var(--space-2) 0;
+}
+
+/* "展开全部 N 条"那一行。 */
+.research-list__more {
+  margin-top: var(--space-3);
+}
+
+/* 素材的互动数字：12 条素材并排时，这些数字应该像表格一样对齐。 */
+.research-item__stats {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.research-item__source {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
 }
 
 /* 字数计数：编辑稿的硬上限。用等宽数字，避免打字时数字宽度跳动 */
@@ -1159,5 +2444,223 @@ h4 {
 
 .counter--over {
   color: var(--danger);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
+}
+
+/* ============================================================ 动效关键帧 */
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slide-in-right {
+  from {
+    transform: translateX(16px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes modal-in {
+  from {
+    transform: translateY(8px) scale(0.99);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes toast-in {
+  from {
+    transform: translateY(8px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* 系统级"减少动态效果"。这不是可选项：前庭功能敏感的人会被
+   连续的下滑与扫光弄得不舒服。关掉动画，但**不关掉状态**。 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ============================================================ 响应式 */
+
+/* ≤1280：内容区仍然完整，只是把边距收一点，给表格多留宽度。 */
+@media (max-width: 1280px) {
+  .content {
+    padding: var(--space-5) var(--space-5) var(--space-7);
+  }
+
+  .topbar {
+    padding: 0 var(--space-5);
+  }
+}
+
+/* ≤1024：侧栏收成图标条。
+   这是**降级**不是重构：导航仍然可用，只是名字收进 title / aria-label，
+   把宽度让给真正要看的表格。桌面端（≥1280）完全不受影响。 */
+@media (max-width: 1024px) {
+  :root {
+    --sidebar-width: 56px;
+    --drawer-width: 100vw;
+  }
+
+  .sidebar__brand {
+    text-align: center;
+    padding: 0 var(--space-2);
+  }
+
+  /* 品牌名太长，窄侧栏放不下；用首字母块代替，并给屏幕阅读器完整名字。 */
+  .sidebar__brand-name,
+  .sidebar__brand-meta {
+    display: none;
+  }
+
+  .sidebar__brand::after {
+    content: 'X';
+    display: block;
+    font-size: var(--text-lg);
+    font-weight: var(--weight-bold);
+    color: var(--nav-text-strong);
+  }
+
+  .nav-item {
+    justify-content: center;
+    padding: 9px 0;
+  }
+
+  .nav-item__label {
+    display: none;
+  }
+
+  /* 收起来的侧栏放不下数字，但"有多少事没处理"不能因此消失：
+     改成图标角上的一个小点。 */
+  .nav-item__count {
+    position: absolute;
+    top: 2px;
+    right: 6px;
+    min-width: 8px;
+    height: 8px;
+    padding: 0;
+    font-size: 0;
+    color: transparent;
+  }
+
+  .nav-item {
+    position: relative;
+  }
+
+  .sidebar__foot {
+    display: none;
+  }
+
+  .workspace {
+    grid-template-columns: 260px minmax(0, 1fr);
+  }
+
+  .topbar__blurb {
+    display: none;
+  }
+}
+
+/* ≤768：单列。侧栏变成顶部横向导航条，工作台上下堆叠。
+   不追求手机端成为完整产品——桌面端的操作效率优先。 */
+@media (max-width: 768px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    position: static;
+    height: auto;
+    flex-direction: row;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    overflow-x: auto;
+  }
+
+  .sidebar__brand,
+  .sidebar__foot {
+    display: none;
+  }
+
+  .sidebar__nav {
+    flex-direction: row;
+    gap: var(--space-1);
+    padding: 0;
+  }
+
+  .nav-item {
+    padding: 6px var(--space-3);
+    white-space: nowrap;
+  }
+
+  .nav-item__label {
+    display: inline;
+  }
+
+  .nav-item__count {
+    position: static;
+    min-width: 18px;
+    height: auto;
+    font-size: var(--text-xs);
+    color: var(--unknown-text);
+  }
+
+  .nav-item--active::before {
+    display: none;
+  }
+
+  .topbar__context {
+    display: none;
+  }
+
+  .workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* 四列排不下：时刻与摘要折到阶段名下面。 */
+  .lifecycle__step {
+    grid-template-columns: 16px minmax(0, 1fr);
+  }
+
+  .lifecycle__time,
+  .lifecycle__note {
+    grid-column: 2;
+  }
+
+  .queue-list {
+    max-height: none;
+  }
+
+  .chart-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .toast-viewport {
+    right: var(--space-3);
+    bottom: var(--space-3);
+    width: calc(100vw - var(--space-3) * 2);
+  }
 }
