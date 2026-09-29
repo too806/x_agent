@@ -33,6 +33,7 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.agent.metrics import quality_metrics
 from app.models.published_post import (
     STATUS_FAILED,
     STATUS_PUBLISHED,
@@ -415,6 +416,12 @@ class AdminService:
                 )
                 for row in decisions
             ],
+            # 质量指标只对 Agent 运行有意义：topic 链路的 Run 没有 planner 循环，
+            # 那几个计数恒为 0，报出去只会让人以为"这一轮什么都没做"。
+            #
+            # 停在 human_review 的 Run 照样算：Agent 循环那时已经跑完，
+            # step_count / critic_tally / 决策轨迹都已经是终值。
+            quality=quality_metrics(state) if state.get("goal") else None,
             draft=(
                 DraftRecord(
                     draft_id=str(draft.id),

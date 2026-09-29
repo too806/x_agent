@@ -378,6 +378,31 @@ class OverviewResponse(BaseModel):
     resolution_queue_total: int
 
 
+class AgentQualityMetrics(BaseModel):
+    """一次 Agent 运行的质量指标（Phase 5A.1 第五节）。
+
+    全部从已有的 RunState 算出来，不新增数据库字段、不新增基础设施。
+    非 Agent 运行（`goal` 为空）没有这些字段，所以外层的 `quality` 是可选的。
+
+    这些数字回答的是"决策循环健不健康"，**不是**"稿子写得好不好"——后者要人读，
+    前者用来发现"研究了三轮还是不写稿"这类行为异常。
+    """
+
+    total_steps: int = 0
+    research_calls: int = 0
+    revision_count: int = 0
+    candidate_count: int = 0
+    critic_accept_count: int = 0
+    critic_revise_count: int = 0
+    critic_reject_count: int = 0
+    # 决策步数是否用满。正常收尾在远未用满时就结束了，所以 True 基本等于
+    # "这一轮没能自己收敛"，值得回头看一遍轨迹。
+    budget_exhausted: bool = False
+    # finish 那一步的理由**原文**。刻意不解析成枚举：理由是给人读的，
+    # 转成枚举恰好把"为什么"丢掉。
+    finish_reason: str = ""
+
+
 class AdminRunDetail(BaseModel):
     """Run 的完整生命周期视图。
 
@@ -410,6 +435,8 @@ class AdminRunDetail(BaseModel):
 
     research_items: list[ResearchItemRecord] = []
     decision_trace: list[DecisionTraceRecord] = []
+    # 只有 Agent 运行（goal 非空）才有；topic 链路的 Run 这一项是 None。
+    quality: AgentQualityMetrics | None = None
     draft: DraftRecord | None = None
     review: ReviewRecord | None = None
     publish: PublishRecord | None = None

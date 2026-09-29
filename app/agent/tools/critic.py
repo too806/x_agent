@@ -123,9 +123,17 @@ def make_critic_tool(llm_service: LLMService, persona: Persona):
             focus.decision,
         )
 
+        # 整轮运行的结论累计。critic_results 每轮被整体覆盖（无 reducer 的 list
+        # 字段），所以"这次运行里 Critic 一共 accept 了几条"只能靠这里的累计值，
+        # 事后是反推不出来的。见 app/agent/state.py 与 app/agent/metrics.py。
+        tally = dict(state.get("critic_tally") or {})
+        for verdict in results:
+            tally[verdict.decision] = tally.get(verdict.decision, 0) + 1
+
         delta = {
             "critic_results": results,
             "critic_result": focus,
+            "critic_tally": tally,
             # 记下"评价的是哪一版候选池"，供 budget 判断是否需要再次评价。
             # 记成 **writer_epoch 的当前值**而不是自增计数：两次自增值只有在
             # 恰好同步时才正确，而 writer_epoch 是"被评价对象"的版本号，

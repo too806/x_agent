@@ -51,6 +51,10 @@ class RunState(TypedDict, total=False):
     - revision_count / research_count / step_count: 三个预算计数。
     - writer_epoch / critic_epoch: "候选池改过几次"与"评价过几轮"，用来判断
       某批候选是否已经被评价过（见 app/agent/budget.py）。
+    - critic_tally: 整轮运行里 Critic 各结论的累计次数（accept/revise/reject）。
+      **必须累计而不能从 critic_results 反推**：那是个无 reducer 的 list 字段，
+      每次 criticize 都会整体覆盖，只剩最后一轮。也不从 result_summary 文本里解析——
+      改一次措辞就会让指标静默变成 0。
     - decision / last_result: 本步的决策与执行结果，供路由与节点间传递。
     - decision_trace: 决策轨迹。用 merge_trace 做 reducer —— 同一步先由 Planner
       写入意图、再由 Tool 节点补上结果，必须**覆盖**而不是追加。
@@ -82,6 +86,8 @@ class RunState(TypedDict, total=False):
     step_count: int
     writer_epoch: int
     critic_epoch: int
+    # 键是 accept / revise / reject，值是累计次数。
+    critic_tally: dict[str, int]
     decision: AgentDecision
     last_result: str
     decision_trace: Annotated[list[DecisionTraceEntry], merge_trace]
