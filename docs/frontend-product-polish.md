@@ -290,13 +290,21 @@ frontend/src
 
 ## 9. 提交
 
-分支 `feat/frontend-product-polish`（**没有动 `master`**）。三个 commit，只包含
+分支 `feat/frontend-product-polish`（**没有动 `master`**）。四个 commit，只包含
 `frontend/**` 与本文档：
 
 1. `feat: polish operations console UI` —— 设计系统、外壳、共享组件、五个页面。
 2. `feat: improve review and agent trace experience` —— 审核工作台、发布与裁决流程、
    Run 详情抽屉、Agent 轨迹与生命周期层（含它们的单测）。
 3. `docs: record frontend product polish` —— 本文档。
+4. `feat: unify review queue feedback` —— 审核队列页的头部与反馈接到同一套卡片头与
+   全局 Toast 上。
+
+**为什么是四个而不是三个**：`Review.tsx` 在写第 2、3 个 commit 时被漏掉了（它引用的
+`card__head` / `table__clamp` 属于第 1 个 commit）。补它的方式只有"重写已有提交"
+（`amend` / `reset` / `rebase`）或"再加一个 commit"，而这三条改写命令在本次的禁区里，
+所以选了后者。第 4 个 commit 的内容本身是完整的：它把审核页从"页面自己长一条绿色
+横条"改到全局 Toast，并让队列头与其它卡片长成一套。
 
 **没有提交**（属于并行工作的其它工作流，留在工作区）：`docs/agent-evaluation/`、
 `frontend/tests/agent-quality.test.ts`、`docs/setup-new-machine.md`。

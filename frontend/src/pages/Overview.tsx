@@ -130,8 +130,7 @@ export function Overview() {
               <div className="notice notice--unknown">
                 <div className="notice__title">
                   <IconAlert size={15} />
-                  {data.resolution_queue_total} 次发布尝试的{/* 结果未知 */}
-                  结果需要人工裁决
+                  {data.resolution_queue_total} 次发布尝试的结果未定，需要人工裁决
                 </div>
                 <p>
                   它们的发布状态是 <strong>{publishStatusLabel('publishing')}</strong> 或{' '}
@@ -156,7 +155,9 @@ export function Overview() {
             <div className="status-strip">
               <span className="status-strip__item">
                 <span className="status-strip__label">管理接口</span>
-                <span className="status-strip__value">本次读取成功</span>
+                {/* 能读到这个值本身就是"通"的证据：这一屏的数据就是它返回的。
+                    所以这里只说"正常"，不写"本次读取成功"那种绕圈子的说法。 */}
+                <span className="status-strip__value">正常</span>
               </span>
               <span className="status-strip__item">
                 <span className="status-strip__label">待人工处理</span>
@@ -211,10 +212,20 @@ export function Overview() {
                 <div className="kpi__value">{data.kpis.published}</div>
                 <div className="kpi__sub">已在 X 上确认</div>
               </div>
-              <div className="kpi">
+              {/* 发布失败与待审核同色（黄）：两者都是"需要处理、但确定"，处置方式
+                  明确。橙色那一条留给"结果未知"——它不是同一类问题，也不该长得像。 */}
+              <div
+                className={
+                  data.kpis.publish_failed > 0
+                    ? 'kpi kpi--attention'
+                    : 'kpi kpi--attention kpi--quiet'
+                }
+              >
                 <div className="kpi__label">发布失败</div>
                 <div className="kpi__value">{data.kpis.publish_failed}</div>
-                <div className="kpi__sub">确定失败，重发是安全的</div>
+                <div className="kpi__sub">
+                  {data.kpis.publish_failed > 0 ? '确定失败，重发是安全的' : '没有确定失败的发布'}
+                </div>
               </div>
               <div
                 className={
