@@ -29,8 +29,10 @@
 """
 
 import logging
+import re
 from datetime import datetime, timedelta
 
+from app.agent import search_query
 from app.agent.budget import counter
 from app.agent.prompts import format_sources, load_prompt, render
 from app.agent.schemas import (
@@ -40,7 +42,15 @@ from app.agent.schemas import (
     TopicQualification,
 )
 from app.agent.tools.base import ToolResult, append_research, complete_json, pairs
-from app.agent.trends import TREND_WINDOW_HOURS, TopicScanItem, rank_key, score_topic, qualify
+from app.agent.trends import (
+    LINK_ONLY_TITLE,
+    TREND_WINDOW_HOURS,
+    TopicScanItem,
+    is_link_only_title,
+    qualify,
+    rank_key,
+    score_topic,
+)
 from app.repositories import create_research_items
 from app.services.llm import LLMService
 from app.services.x_service import XService
@@ -146,6 +156,24 @@ def _fallback_cluster(items: list[TopicScanItem], contents: dict[str, str]) -> l
     return drafts
 
 
+def _clean_title(title: str) -> str:
+    """标题不能只是一条链接——是的话换成只说事实的占位文本。
+
+    真机 smoke 里出现过标题是 `https://t.co/RMhWA6lmX9` 的候选，而且因为没有
+    别的达标候选，`select_topic` 按"分数最高的"选中了它，接着 `research_topic`
+    拿它去检索 → X 400 → 整次运行失败。理由与处置写在
+    `app/agent/trends.py::is_link_only_title` 旁边。
+
+    替换**不改打分**：单一来源本来就会被压到 40 分以下、判成 weak_support。
+    把标题换掉、分数照旧，等于让"这批材料撑不起一个选题"这件事在候选列表里
+    看得见，而不是把它藏起来。
+    """
+    stripped = (title or "").strip()
+    if stripped and is_link_only_title(stripped):
+        return LINK_ONLY_TITLE
+    return stripped
+
+
 def _build_topics(drafts, items_by_id: dict, observed_at: datetime) -> tuple[list[CandidateTopic], int]:
     """把模型的分组变成打了分的候选选题。
 
@@ -176,7 +204,7 @@ def _build_topics(drafts, items_by_id: dict, observed_at: datetime) -> tuple[lis
             observed_at=observed_at,
         )
         topic = CandidateTopic(
-            title=_attr(draft, "title"),
+            title=_clean_title(_attr(draft, "title")),
             description=_attr(draft, "description"),
             keywords=list(_attr(draft, "keywords") or []),
             source_post_ids=verified_ids,
@@ -230,16 +258,25 @@ def make_discover_tool(x_service: XService, llm_service: LLMService, session_fac
         # 检索词优先取 Planner 给的 arguments.query：把"今天帮我找一个值得讨论的
         # AI 话题"这种自然语言目标直接丢给 X 搜索效果很差——X 只按字面分词匹配，
         # 回来的材料与用户想看的内容没有关系。target 与 goal 是逐级降级的兜底。
-        query = str(decision.arguments.get("query") or decision.target or goal)
-        if not decision.arguments.get("query"):
-            # 降级路径要留痕：检索词退化成整句目标时，回来的候选会很差，
-            # 而"候选很差"从结果上看和"最近确实没什么可讨论的"长得一模一样。
-            # 一条 warning 至少让这两种情况在日志里分得开。
+        #
+        # 每一级还要过一遍 `search_query`：目标里完全可能带 `/`（"MCP/Agent"）
+        # 或一条链接，而那样的 query 会被 X 判成非法参数、整次运行直接失败。
+        query, note = search_query.choose(
+            [
+                ("决策指定的检索词", str(decision.arguments.get("query") or "")),
+                ("决策指定的目标", str(decision.target or "")),
+                ("目标", goal),
+            ]
+        )
+        if note != "决策指定的检索词":
+            # 降级路径要留痕：检索词退化成整句目标（或者被换掉非法字符）时，
+            # 回来的候选会很差，而"候选很差"从结果上看和"最近确实没什么可讨论的"
+            # 长得一模一样。一条 warning 至少让这两种情况在日志里分得开。
             logger.warning(
-                "agent discover has no search query from planner (run_id=%s), "
-                "falling back to %r",
+                "agent discover search query degraded (run_id=%s, query=%r, why=%s)",
                 run_id,
-                decision.target or goal,
+                query,
+                note,
             )
 
         # 一次扫描 = 一个观察时刻。窗口的右端、材料的 observed_at、打分用的

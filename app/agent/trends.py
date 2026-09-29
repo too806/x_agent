@@ -41,10 +41,36 @@ X 的公开 API 只给 like / reply / repost / quote 四个计数，我们把它
 from __future__ import annotations
 
 import math
+import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from app.agent.schemas import TopicLifecycle, TopicQualification
+
+# --- 撑不起一个选题的材料 ---------------------------------------------------
+
+#: 检索回来的材料里有一类帖子正文**就是一条链接**（分享型）。它没有可以归纳的
+#: 内容，标题写出来只会是那条网址，而一条网址会一路往下走：标题 → 选定题目 →
+#: 检索词，最后撞在 X 的查询解析器上（URL 含的 `/` 与 `:` 都是非法字符，
+#: 见 app/agent/search_query.py），整次运行就此结束。
+#:
+#: 所以这类材料的标题被替换成下面这句**只陈述事实**的占位文本——它不编造内容，
+#: 也不改分数（单一来源本来就会被压到 40 分以下、判成 weak_support）。
+LINK_ONLY_TITLE = "（材料只有链接，没有可归纳的正文）"
+
+#: 只由链接组成的文本。
+LINK_ONLY_RE = re.compile(r"^(?:https?://\S+\s*)+$")
+
+
+def is_link_only_title(title: str) -> bool:
+    """这个标题是不是一条（或几条）纯链接。
+
+    两处用它，方向相反但理由相同——都因为"网址不是一个话题"：
+    `discover` 造候选时把网址换成占位文本，`research` 挑检索词时跳过占位文本
+    （占位文本本身也不能当检索词）。
+    """
+    stripped = (title or "").strip()
+    return stripped == LINK_ONLY_TITLE or bool(LINK_ONLY_RE.match(stripped))
 
 # --- 时间口径 ---------------------------------------------------------------
 

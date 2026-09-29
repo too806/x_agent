@@ -23,9 +23,11 @@ import pytest_asyncio
 
 from app.agent.schemas import AgentDecision
 from app.agent.tools.discover import make_discover_tool
+from app.agent.trends import LINK_ONLY_TITLE
 from app.repositories import create_agent_run
-from fakes import SAMPLE_X_RESPONSE, ScriptedLLMService
-from support import agent_x_service
+from app.services.x_service import XService
+from fakes import SAMPLE_X_RESPONSE, FakeXApiClient, ScriptedLLMService
+from support import FIXED_NOW
 
 GOAL = "今天帮我找一个最近值得在中文科技 X 圈讨论的 AI Agent 话题。"
 
@@ -42,13 +44,17 @@ async def run_id(session_factory) -> str:
     return str(run.id)
 
 
-def clusters(sources_per_topic: list[list[str]]) -> str:
-    """模型返回的分组结果。`sources_per_topic` 是每个簇声称引用的编号。"""
+def clusters(sources_per_topic: list[list[str]], titles: list[str] | None = None) -> str:
+    """模型返回的分组结果。`sources_per_topic` 是每个簇声称引用的编号。
+
+    `titles` 用于那些**标题本身就是要测的东西**的场景（例如模型把一条链接
+    当成了标题）。
+    """
     return json.dumps(
         {
             "topics": [
                 {
-                    "title": f"候选选题 {index}",
+                    "title": (titles[index - 1] if titles else f"候选选题 {index}"),
                     "description": "材料在讲同一件事",
                     "keywords": ["关键词"],
                     "why_now": "刚刚发生",
@@ -73,9 +79,18 @@ def decide(**arguments) -> AgentDecision:
 
 
 def _tool(session_factory, payload: str):
-    return make_discover_tool(
-        agent_x_service(), ScriptedLLMService(responses={"discover": payload}), session_factory
+    return _tool_with_client(session_factory, payload)[0]
+
+
+def _tool_with_client(session_factory, payload: str, raw=None):
+    """返回 (工具, 假客户端)：有些断言要看**实际发给 X 的那个 query**。"""
+    client = FakeXApiClient(raw=raw)
+    tool = make_discover_tool(
+        XService(client, clock=lambda: FIXED_NOW),
+        ScriptedLLMService(responses={"discover": payload}),
+        session_factory,
     )
+    return tool, client
 
 
 # --------------------------------------------------------------------------
@@ -159,3 +174,93 @@ async def test_clusters_citing_nothing_real_fall_back_instead_of_crashing(sessio
     assert "退化" in result.summary
     # 退化出来的候选带着真实出处，只是结构上撑不起一个趋势（单一来源上限）。
     assert all(topic.source_post_ids for topic in topics)
+
+
+# --------------------------------------------------------------------------
+# 检索词与标题：一条链接不该沿着链路一路往下走
+# --------------------------------------------------------------------------
+
+#: 检索回来的材料里有一类帖子正文就是链接（分享型）。真机 smoke 里，
+#: 整轮发现只回来这样一条材料，于是候选标题、选定题目、检索词全都是那条链接。
+LINK_ONLY_X_RESPONSE = {
+    "data": [
+        {
+            "id": "2001",
+            "text": "https://t.co/RMhWA6lmX9",
+            "author_id": "u9",
+            "created_at": "2026-09-18T10:00:00.000Z",
+            "public_metrics": {
+                "retweet_count": 0,
+                "reply_count": 0,
+                "like_count": 0,
+                "quote_count": 0,
+            },
+        },
+        dict(SAMPLE_X_RESPONSE["data"][0]),
+    ],
+    "includes": {"users": [{"id": "u9", "name": "Cara", "username": "cara_ai"}]},
+    "meta": {"result_count": 2, "newest_id": "2001", "oldest_id": "1001"},
+}
+
+
+async def test_a_title_that_is_only_a_link_is_replaced_by_a_label(session_factory, run_id):
+    """候选标题不能是一条网址。
+
+    材料里有一类帖子正文就是链接（分享型），模型给这种材料分组时标题就长成链接。
+    真机 smoke 里出现过 `https://t.co/RMhWA6lmX9` 这样的候选，而且因为没有别的
+    达标候选，`select_topic` 按"分数最高的"选中了它，接着 `research_topic`
+    拿它去检索 → X 400 → 整次运行失败（见 app/agent/search_query.py）。
+
+    替换文本只陈述事实（这条材料只有链接），不编造内容。
+    """
+    payload = clusters([["m1", "m2"], ["m1"]], titles=["https://t.co/RMhWA6lmX9", "候选选题 2"])
+    tool = _tool(session_factory, payload)
+
+    result = await tool(discover_state(run_id), decide(query="AI Agent 智能体"))
+
+    titles = [topic.title for topic in result.delta["candidate_topics"]]
+    assert LINK_ONLY_TITLE in titles
+    assert not [t for t in titles if t.startswith("http")], "标题里不该留下网址"
+
+
+async def test_the_fallback_never_uses_a_raw_link_as_a_title(session_factory, run_id):
+    """兜底路径也一样：正文只有链接的材料，不能拿链接当标题。
+
+    这正是真机 smoke 3 走过的路径——检索只回来一条材料，而那条材料的正文
+    就是链接，模型给不出可用分组，于是退化成"一条帖子一个候选"，
+    标题 = 正文 = URL。换掉标题**不改打分**：单一来源本来就该被压到 40 分
+    以下、判成 weak_support。
+
+    如果换标题顺带把这类材料从打分里摘出去，"链接材料"就会从"低分但看得见"
+    变成"不存在"，而后者从报告上看不出发生过什么。
+    """
+    tool = _tool_with_client(
+        session_factory, clusters([["zzz-1"], ["zzz-2"]]), raw=LINK_ONLY_X_RESPONSE
+    )[0]
+
+    result = await tool(discover_state(run_id), decide(query="AI Agent 智能体"))
+
+    by_title = {topic.title: topic for topic in result.delta["candidate_topics"]}
+    assert LINK_ONLY_TITLE in by_title
+    link_topic = by_title[LINK_ONLY_TITLE]
+    assert link_topic.source_post_ids, "材料还在候选上挂着"
+    assert link_topic.trend_score <= 40.0
+    # 同批材料里正文正常的那些照旧用正文当标题。
+    assert "AI coding agents are transforming how teams ship software." in by_title
+
+
+async def test_discover_never_sends_a_query_x_cannot_parse(session_factory, run_id):
+    """Planner 给的检索词里带 `/` 或链接时，换一个能用的，而不是撞 400。
+
+    断言的是**实际发给 X 的那个 query**：state 里记的 goal 仍然是原文，
+    两者不同是有意的。
+    """
+    tool, client = _tool_with_client(
+        session_factory, clusters([["m1", "m2"]])
+    )
+
+    await tool(discover_state(run_id), decide(query="https://t.co/RMhWA6lmX9"))
+
+    sent = client.searches[0]["query"]
+    assert "https" not in sent
+    assert sent == GOAL  # 检索词一路降级到目标文本

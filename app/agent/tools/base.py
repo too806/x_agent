@@ -30,6 +30,12 @@ class ToolResult:
 Tool = Callable[[Mapping[str, Any], AgentDecision], Awaitable[ToolResult]]
 
 
+#: 出错时回显多少原始输出。pydantic 只把非法输入截成 `<前 10 字>...<后 10 字>`，
+#: 而真正坏掉的地方通常在那中间——回显一段原文，才可能判断是模型输出了半截 JSON、
+#: 还是某个字符串里有没转义的引号。200 字够看出结构，又不至于把整份输出灌进日志。
+ERROR_SNIPPET_CHARS = 200
+
+
 async def complete_json(
     llm_service: LLMService, prompt: str, model: type[BaseModel]
 ) -> BaseModel:
@@ -38,12 +44,17 @@ async def complete_json(
     与 Phase 2 的 generate 节点同一套处理：非法 JSON 或不符合 schema 都属于
     **上游输出故障**，与 LLM 调用失败同类，统一包装成 LLMError
     （保留原始诊断信息，且不含任何凭据）。
+
+    错误信息里带上模型原始输出的一段（见 `ERROR_SNIPPET_CHARS`）：真机 smoke 里
+    出现过一次 planner 返回非法 JSON，而 pydantic 的报错只显示了首尾各十个字符，
+    中间坏在哪完全看不出来——**下一次再遇到，至少要先看得见**。
     """
     raw = await llm_service.complete(prompt, json_mode=True)
     try:
         return model.model_validate_json(raw)
     except ValidationError as exc:
-        raise LLMError(f"LLM returned invalid {model.__name__}: {exc}") from exc
+        snippet = " ".join(raw.split())[:ERROR_SNIPPET_CHARS]
+        raise LLMError(f"LLM returned invalid {model.__name__}: {exc}\nraw: {snippet}") from exc
 
 
 def append_research(

@@ -13,8 +13,10 @@
 
 import logging
 
+from app.agent import search_query
 from app.agent.budget import counter
 from app.agent.prompts import format_sources, load_prompt, render
+from app.agent.trends import is_link_only_title
 from app.agent.tools.base import ToolResult, append_research, complete_json, pairs
 from app.repositories import create_research_items, set_run_topic
 from app.services.llm import LLMService
@@ -62,13 +64,45 @@ def _choose_topic(state, decision) -> tuple[str, str]:
     return str(state.get("goal") or state.get("topic") or ""), "无候选选题，用目标文本兜底"
 
 
+def _search_options(topic: str, state, decision) -> list[tuple[str, str]]:
+    """这一轮检索可以用哪些词，按优先级排列。
+
+    题目排第一：选定的题目是这一轮研究**语义上**该搜的东西。但它不一定**能**搜：
+    候选选题里有一类标题本身就是一条链接（材料正文只有链接时，discover 会把它
+    换成占位文本，而占位文本同样不能拿去检索），URL 则会被 X 的查询解析器判成
+    非法参数、整次运行到此为止（见 `app/agent/search_query.py`）。
+
+    所以后面跟两个兜底：Planner 给的检索词、目标文本。
+
+    顺序在这里是唯一的规则来源——`search_query.choose()` 只负责取第一个能用的。
+    """
+    options: list[tuple[str, str]] = []
+    if not is_link_only_title(topic):
+        options.append(("题目", topic))
+    options.append(("决策指定的检索词", str(decision.arguments.get("query") or "")))
+    options.append(("目标", str(state.get("goal") or state.get("topic") or "")))
+    return options
+
+
 def make_research_tool(x_service: XService, session_factory):
     async def research_topic(state, decision) -> ToolResult:
         run_id = state["run_id"]
         topic, how = _choose_topic(state, decision)
-        logger.info("agent research started (run_id=%s, topic=%r)", run_id, topic)
+        query, note = search_query.choose(_search_options(topic, state, decision))
+        logger.info("agent research started (run_id=%s, topic=%r, query=%r)", run_id, topic, query)
+        if query != topic:
+            # 检索词与题目不一致必须留痕：材料看起来会与 UI 上显示的题目对不上，
+            # 而"题目不能当检索词"是很具体的一个原因，值得说清楚。
+            logger.warning(
+                "agent research search query differs from the selected topic "
+                "(run_id=%s, topic=%r, query=%r, why=%s)",
+                run_id,
+                topic,
+                query,
+                note,
+            )
 
-        results = await x_service.research(topic, max_results=RESEARCH_RESULTS)
+        results = await x_service.research(query, max_results=RESEARCH_RESULTS)
         async with session_factory() as session:
             item_ids = await create_research_items(session, run_id, results)
             # 把题目镜像到 Run 上供运行记录列表显示。同一个 session 里做掉，
@@ -79,37 +113,43 @@ def make_research_tool(x_service: XService, session_factory):
         delta["selected_topic"] = topic
         delta["research_count"] = counter(state, "research_count") + 1
         logger.info("agent research completed (run_id=%s, items=%d)", run_id, len(results))
+        # 检索词与题目不一致时把它写进 summary：只写在日志里，界面上就只剩一个
+        # 与材料对不上的题目。
+        where = f"主题「{topic}」" if query == topic else f"主题「{topic}」，按「{query}」检索"
         return ToolResult(
             delta=delta,
-            summary=f"{how}主题「{topic}」，取回 {len(results)} 条材料",
+            summary=f"{how}{where}，取回 {len(results)} 条材料",
         )
 
     return research_topic
 
 
-def _deepen_query(state, decision) -> tuple[str, str]:
-    """深化研究的检索词，返回 (检索词, 说明)。
+def _deepen_options(state, decision) -> list[tuple[str, str]]:
+    """深化研究的检索词候选，按优先级排列。
 
     优先级：Planner 明确给的 query → 证据包里的 unknowns → counterpoints → 原题。
+    每条都可能含 X 不接受的字符（未知项常常是一句话，里面完全可能出现 `A/B`），
+    所以交给 `search_query.choose()` 取第一个**能用**的，而不是取第一个非空的。
     """
+    options: list[tuple[str, str]] = []
     if decision.arguments.get("query"):
-        return str(decision.arguments["query"]), "按决策指定的检索词"
+        options.append(("按决策指定的检索词", str(decision.arguments["query"])))
 
     pack = state.get("evidence_pack")
     if pack is not None:
         if pack.unknowns:
-            return pack.unknowns[0], "针对证据里记下的未知项"
+            options.append(("针对证据里记下的未知项", pack.unknowns[0]))
         if pack.counterpoints:
-            return pack.counterpoints[0], "针对证据里记下的反方说法"
+            options.append(("针对证据里记下的反方说法", pack.counterpoints[0]))
 
-    topic = str(state.get("selected_topic") or "")
-    return topic, "没有已知空白，按原题再检索一轮"
+    options.append(("没有已知空白，按原题再检索一轮", str(state.get("selected_topic") or "")))
+    return options
 
 
 def make_deepen_tool(x_service: XService, session_factory):
     async def deepen_research(state, decision) -> ToolResult:
         run_id = state["run_id"]
-        query, how = _deepen_query(state, decision)
+        query, how = search_query.choose(_deepen_options(state, decision))
         logger.info("agent deepen started (run_id=%s, query=%r)", run_id, query)
 
         results = await x_service.research(query, max_results=RESEARCH_RESULTS)

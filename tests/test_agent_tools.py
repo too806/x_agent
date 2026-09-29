@@ -5,6 +5,7 @@
 一次没生效的回退，都不会报错，只会让结果悄悄偏离。所以逐个钉死。
 """
 
+from app.agent import search_query
 from app.agent.nodes.finalize import pick_final_candidate
 from app.agent.persona import load_persona
 from app.agent.schemas import (
@@ -17,7 +18,7 @@ from app.agent.schemas import (
 )
 from app.agent.tools.critic import _bind_to_candidates, _choose_focus, make_critic_tool
 from app.agent.tools.evidence import _keep_traceable
-from app.agent.tools.research import _choose_topic, _deepen_query
+from app.agent.tools.research import _choose_topic, _deepen_options
 from app.agent.tools.revise import _pick_target, make_revise_tool
 from app.agent.schemas import AgentDecision, CriticReport
 from fakes import ScriptedLLMService, critic_payload, revise_payload
@@ -182,27 +183,55 @@ def test_topic_falls_back_to_the_goal_when_nothing_was_discovered():
     assert "兜底" in how
 
 
+def _deepen_pick(state, decision):
+    """深化研究的检索词：候选顺序由 `_deepen_options` 给，取第一个**能用**的。
+
+    生产里这两步是一起调的（`make_deepen_tool`），测试里也一起调——
+    只测候选顺序，会让"顺序里混进一个 X 用不了的词"这类问题整片漏过去。
+    """
+    return search_query.choose(_deepen_options(state, decision))
+
+
 def test_deepen_prefers_the_explicit_query_then_the_known_gaps():
     pack = EvidencePack(unknowns=["还不知道价格"], counterpoints=["有人说没用"])
     state = {"selected_topic": "原题", "evidence_pack": pack}
 
-    explicit, how = _deepen_query(
+    explicit, how = _deepen_pick(
         state,
         AgentDecision(action="deepen_research", reason="x", arguments={"query": "换个词搜"}),
     )
     assert (explicit, "指定" in how) == ("换个词搜", True)
 
-    gap, how = _deepen_query(state, AgentDecision(action="deepen_research", reason="x"))
+    gap, how = _deepen_pick(state, AgentDecision(action="deepen_research", reason="x"))
     assert gap == "还不知道价格"
     assert "未知" in how
 
 
 def test_deepen_uses_the_topic_as_the_last_resort():
-    query, how = _deepen_query(
+    query, how = _deepen_pick(
         {"selected_topic": "原题"}, AgentDecision(action="deepen_research", reason="x")
     )
     assert query == "原题"
     assert "原题" in how
+
+
+def test_deepen_skips_a_query_x_cannot_parse():
+    """优先级里的每一条都可能含 X 不接受的字符，所以要取第一个**能用**的。
+
+    Planner 给的检索词是自由文本，未知项更常常是一句话（`每天/每周` 这样的
+    写法很常见）。跳过它们、用下一条，比拿一个必然 400 的 query 去撞好。
+    """
+    pack = EvidencePack(unknowns=["还不知道价格"], counterpoints=["有人说没用"])
+    state = {"selected_topic": "原题", "evidence_pack": pack}
+
+    query, how = _deepen_pick(
+        state,
+        AgentDecision(
+            action="deepen_research", reason="x", arguments={"query": "https://t.co/abc"}
+        ),
+    )
+    assert query == "还不知道价格"
+    assert "未知" in how
 
 
 # --------------------------------------------------------------------------
