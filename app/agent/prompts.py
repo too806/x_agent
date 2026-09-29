@@ -200,6 +200,11 @@ def format_state(state: Mapping[str, Any]) -> str:
             f"（{critic.score:.1f} 分）"
             + (f"，要求改动：{'；'.join(critic.revision_targets)}" if critic.revision_targets else "")
         )
+    elif candidates and _int(state, "writer_epoch") > _int(state, "critic_epoch"):
+        # 改稿会清空 critic_result（见 tools/revise.py）。此时"没有聚焦对象"**不等于**
+        # "从没评价过"——渲染成后者会让 Planner 以为该从头重来，而它真正该做的
+        # 只有一件事：重新评价刚改过的那批候选。
+        lines.append("- 最近一次评审：候选改过稿，上一轮评价已作废，需要重新评价")
     else:
         lines.append("- 最近一次评审：（尚未评价）")
 
