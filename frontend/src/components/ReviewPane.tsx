@@ -4,6 +4,9 @@ import { api } from '../api/client'
 import { ConfirmDialog } from './ConfirmDialog'
 import { ErrorDetail, ErrorState, LoadingState } from './States'
 import { StatusBadge } from './StatusBadge'
+import { CopyButton } from './ui/CopyButton'
+import { ResearchList } from './ui/ResearchList'
+import { Section } from './ui/Section'
 import { useAsync } from '../hooks/useAsync'
 import { useMutation } from '../hooks/useMutation'
 import { EMPTY, codePointLength, dateTime, httpStatusLabel, text } from '../utils/format'
@@ -19,6 +22,12 @@ import type { AdminRunDetail, ReviewDecision } from '../types/api'
  * 写操作只走既有的 `POST /api/runs/{id}/review`。控制台不实现第二套审核入口：那
  * 一套一定会漏掉 Phase 4a 用条件 UPDATE 换来的并发保护（同一个 Run 被 resume 两次
  * 会重复抓取、重复生成）。
+ *
+ * 这一版最大的结构改动是**动作条吸底**。三个决定原先排在整块材料的最后：研究素材
+ * 十几条、草稿几百字，批准 / 编辑 / 拒绝被推到两三屏之外。审核是连续动作，每一条都要
+ * 滚到底再滚回来，效率损失是实打实的。现在它们固定在视口底部，滚动时一直在。
+ * 编辑框和拒绝理由仍然长在正文里（那是"填内容"的地方），但提交 / 取消跟着动作条走，
+ * 和按钮永远在同一屏——这也正是字数计数器该待的位置：它和"提交"按钮是一对。
  */
 
 type Mode = 'approve' | 'edit' | 'reject'
@@ -86,11 +95,18 @@ export function ReviewPane({ runId, contentMaxLength, onDecided }: Props) {
   function startEdit() {
     setMode('edit')
     setEditText(draftContent)
+    submit.reset()
   }
 
   function startReject() {
     setMode('reject')
     setRejectReasonMissing(false)
+    submit.reset()
+  }
+
+  function cancelMode() {
+    setMode(null)
+    submit.reset()
   }
 
   function submitReject() {
@@ -115,15 +131,18 @@ export function ReviewPane({ runId, contentMaxLength, onDecided }: Props) {
       <div className="card">
         <div className="card__body">
           <h2 className="drawer__title">{data.topic}</h2>
-          <div className="row" style={{ marginTop: 8 }}>
+          <div className="row row--tight review-head">
             <StatusBadge status={data.run_status} kind="run" />
             <span className="cell-muted">创建于 {dateTime(data.created_at)}</span>
-            <span className="cell-muted mono" title="Run ID">
-              {data.run_id}
+            <span className="row row--tight review-head__id">
+              <span className="mono" title={data.run_id}>
+                {data.run_id}
+              </span>
+              <CopyButton value={data.run_id} label="复制 Run ID" />
             </span>
           </div>
           {data.error ? (
-            <div className="notice notice--danger" style={{ marginTop: 12 }}>
+            <div className="notice notice--danger review-head__error">
               <div className="notice__title">Run 错误</div>
               <div className="body-block body-block--mono">{data.error}</div>
             </div>
@@ -131,121 +150,55 @@ export function ReviewPane({ runId, contentMaxLength, onDecided }: Props) {
         </div>
       </div>
 
-      <section className="section" style={{ marginBottom: 0 }}>
-        <div className="section__head">
-          <h3 className="section__title">研究内容</h3>
-          <span className="section__hint">{data.research_items.length} 条 · 草稿就是据此写出来的</span>
-        </div>
+      <Section title="研究内容" hint={`${data.research_items.length} 条 · 草稿就是据此写出来的`}>
         <div className="card">
           <div className="card__body">
-            {data.research_items.length === 0 ? (
-              <div className="cell-muted">这个 Run 没有存下研究内容。</div>
-            ) : (
-              <ul className="research-list">
-                {data.research_items.map((item) => (
-                  <li key={item.item_id} className="research-item">
-                    <div className="row row--between">
-                      <strong>
-                        {item.author_username ? `@${item.author_username}` : '作者未知'}
-                      </strong>
-                      <span className="cell-muted">
-                        {item.likes} 点赞 · {item.reposts} 转发 · {item.replies} 回复
-                      </span>
-                    </div>
-                    <div className="body-block">{item.content}</div>
-                    {item.source_url ? (
-                      <a href={item.source_url} target="_blank" rel="noreferrer noopener">
-                        {item.platform_post_id}
-                      </a>
-                    ) : (
-                      <span className="cell-muted mono">{item.platform_post_id}</span>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )}
+            <ResearchList items={data.research_items} />
           </div>
         </div>
-      </section>
+      </Section>
 
-      <section className="section" style={{ marginBottom: 0 }}>
-        <div className="section__head">
-          <h3 className="section__title">AI 生成草稿</h3>
-          <span className="section__hint">
-            {data.draft
-              ? `v${data.draft.version} · ${data.draft.model_name ?? '模型未知'} · ${text(data.draft.prompt_version)}`
-              : undefined}
-          </span>
-        </div>
+      <Section
+        title="AI 生成草稿"
+        hint={
+          data.draft
+            ? `v${data.draft.version} · ${data.draft.model_name ?? '模型未知'} · ${text(data.draft.prompt_version)}`
+            : undefined
+        }
+      >
         <div className="card">
           <div className="card__body">
             {data.draft ? (
               <div className="body-block">{data.draft.content}</div>
             ) : (
-              <div className="cell-muted">这个 Run 没有存下草稿。</div>
+              <div className="cell-muted">
+                这个 Run 没有存下草稿。没有草稿就不能批准或编辑，只能拒绝。
+              </div>
             )}
           </div>
         </div>
-      </section>
+      </Section>
 
-      <section className="section" style={{ marginBottom: 0 }}>
-        <div className="section__head">
-          <h3 className="section__title">规则检查</h3>
-          <span className="section__hint">来自 LangGraph checkpoint</span>
-        </div>
+      <Section title="规则检查" hint="来自 LangGraph checkpoint">
         <GuardrailBlock detail={data} />
-      </section>
+      </Section>
 
-      <section className="section" style={{ marginBottom: 0 }}>
-        <div className="section__head">
-          <h3 className="section__title">人工决定</h3>
-          <span className="section__hint">
-            走 POST /api/runs/{'{id}'}/review —— 与 API 是同一个入口
-          </span>
-        </div>
-
+      <Section
+        title="人工决定"
+        hint={`走 POST /api/runs/${'{id}'}/review —— 与 API 是同一个入口`}
+      >
         {submit.error ? (
-          <div className="notice notice--danger" style={{ marginBottom: 12 }}>
+          <div className="notice notice--danger">
             <div className="notice__title">{httpStatusLabel(submit.error.status)}</div>
             <ErrorDetail error={submit.error} />
             {submit.error.status === 409 ? (
               // 409 是"这个 Run 已经不在等人工了"——最常见的原因就是别处已经决定了。
               // 这时最有用的一句话是"刷新看看现在的状态"，而不是让人反复重试。
               // 这句话由 `backendErrorLabel` 给出具体状态，这里只补"接下来做什么"。
-              <div style={{ marginTop: 6 }}>
+              <div className="notice__follow">
                 重新加载可以看到它当前的状态，不需要反复重试。
               </div>
             ) : null}
-          </div>
-        ) : null}
-
-        {mode === null ? (
-          <div className="row">
-            <button
-              type="button"
-              className="btn btn--primary"
-              onClick={() => setMode('approve')}
-              disabled={submit.busy}
-            >
-              批准
-            </button>
-            <button
-              type="button"
-              className="btn"
-              onClick={startEdit}
-              disabled={submit.busy || !data.draft}
-              title={data.draft ? undefined : '这个 Run 没有草稿可编辑'}
-            >
-              编辑
-            </button>
-            <button
-              type="button"
-              className="btn btn--danger"
-              onClick={startReject}
-              disabled={submit.busy}
-            >
-              拒绝
-            </button>
           </div>
         ) : null}
 
@@ -253,46 +206,31 @@ export function ReviewPane({ runId, contentMaxLength, onDecided }: Props) {
           <div className="card">
             <div className="card__body">
               <div className="field">
-                <div className="field__label">原始内容</div>
-                <div className="body-block body-block--mono">{draftContent || EMPTY}</div>
+                <div className="field__label">原始内容（只读）</div>
+                {/* 虚线边框 + 降色：这块改不了。它和下面那个可编辑框必须一眼分得开，
+                    否则人会在只读块上敲字然后疑惑为什么没反应。 */}
+                <div className="body-block body-block--readonly">{draftContent || EMPTY}</div>
               </div>
-              <div className="field" style={{ marginTop: 12 }}>
+              <div className="field edit-field">
                 <label className="field__label" htmlFor="edit-content">
-                  编辑后的内容
+                  编辑后的内容（这一份会被保存并用于发布）
                 </label>
                 <textarea
                   id="edit-content"
-                  className="textarea"
+                  className="textarea textarea--editor"
                   value={editText}
                   onChange={(event) => setEditText(event.target.value)}
                 />
-              </div>
-              <div className="row row--between" style={{ marginTop: 8 }}>
-                <span className={overLimit ? 'counter counter--over' : 'counter'}>
-                  {editedLength} / {contentMaxLength} 字
-                </span>
-                <span className="cell-muted" style={{ maxWidth: 420 }}>
-                  字数按本系统的口径统计（后端 <code>len()</code>），<strong>不是</strong> X
-                  的加权字数。超过这个上限，发布时会被后端拒绝，所以到上限就不再允许提交。
-                </span>
-              </div>
-              <div className="row" style={{ marginTop: 12 }}>
-                <button
-                  type="button"
-                  className="btn btn--primary"
-                  disabled={submit.busy || overLimit || !editText.trim()}
-                  onClick={() => decide({ action: 'edit', content: editText })}
-                >
-                  {submit.busy ? '正在提交…' : '提交编辑后的草稿'}
-                </button>
-                <button
-                  type="button"
-                  className="btn"
-                  onClick={() => setMode(null)}
-                  disabled={submit.busy}
-                >
-                  取消
-                </button>
+                <div className="row row--between counter-row">
+                  <span className={overLimit ? 'counter counter--over' : 'counter'}>
+                    {editedLength} / {contentMaxLength} 字
+                  </span>
+                  <span className="cell-muted counter-row__note">
+                    系统限制：{contentMaxLength} 字（按当前本地计数口径，按 Unicode 码点计，
+                    含 emoji 各算 1 个）。这<strong>不是</strong> X 的加权字数口径——后端按同一口径
+                    校验，超限会在提交时被拒绝，所以到上限就不再允许提交。
+                  </span>
+                </div>
               </div>
             </div>
           </div>
@@ -303,12 +241,11 @@ export function ReviewPane({ runId, contentMaxLength, onDecided }: Props) {
             <div className="card__body">
               <div className="field">
                 <label className="field__label" htmlFor="reject-reason">
-                  拒绝原因
+                  拒绝原因（必填）
                 </label>
                 <textarea
                   id="reject-reason"
-                  className="textarea"
-                  style={{ minHeight: 100 }}
+                  className="textarea textarea--reason"
                   placeholder="必填。原因会随这个 Run 一起存下来。"
                   value={rejectReason}
                   onChange={(event) => {
@@ -322,33 +259,94 @@ export function ReviewPane({ runId, contentMaxLength, onDecided }: Props) {
                   请输入拒绝原因
                 </div>
               ) : null}
-              <div className="row" style={{ marginTop: 12 }}>
-                <button
-                  type="button"
-                  className="btn btn--danger"
-                  disabled={submit.busy}
-                  onClick={submitReject}
-                >
-                  {submit.busy ? '正在提交…' : '拒绝这份草稿'}
-                </button>
-                <button
-                  type="button"
-                  className="btn"
-                  onClick={() => setMode(null)}
-                  disabled={submit.busy}
-                >
-                  取消
-                </button>
+              <div className="notice notice--info reject-notice">
+                <div className="notice__title">拒绝之后会发生什么</div>
+                <div>
+                  这个 Run 到此结束，状态会变成已拒绝。<strong>不会有任何内容发到 X</strong>
+                  —— 拒绝不会触发发布，也不会有待裁决的发布记录留下。这个决定不可撤销。
+                </div>
               </div>
-              <p className="cell-muted" style={{ marginBottom: 0 }}>
-                拒绝会结束这个 Run。不会有任何内容发到 X。
-              </p>
             </div>
           </div>
         ) : null}
 
-        {submit.busy && mode === 'approve' ? <LoadingState message="正在提交…" /> : null}
-      </section>
+        {/* 动作条：吸在视口底部，滚动材料时始终可见。
+            三种模式共用同一条，按钮换内容——位置不变，人就不用重新找。 */}
+        <div className="action-bar">
+          {mode === null ? (
+            <>
+              <button
+                type="button"
+                className="btn btn--primary"
+                onClick={() => setMode('approve')}
+                disabled={submit.busy || !data.draft}
+                title={data.draft ? undefined : '这个 Run 没有草稿可批准'}
+              >
+                批准
+              </button>
+              <button
+                type="button"
+                className="btn"
+                onClick={startEdit}
+                disabled={submit.busy || !data.draft}
+                title={data.draft ? undefined : '这个 Run 没有草稿可编辑'}
+              >
+                编辑
+              </button>
+              <button
+                type="button"
+                className="btn btn--danger"
+                onClick={startReject}
+                disabled={submit.busy}
+              >
+                拒绝
+              </button>
+              <span className="action-bar__hint">
+                {data.draft ? '批准或编辑后，这条内容仍需要单独确认才会发到 X。' : '没有草稿，只能拒绝。'}
+              </span>
+            </>
+          ) : null}
+
+          {mode === 'edit' ? (
+            <>
+              <button
+                type="button"
+                className="btn btn--primary"
+                disabled={submit.busy || overLimit || !editText.trim()}
+                onClick={() => decide({ action: 'edit', content: editText })}
+              >
+                {submit.busy ? '正在提交…' : '保存'}
+              </button>
+              <button type="button" className="btn" onClick={cancelMode} disabled={submit.busy}>
+                取消
+              </button>
+              {/* 计数器和"保存"按钮在一起：超限时按钮是灰的，原因必须在同一屏看得到。 */}
+              <span className={overLimit ? 'action-bar__hint counter--over' : 'action-bar__hint'}>
+                {overLimit
+                  ? `超出 ${editedLength - contentMaxLength} 字，无法保存`
+                  : `已用 ${editedLength} / ${contentMaxLength} 字`}
+              </span>
+            </>
+          ) : null}
+
+          {mode === 'reject' ? (
+            <>
+              <button
+                type="button"
+                className="btn btn--danger"
+                disabled={submit.busy}
+                onClick={submitReject}
+              >
+                {submit.busy ? '正在提交…' : '确认拒绝'}
+              </button>
+              <button type="button" className="btn" onClick={cancelMode} disabled={submit.busy}>
+                取消
+              </button>
+              <span className="action-bar__hint">拒绝后这个 Run 就结束了，不会发布任何内容。</span>
+            </>
+          ) : null}
+        </div>
+      </Section>
 
       {mode === 'approve' ? (
         <ConfirmDialog
@@ -356,17 +354,16 @@ export function ReviewPane({ runId, contentMaxLength, onDecided }: Props) {
           confirmLabel="批准"
           busy={submit.busy}
           error={submit.error}
-          onCancel={() => {
-            setMode(null)
-            submit.reset()
-          }}
+          risk={
+            <>
+              批准会接受当前写好的草稿，并让它进入发布流程。
+              <strong>此时还没有任何内容发到 X</strong> —— 发布是另一步，需要单独确认。
+            </>
+          }
+          onCancel={cancelMode}
           onConfirm={() => decide({ action: 'approve' })}
         >
-          <p style={{ marginTop: 0 }}>
-            这会接受当前写好的草稿，并让这个 Run 可以进入发布流程。<strong>此时还没有任何内容发到 X</strong>
-            —— 发布是另一步，需要单独确认。
-          </p>
-          <div className="body-block">{draftContent || EMPTY}</div>
+          <div className="body-block body-block--authoritative">{draftContent || EMPTY}</div>
         </ConfirmDialog>
       ) : null}
     </div>

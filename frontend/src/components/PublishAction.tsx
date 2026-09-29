@@ -3,6 +3,8 @@ import { useState } from 'react'
 import { api, xPostUrl } from '../api/client'
 import { ConfirmDialog } from './ConfirmDialog'
 import { StatusBadge } from './StatusBadge'
+import { CopyButton } from './ui/CopyButton'
+import { IconExternal } from './ui/icons'
 import { useMutation } from '../hooks/useMutation'
 import { EMPTY, dateTime, publishStatusLabel } from '../utils/format'
 import type { PublishCall, PublishRecord } from '../types/api'
@@ -96,24 +98,61 @@ function describeOutcome(call: PublishCall): Outcome {
   }
 }
 
-/** 发布结果的呈现。成功、失败、未知三种在视觉上必须一眼可分。 */
+/**
+ * 发布结果的呈现。成功、失败、未知三种在视觉上必须一眼可分。
+ *
+ * "结果未知"用的是**这个界面里只在它身上出现的那套橙色**（`notice--unknown`），
+ * 不是普通的警示黄。理由在 §16：那不是一次失败，而是一次"不知道"——如果它和
+ * "发布失败"长得一样，人会顺手再点一次发布，而这一次真的可能发出第二条。
+ */
 export function PublishOutcomeNotice({ call }: { call: PublishCall }) {
   const outcome = describeOutcome(call)
   const toneClass = {
     ok: 'notice--ok',
-    warn: 'notice--warn',
+    warn: 'notice--unknown',
     danger: 'notice--danger',
     info: 'notice--info',
   }[outcome.tone]
+  const publishedAt = call.body.publish?.published_at ?? null
 
   return (
     <div className={`notice ${toneClass}`}>
       <div className="notice__title">{outcome.title}</div>
       {outcome.detail ? <div>{outcome.detail}</div> : null}
       {call.body.error ? <div className="body-block body-block--mono">{call.body.error}</div> : null}
-      <div className="cell-muted" style={{ marginTop: 6 }}>
+
+      {/* 成功时把"凭据"给全：Post ID 可复制、时间可对账、链接可直达。
+          这三样是"确实发出去了"唯一能被验证的证据，缺一样都只能靠信。 */}
+      {outcome.tone === 'ok' && outcome.xPostId ? (
+        <div className="publish-proof">
+          <div className="meta">
+            <div className="meta__label">X Post ID</div>
+            <div className="meta__value meta__value--mono row row--tight">
+              <span>{outcome.xPostId}</span>
+              <CopyButton value={outcome.xPostId} label="复制 X Post ID" />
+            </div>
+          </div>
+          <div className="meta">
+            <div className="meta__label">发布时间</div>
+            <div className="meta__value">{dateTime(publishedAt)}</div>
+          </div>
+          <a
+            className="btn btn--sm"
+            href={xPostUrl(outcome.xPostId)}
+            target="_blank"
+            rel="noreferrer noopener"
+          >
+            <IconExternal size={14} />
+            在 X 中打开
+          </a>
+        </div>
+      ) : null}
+
+      {/* HTTP 状态码与 outcome 枚举值：给排查用，所以用等宽字体、降一档。
+          显示结论用中文，对日志用英文，两者都要在。 */}
+      <div className="notice__meta">
         HTTP {call.httpStatus} · outcome <code>{call.body.outcome}</code>
-        {outcome.xPostId ? (
+        {outcome.xPostId && outcome.tone !== 'ok' ? (
           <>
             {' · '}
             <a href={xPostUrl(outcome.xPostId)} target="_blank" rel="noreferrer noopener">
@@ -166,50 +205,63 @@ export function PublishControl({ runId, body, isRetry = false, onSettled }: Publ
             publish.reset()
             setConfirming(true)
           }}
+          // busy 期间禁用是这里唯一防止重复发布的机制：请求已经在路上，
+          // 再点一次就是第二次 POST。按钮文案同时变成"正在发布…"，
+          // 让人看到"它在动"，而不是猜为什么点不动。
           disabled={publish.busy}
         >
-          {isRetry ? '重试发布' : '发布到 X'}
+          {publish.busy ? '正在发布…' : isRetry ? '重新发布' : '发布到 X'}
         </button>
-        {publish.busy ? <span className="cell-muted">正在发布…</span> : null}
       </div>
 
       {result ? (
-        <div style={{ marginTop: 12 }}>
+        <div className="publish-result">
           <PublishOutcomeNotice call={result} />
         </div>
       ) : null}
 
       {confirming ? (
         <ConfirmDialog
-          title={isRetry ? '重试发布到 X？' : '发布到 X？'}
-          confirmLabel={isRetry ? '重试发布' : '立即发布'}
+          title={isRetry ? '重新发布到 X？' : '发布到 X？'}
+          confirmLabel={isRetry ? '重新发布' : '立即发布'}
           danger
           busy={publish.busy}
           confirmDisabled={!acknowledged}
           error={publish.error}
+          risk={
+            <>
+              <p className="risk-line">
+                确定要发布到真实 X 账号吗？下面的文字会以<strong>公开帖子</strong>的形式发出去。
+              </p>
+              <p className="risk-line risk-line--strong">
+                该操作会创建一条公开帖子。
+              </p>
+              <p className="risk-line">
+                它会立刻生效，并且<strong>无法从这个控制台撤销</strong>（要撤回只能去 X 上手动删除，
+                而本系统不会跟着同步）。
+              </p>
+              {/* 勾选框放在按钮正上方，而不是正文中间：它是按下确认前的最后一道闸门，
+                  位置和"立即发布"越近越好。 */}
+              <label className="checkbox-row">
+                <input
+                  type="checkbox"
+                  checked={acknowledged}
+                  onChange={(event) => setAcknowledged(event.target.checked)}
+                />
+                <span>我明白：这一下会立刻在 X 上公开发出这条帖子。</span>
+              </label>
+            </>
+          }
           onCancel={() => {
             setConfirming(false)
             publish.reset()
           }}
           onConfirm={submit}
         >
-          <p style={{ marginTop: 0 }}>
-            确定要发布到真实 X 账号吗？下面的文字会以<strong>公开帖子</strong>的形式发出去，
-            <strong>该操作会创建一条公开帖子。</strong>
-          </p>
-          <p>
-            它会立刻生效，并且<strong>无法从这个控制台撤销</strong>（要撤回只能去 X 上手动删除，
-            而本系统不会跟着同步）。
-          </p>
-          <div className="body-block">{body ?? EMPTY}</div>
-          <label className="checkbox-row">
-            <input
-              type="checkbox"
-              checked={acknowledged}
-              onChange={(event) => setAcknowledged(event.target.checked)}
-            />
-            <span>我明白：这一下会立刻在 X 上公开发出这条帖子。</span>
-          </label>
+          <div className="field">
+            <div className="field__label">将要发出的正文</div>
+            <div className="body-block body-block--authoritative">{body ?? EMPTY}</div>
+          </div>
         </ConfirmDialog>
       ) : null}
     </>
@@ -269,15 +321,18 @@ export function ResolveControl({ runId, publish, onSettled }: ResolveControlProp
 
   return (
     <div className="stack--tight">
-      <div className="notice notice--warn">
+      <div className="notice notice--unknown">
         <div className="notice__title">这次发布尝试没有确定结果</div>
-        <div className="row" style={{ marginTop: 6 }}>
+        <div className="row row--tight resolve-meta">
           <StatusBadge status={publish.status} kind="publish" />
           <span className="cell-muted">尝试开始于 {dateTime(publish.updated_at)}</span>
         </div>
-        <div style={{ marginTop: 6 }}>
-          <strong>系统无法确认 X 是否已经创建帖子。自动重试可能导致重复发布。</strong>
-          <br />
+        {/* 这两句是整段文字的结论，单独成块、加粗——它们解释了为什么这里
+            没有"重试一次"这样一个按钮。 */}
+        <div className="resolve-verdict">
+          系统无法确认 X 是否已经创建帖子。自动重试可能导致重复发布。
+        </div>
+        <div>
           先到 X 上看一下这个账号：帖子在，就把它记下来；帖子不在，才可以允许重试。
           在人来裁决之前，<strong>系统不会为这个 Run 自动再调一次 X</strong>。
         </div>
@@ -286,31 +341,37 @@ export function ResolveControl({ runId, publish, onSettled }: ResolveControlProp
         ) : null}
       </div>
 
-      <div className="row">
-        <button
-          type="button"
-          className="btn"
-          onClick={() => {
-            setResult(null)
-            setMode('mark_published')
-          }}
-          disabled={resolve.busy}
-          title="帖子已经在 X 上，把它的帖子 ID 抄回来"
-        >
-          标记为已发布
-        </button>
-        <button
-          type="button"
-          className="btn btn--danger"
-          onClick={() => {
-            setResult(null)
-            setMode('retry')
-          }}
-          disabled={resolve.busy}
-          title="帖子不在 X 上，允许这个 Run 重新发布"
-        >
-          确认可能重复后重试
-        </button>
+      {/* 两个裁决动作直接摆出来，不做成"裁决 → 再选一个"的两级菜单：
+          这里每一步都要人想清楚，多一层点击只会让人机械地点下去。
+          真正不可逆的那一步（下面那个重试确认框）才是需要减速的地方。 */}
+      <div className="field resolve-actions">
+        <div className="field__label">裁决</div>
+        <div className="row">
+          <button
+            type="button"
+            className="btn btn--primary"
+            onClick={() => {
+              setResult(null)
+              setMode('mark_published')
+            }}
+            disabled={resolve.busy}
+            title="帖子已经在 X 上，把它的帖子 ID 抄回来"
+          >
+            标记为已发布
+          </button>
+          <button
+            type="button"
+            className="btn btn--danger"
+            onClick={() => {
+              setResult(null)
+              setMode('retry')
+            }}
+            disabled={resolve.busy}
+            title="帖子不在 X 上，允许这个 Run 重新发布"
+          >
+            确认可能重复后重试
+          </button>
+        </div>
       </div>
 
       {result ? <PublishOutcomeNotice call={result} /> : null}
@@ -319,13 +380,14 @@ export function ResolveControl({ runId, publish, onSettled }: ResolveControlProp
         <ConfirmDialog
           title="记录 X 上的帖子 ID"
           confirmLabel="标记为已发布"
+          tone="warn"
           busy={resolve.busy}
           confirmDisabled={!xPostId.trim()}
           error={resolve.error}
           onCancel={close}
           onConfirm={submit}
         >
-          <p style={{ marginTop: 0 }}>
+          <p className="modal-lede">
             在 X 上打开那条帖子，把它网址里 <code>/status/</code> 后面那串数字复制过来。
             本控制台不会替你猜这个 ID：一个由系统自己产生的 ID，本身就是"结果未知"的含义。
           </p>
@@ -341,9 +403,7 @@ export function ResolveControl({ runId, publish, onSettled }: ResolveControlProp
               placeholder="例如 2102664104339226711"
             />
           </div>
-          <p className="cell-muted" style={{ marginBottom: 0 }}>
-            这一步只修正记录，不会向 X 发送任何内容。
-          </p>
+          <p className="cell-muted modal-note">这一步只修正记录，不会向 X 发送任何内容。</p>
         </ConfirmDialog>
       ) : null}
 
@@ -355,33 +415,37 @@ export function ResolveControl({ runId, publish, onSettled }: ResolveControlProp
           busy={resolve.busy}
           confirmDisabled={!(checkedOnX && acceptDuplicate)}
           error={resolve.error}
+          risk={
+            <>
+              <p className="risk-line risk-line--strong">
+                如果那条帖子确实已经在 X 上，在这里标记为未发布，就等于让系统忘掉它 ——
+                下一次发布会创建第二条帖子。请先去 X 上确认。
+              </p>
+              <label className="checkbox-row">
+                <input
+                  type="checkbox"
+                  checked={checkedOnX}
+                  onChange={(event) => setCheckedOnX(event.target.checked)}
+                />
+                <span>我亲自查过 X 账号，这条帖子不在上面。</span>
+              </label>
+              <label className="checkbox-row">
+                <input
+                  type="checkbox"
+                  checked={acceptDuplicate}
+                  onChange={(event) => setAcceptDuplicate(event.target.checked)}
+                />
+                <span>我明白：之后再重试可能创建出一条重复的帖子。</span>
+              </label>
+            </>
+          }
           onCancel={close}
           onConfirm={submit}
         >
-          <p style={{ marginTop: 0 }}>
+          <p className="modal-lede">
             这一步会把这次尝试记为失败，好让它能够重试。它<strong>本身不会</strong>发出任何帖子
             —— 之后你还需要自己再按一次发布按钮。
           </p>
-          <div className="notice notice--danger">
-            如果那条帖子<strong>确实已经在 X 上</strong>，在这里标记为未发布，就等于让系统忘掉它 ——
-            下一次发布会创建<strong>第二条帖子</strong>。请先去 X 上确认。
-          </div>
-          <label className="checkbox-row">
-            <input
-              type="checkbox"
-              checked={checkedOnX}
-              onChange={(event) => setCheckedOnX(event.target.checked)}
-            />
-            <span>我亲自查过 X 账号，这条帖子不在上面。</span>
-          </label>
-          <label className="checkbox-row">
-            <input
-              type="checkbox"
-              checked={acceptDuplicate}
-              onChange={(event) => setAcceptDuplicate(event.target.checked)}
-            />
-            <span>我明白：之后再重试可能创建出一条重复的帖子。</span>
-          </label>
         </ConfirmDialog>
       ) : null}
     </div>

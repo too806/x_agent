@@ -35,6 +35,13 @@ test('每个已知动作都有中文，且不残留英文下划线', () => {
   }
 })
 
+test('每个动作的中文名字互不相同', () => {
+  // 时间线上每一步只显示中文名。两个动作译成同一个词，轨迹里就会出现
+  // "连续两步都叫 X"，人分不出 Agent 到底换没换动作——而动作正是这条轨迹的全部信息。
+  const labels = ACTIONS.map((action) => agentActionLabel(action))
+  assert.equal(new Set(labels).size, labels.length, `动作名有重复：${labels.join(' / ')}`)
+})
+
 test('没翻译的动作原样返回，而不是"未知"', () => {
   assert.equal(agentActionLabel('summarize_everything'), 'summarize_everything')
 })
