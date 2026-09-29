@@ -1,0 +1,288 @@
+{
+  "label": "revised_without_recritique",
+  "synthetic": true,
+  "provenance": "fixture",
+  "note": "synthetic fixture — 模拟「改稿后没有重新评审」这个缺陷。第 8 步把 c1 改到第 1 稿（writer_epoch 推到 2），第 9 步直接 finish，中间没有 criticize。三个信号同时成立：(a) writer_epoch=2 > critic_epoch=1；(b) c1 已是第 1 稿但 critic_results 里没有它（改稿作废了旧评价）；(c) 轨迹里 revise 之后再没有 criticize。RULE-005 必须 FAIL。注意第 9 步的 input_summary 里 finish **是**允许的——这模拟的是「生产那侧的 ready_to_finish 判定本身有缺陷」，也就是另一个会话正在修的东西；评估必须不依赖那个修复也能独立发现它。",
+  "run_id": "run-fixture-revised-without-recritique",
+  "goal": "找一个可以引发技术开发者讨论的话题",
+  "budget": {
+    "max_steps": 12,
+    "max_research_calls": 4,
+    "max_candidates": 3,
+    "max_revisions": 2,
+    "candidates_per_round": 3
+  },
+  "state": {
+    "run_id": "run-fixture-revised-without-recritique",
+    "goal": "找一个可以引发技术开发者讨论的话题",
+    "topic": "Agent 工具调用协议的碎片化",
+    "candidate_topics": [
+      {
+        "topic": "Agent 工具调用协议的碎片化",
+        "why_now": "三家主要厂商在同一季度更新了各自的工具描述格式",
+        "signal": "格式互不兼容，迁移成本上升",
+        "source_ids": [
+          "ri-1",
+          "ri-2"
+        ],
+        "confidence": 0.9
+      },
+      {
+        "topic": "长上下文是否真的解决了 Agent 的记忆问题",
+        "why_now": "新模型把上下文窗口又扩大了",
+        "signal": "实测里 Agent 仍然会忘掉较早的约束",
+        "source_ids": [
+          "ri-3"
+        ],
+        "confidence": 0.8
+      }
+    ],
+    "selected_topic": "Agent 工具调用协议的碎片化",
+    "research_item_ids": [
+      "ri-1",
+      "ri-2",
+      "ri-3",
+      "ri-4",
+      "ri-5",
+      "ri-6",
+      "ri-7"
+    ],
+    "evidence_pack": {
+      "facts": [
+        {
+          "fact_id": "f1",
+          "fact": "三家厂商在同一季度各自修改了工具描述格式，互不兼容",
+          "source_ids": [
+            "ri-4"
+          ],
+          "timestamp": "2026-09-08T00:00:00Z"
+        },
+        {
+          "fact_id": "f2",
+          "fact": "同一份工具描述迁移到另一家需要重写约 40% 的字段",
+          "source_ids": [
+            "ri-5"
+          ],
+          "timestamp": null
+        },
+        {
+          "fact_id": "f3",
+          "fact": "有两家已经宣布会在下一版里做兼容层",
+          "source_ids": [
+            "ri-6"
+          ],
+          "timestamp": "2026-09-15T00:00:00Z"
+        }
+      ],
+      "consensus": [
+        "碎片化在短期内推高了集成成本"
+      ],
+      "counterpoints": [
+        "兼容层可能让碎片化问题在一个版本内消失"
+      ],
+      "unknowns": [
+        "兼容层是否会覆盖全部字段"
+      ],
+      "source_ids": [
+        "ri-4",
+        "ri-5",
+        "ri-6"
+      ]
+    },
+    "angles": [
+      {
+        "angle_id": "a1",
+        "claim": "工具协议的碎片化成本最终会由应用层承担",
+        "why_it_matters": "决定谁为标准化买单",
+        "evidence_ids": [
+          "f1",
+          "f2"
+        ],
+        "risk": "兼容层可能消化掉大部分成本",
+        "confidence": 0.7
+      },
+      {
+        "angle_id": "a2",
+        "claim": "兼容层是权宜，标准才是解",
+        "why_it_matters": "影响厂商的投入方向",
+        "evidence_ids": [
+          "f3"
+        ],
+        "risk": "标准迟迟不出",
+        "confidence": 0.6
+      }
+    ],
+    "selected_angle": {
+      "angle_id": "a1",
+      "claim": "工具协议的碎片化成本最终会由应用层承担",
+      "why_it_matters": "决定谁为标准化买单",
+      "evidence_ids": [
+        "f1",
+        "f2"
+      ],
+      "risk": "兼容层可能消化掉大部分成本",
+      "confidence": 0.7
+    },
+    "candidates": [
+      {
+        "candidate_id": "c0",
+        "label": "直接观点",
+        "revision": 0,
+        "content": "协议碎片化的账单最后会落在应用层。三家各改一次格式，迁移一份工具描述要重写四成字段——这笔钱不会由模型厂商出。"
+      },
+      {
+        "candidate_id": "c1",
+        "label": "信息密集",
+        "revision": 1,
+        "content": "三个数字：三家厂商同一季度改格式；迁移一份工具描述要重写 40% 字段（来源：ri-5）；两家宣布下一版做兼容层。前两个数字说明成本，第三个数字说明厂商知道成本在哪，但选择用兼容层绕开而不是定标准。"
+      },
+      {
+        "candidate_id": "c2",
+        "label": "反共识",
+        "revision": 0,
+        "content": "兼容层出来之后，碎片化问题会被宣布解决，但它其实只是被推迟了——兼容层覆盖不到的字段，仍然是应用层自己补。"
+      }
+    ],
+    "critic_results": [
+      {
+        "candidate_id": "c0",
+        "score": 7.0,
+        "decision": "accept",
+        "factual_support": 7.5,
+        "stance_strength": 8.0,
+        "specificity": 6.5,
+        "generic_ai_style": 2.0,
+        "hook_strength": 7.0,
+        "persona_fit": 7.5,
+        "evidence_binding": 7.5
+      },
+      {
+        "candidate_id": "c2",
+        "score": 7.5,
+        "decision": "accept",
+        "factual_support": 7.0,
+        "stance_strength": 8.5,
+        "specificity": 7.0,
+        "generic_ai_style": 3.0,
+        "hook_strength": 8.0,
+        "persona_fit": 8.0,
+        "evidence_binding": 7.0
+      }
+    ],
+    "critic_result": {
+      "candidate_id": "c1",
+      "score": 5.5,
+      "flags": [
+        "第二个数字缺出处"
+      ],
+      "revision_targets": [
+        "第二个数字缺出处"
+      ],
+      "decision": "revise",
+      "factual_support": 5.0,
+      "stance_strength": 7.5,
+      "specificity": 8.0,
+      "generic_ai_style": 2.0,
+      "hook_strength": 7.0,
+      "persona_fit": 7.5,
+      "evidence_binding": 5.0
+    },
+    "critic_tally": {
+      "accept": 2,
+      "revise": 1,
+      "reject": 0
+    },
+    "step_count": 9,
+    "research_count": 2,
+    "revision_count": 1,
+    "writer_epoch": 2,
+    "critic_epoch": 1,
+    "draft_content": "三个数字：三家厂商同一季度改格式；迁移一份工具描述要重写 40% 字段（来源：ri-5）；两家宣布下一版做兼容层。",
+    "draft_id": "draft-fixture-revised-without-recritique",
+    "guardrail_passed": true,
+    "guardrail_reasons": [],
+    "human_action": null,
+    "final_content": ""
+  },
+  "trace": [
+    {
+      "step": 1,
+      "action": "discover_topics",
+      "reason": "还没有候选选题，先发现一轮。",
+      "target": null,
+      "input_summary": "allowed=discover_topics; step=0/12; research=0/4; topics=0; materials=0; facts=0; angles=0; candidates=0; revisions=0/2",
+      "result_summary": "检索取回 3 条材料，发现 2 个候选选题"
+    },
+    {
+      "step": 2,
+      "action": "research_topic",
+      "reason": "先研究置信度最高的一条。",
+      "target": "Agent 工具调用协议的碎片化",
+      "input_summary": "allowed=research_topic,extract_evidence; step=1/12; research=0/4; topics=2; materials=3; facts=0; angles=0; candidates=0; revisions=0/2",
+      "result_summary": "研究主题「Agent 工具调用协议的碎片化」，取回 2 条材料"
+    },
+    {
+      "step": 3,
+      "action": "extract_evidence",
+      "reason": "材料够了，先固定事实。",
+      "target": null,
+      "input_summary": "allowed=research_topic,extract_evidence; step=2/12; research=1/4; topics=2; materials=5; facts=0; angles=0; candidates=0; revisions=0/2",
+      "result_summary": "抽取 3 条事实，其中 3 条可追溯到材料"
+    },
+    {
+      "step": 4,
+      "action": "generate_angles",
+      "reason": "把事实变成有立场的观点。",
+      "target": null,
+      "input_summary": "allowed=research_topic,extract_evidence,generate_angles; step=3/12; research=1/4; topics=2; materials=5; facts=3; angles=0; candidates=0; revisions=0/2",
+      "result_summary": "生成 2 个候选观点"
+    },
+    {
+      "step": 5,
+      "action": "select_angle",
+      "reason": "a1 的证据链最完整。",
+      "target": "a1",
+      "input_summary": "allowed=research_topic,extract_evidence,generate_angles,select_angle; step=4/12; research=1/4; topics=2; materials=5; facts=3; angles=2; candidates=0; revisions=0/2",
+      "result_summary": "选定 a1：工具协议的碎片化成本最终会由应用层承担"
+    },
+    {
+      "step": 6,
+      "action": "generate_candidates",
+      "reason": "立场定了，一次写出三条不同写法。",
+      "target": null,
+      "input_summary": "allowed=research_topic,deepen_research,extract_evidence,generate_angles,select_angle,generate_candidates; step=5/12; research=1/4; topics=2; materials=5; facts=3; angles=2; candidates=0; revisions=0/2",
+      "result_summary": "写出 3 条候选：直接观点、信息密集、反共识"
+    },
+    {
+      "step": 7,
+      "action": "criticize",
+      "reason": "候选还没被评价过。",
+      "target": null,
+      "input_summary": "allowed=research_topic,deepen_research,extract_evidence,generate_angles,criticize; step=6/12; research=1/4; topics=2; materials=5; facts=3; angles=2; candidates=3; revisions=0/2",
+      "result_summary": "评价 3 条：c0 accept(7.0)；c1 revise(5.5)；c2 accept(7.5)。聚焦 c1，要求改稿：第二个数字缺出处"
+    },
+    {
+      "step": 8,
+      "action": "revise",
+      "reason": "Critic 明确指出 c1 的第二个数字缺出处，补上出处。",
+      "target": "c1",
+      "input_summary": "allowed=research_topic,deepen_research,extract_evidence,generate_angles,revise,finish; step=7/12; research=1/4; topics=2; materials=5; facts=3; angles=2; candidates=3; revisions=0/2",
+      "result_summary": "改写 c1 → 第 1 稿，旧评价已作废、需重新评价；针对：第二个数字缺出处"
+    },
+    {
+      "step": 9,
+      "action": "finish",
+      "reason": "c1 已经改好了，直接交付。",
+      "target": null,
+      "input_summary": "allowed=research_topic,deepen_research,extract_evidence,generate_angles,revise,finish; step=8/12; research=1/4; topics=2; materials=5; facts=3; angles=2; candidates=3; revisions=1/2",
+      "result_summary": "交付候选 c1（信息密集，第 1 稿，108 字）"
+    }
+  ],
+  "outcome": {
+    "run_status": "waiting_for_review",
+    "human_review_reached": true,
+    "human_action": null,
+    "published": false,
+    "publish_initiated_by": "none"
+  }
+}

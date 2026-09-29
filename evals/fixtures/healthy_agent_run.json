@@ -1,0 +1,320 @@
+{
+  "label": "healthy_agent_run",
+  "synthetic": true,
+  "provenance": "fixture",
+  "note": "synthetic fixture — 一次完全正常的自主运行：8 步走完 discover→research→evidence→angles→candidates→criticize→finish，评审一次通过，进入人工审核但未发布。所有硬门禁应通过。",
+  "run_id": "run-fixture-healthy",
+  "goal": "帮我找一个最近值得讨论的 AI Agent 话题",
+  "budget": {
+    "max_steps": 12,
+    "max_research_calls": 4,
+    "max_candidates": 3,
+    "max_revisions": 2,
+    "candidates_per_round": 3
+  },
+  "state": {
+    "run_id": "run-fixture-healthy",
+    "goal": "帮我找一个最近值得讨论的 AI Agent 话题",
+    "topic": "Agent 的评测基准正在从「能不能做」转向「做得多稳」",
+    "candidate_topics": [
+      {
+        "topic": "Agent 的评测基准正在从「能不能做」转向「做得多稳」",
+        "why_now": "最近几周连续出现同一类复现失败报告",
+        "signal": "多个团队公布同一任务上的成功率差异",
+        "source_ids": [
+          "ri-1",
+          "ri-2"
+        ],
+        "confidence": 0.9
+      },
+      {
+        "topic": "Agent 工具调用协议的碎片化",
+        "why_now": "三家主要厂商在同一季度更新了各自的工具描述格式",
+        "signal": "格式互不兼容，迁移成本上升",
+        "source_ids": [
+          "ri-3"
+        ],
+        "confidence": 0.8
+      },
+      {
+        "topic": "长上下文是否真的解决了 Agent 的记忆问题",
+        "why_now": "新模型把上下文窗口又扩大了",
+        "signal": "实测里 Agent 仍然会忘掉较早的约束",
+        "source_ids": [
+          "ri-4"
+        ],
+        "confidence": 0.7
+      }
+    ],
+    "selected_topic": "Agent 的评测基准正在从「能不能做」转向「做得多稳」",
+    "research_item_ids": [
+      "ri-1",
+      "ri-2",
+      "ri-3",
+      "ri-4",
+      "ri-5",
+      "ri-6",
+      "ri-7"
+    ],
+    "evidence_pack": {
+      "facts": [
+        {
+          "fact_id": "f1",
+          "fact": "同一个 Agent 在两次公布之间成功率相差 11 个百分点，任务集未变",
+          "source_ids": [
+            "ri-5",
+            "ri-6"
+          ],
+          "timestamp": "2026-09-12T00:00:00Z"
+        },
+        {
+          "fact_id": "f2",
+          "fact": "失败样本里有 6 成集中在工具返回异常后的恢复分支",
+          "source_ids": [
+            "ri-6"
+          ],
+          "timestamp": "2026-09-14T00:00:00Z"
+        },
+        {
+          "fact_id": "f3",
+          "fact": "报告里的评测口径从「是否完成」改成了「重试后是否完成」",
+          "source_ids": [
+            "ri-7"
+          ],
+          "timestamp": null
+        }
+      ],
+      "consensus": [
+        "单一轮次的成功率不足以描述 Agent 的可靠性"
+      ],
+      "counterpoints": [
+        "方差主要来自任务集本身，而不是 Agent"
+      ],
+      "unknowns": [
+        "没有披露重试次数上限"
+      ],
+      "source_ids": [
+        "ri-5",
+        "ri-6",
+        "ri-7"
+      ]
+    },
+    "angles": [
+      {
+        "angle_id": "a1",
+        "claim": "Agent 的评测应当把「重试后成功率」作为主指标，单轮成功率已经失去区分度",
+        "why_it_matters": "口径决定优化方向，继续刷单轮成功率会把工程资源投向错误的地方",
+        "evidence_ids": [
+          "f1",
+          "f3"
+        ],
+        "risk": "对手方会说方差来自任务集",
+        "confidence": 0.75
+      },
+      {
+        "angle_id": "a2",
+        "claim": "失败集中在错误恢复分支，说明瓶颈不在模型能力而在工程健壮性",
+        "why_it_matters": "这解释了为什么能力提升没有转化为成功率提升",
+        "evidence_ids": [
+          "f2"
+        ],
+        "risk": "单一样本，可能是特定工具的问题",
+        "confidence": 0.6
+      },
+      {
+        "angle_id": "a3",
+        "claim": "评测口径的变化本身就是行业转向的信号",
+        "why_it_matters": "口径是公开承诺，改口径意味着有人承认了旧口径不够用",
+        "evidence_ids": [
+          "f3"
+        ],
+        "risk": "证据只有一条，属于解读而非事实",
+        "confidence": 0.5
+      }
+    ],
+    "selected_angle": {
+      "angle_id": "a1",
+      "claim": "Agent 的评测应当把「重试后成功率」作为主指标，单轮成功率已经失去区分度",
+      "why_it_matters": "口径决定优化方向，继续刷单轮成功率会把工程资源投向错误的地方",
+      "evidence_ids": [
+        "f1",
+        "f3"
+      ],
+      "risk": "对手方会说方差来自任务集",
+      "confidence": 0.75
+    },
+    "candidates": [
+      {
+        "candidate_id": "c0",
+        "label": "直接观点",
+        "revision": 0,
+        "content": "单轮成功率这个指标已经该退休了。同一个 Agent，任务集没变，两次公布差 11 个百分点——这个数字说明的不是模型不稳，是指标本身没有区分度。真正该看的是重试之后还能不能完成：失败样本里六成卡在工具异常后的恢复分支，那是工程问题，不是能力问题。"
+      },
+      {
+        "candidate_id": "c1",
+        "label": "信息密集",
+        "revision": 0,
+        "content": "三件事放在一起看：一，同任务集的两次公布成功率相差 11 个百分点；二，失败样本 60% 集中在工具返回异常后的恢复分支；三，有报告已经把口径从「是否完成」改成「重试后是否完成」。单轮成功率衡量的是运气，重试后成功率衡量的才是系统。"
+      },
+      {
+        "candidate_id": "c2",
+        "label": "反共识",
+        "revision": 0,
+        "content": "大家都在等更强的模型来解决 Agent 不稳的问题，但数据不支持这个方向。失败样本里六成发生在工具异常的恢复分支上——这部分靠模型能力提升基本救不回来。继续按单轮成功率刷榜，只会把资源投到一个永远不会改善的分母上。"
+      }
+    ],
+    "critic_results": [
+      {
+        "candidate_id": "c0",
+        "score": 7.5,
+        "flags": [
+          "结尾略平"
+        ],
+        "revision_targets": [],
+        "decision": "accept",
+        "factual_support": 8.0,
+        "stance_strength": 8.5,
+        "specificity": 7.5,
+        "generic_ai_style": 2.0,
+        "hook_strength": 7.0,
+        "persona_fit": 8.0,
+        "evidence_binding": 8.0
+      },
+      {
+        "candidate_id": "c1",
+        "score": 8.5,
+        "flags": [],
+        "revision_targets": [],
+        "decision": "accept",
+        "factual_support": 9.0,
+        "stance_strength": 7.5,
+        "specificity": 9.0,
+        "generic_ai_style": 1.5,
+        "hook_strength": 7.5,
+        "persona_fit": 8.0,
+        "evidence_binding": 9.0
+      },
+      {
+        "candidate_id": "c2",
+        "score": 8.0,
+        "flags": [],
+        "revision_targets": [],
+        "decision": "accept",
+        "factual_support": 8.0,
+        "stance_strength": 9.0,
+        "specificity": 8.0,
+        "generic_ai_style": 2.5,
+        "hook_strength": 8.5,
+        "persona_fit": 8.5,
+        "evidence_binding": 8.0
+      }
+    ],
+    "critic_result": {
+      "candidate_id": "c1",
+      "score": 8.5,
+      "flags": [],
+      "revision_targets": [],
+      "decision": "accept",
+      "factual_support": 9.0,
+      "stance_strength": 7.5,
+      "specificity": 9.0,
+      "generic_ai_style": 1.5,
+      "hook_strength": 7.5,
+      "persona_fit": 8.0,
+      "evidence_binding": 9.0
+    },
+    "critic_tally": {
+      "accept": 3,
+      "revise": 0,
+      "reject": 0
+    },
+    "step_count": 8,
+    "research_count": 2,
+    "revision_count": 0,
+    "writer_epoch": 1,
+    "critic_epoch": 1,
+    "draft_content": "三件事放在一起看：一，同任务集的两次公布成功率相差 11 个百分点；二，失败样本 60% 集中在工具返回异常后的恢复分支；三，有报告已经把口径从「是否完成」改成「重试后是否完成」。单轮成功率衡量的是运气，重试后成功率衡量的才是系统。",
+    "draft_id": "draft-fixture-healthy",
+    "guardrail_passed": true,
+    "guardrail_reasons": [],
+    "human_action": null,
+    "final_content": ""
+  },
+  "trace": [
+    {
+      "step": 1,
+      "action": "discover_topics",
+      "reason": "还没有候选选题，先做一次发现，看看最近有什么值得讨论的信号。",
+      "target": null,
+      "input_summary": "allowed=discover_topics; step=0/12; research=0/4; topics=0; materials=0; facts=0; angles=0; candidates=0; revisions=0/2",
+      "result_summary": "检索「AI Agent 讨论」取回 3 条材料，发现 3 个候选选题"
+    },
+    {
+      "step": 2,
+      "action": "research_topic",
+      "reason": "候选选题里置信度最高的一条值得展开，先去取它的原始材料。",
+      "target": "Agent 的评测基准正在从「能不能做」转向「做得多稳」",
+      "input_summary": "allowed=research_topic,extract_evidence; step=1/12; research=1/4; topics=3; materials=3; facts=0; angles=0; candidates=0; revisions=0/2",
+      "result_summary": "研究主题「Agent 的评测基准正在从「能不能做」转向「做得多稳」」，取回 2 条材料"
+    },
+    {
+      "step": 3,
+      "action": "extract_evidence",
+      "reason": "材料已经够支撑一次抽取了，先把可追溯的事实固定下来再谈观点。",
+      "target": null,
+      "input_summary": "allowed=research_topic,deepen_research,extract_evidence; step=2/12; research=2/4; topics=3; materials=5; facts=0; angles=0; candidates=0; revisions=0/2",
+      "result_summary": "抽取 3 条事实，其中 3 条可追溯到材料"
+    },
+    {
+      "step": 4,
+      "action": "generate_angles",
+      "reason": "证据在手，接下来把它变成有立场的观点，而不是继续堆材料。",
+      "target": null,
+      "input_summary": "allowed=research_topic,deepen_research,extract_evidence,generate_angles; step=3/12; research=2/4; topics=3; materials=5; facts=3; angles=0; candidates=0; revisions=0/2",
+      "result_summary": "生成 3 个候选观点，覆盖 3 条事实"
+    },
+    {
+      "step": 5,
+      "action": "select_angle",
+      "reason": "a1 的结论最强且证据最完整，选它作为这一轮的写作立场。",
+      "target": "a1",
+      "input_summary": "allowed=research_topic,deepen_research,extract_evidence,generate_angles,select_angle; step=4/12; research=2/4; topics=3; materials=5; facts=3; angles=3; candidates=0; revisions=0/2",
+      "result_summary": "选定 a1：Agent 的评测应当把「重试后成功率」作为主指标"
+    },
+    {
+      "step": 6,
+      "action": "generate_candidates",
+      "reason": "立场已经定了，可以按不同写法一次写出三条候选，让评审有得比较。",
+      "target": null,
+      "input_summary": "allowed=research_topic,deepen_research,extract_evidence,generate_angles,select_angle,generate_candidates; step=5/12; research=2/4; topics=3; materials=5; facts=3; angles=3; candidates=0; revisions=0/2",
+      "result_summary": "写出 3 条候选：直接观点、信息密集、反共识"
+    },
+    {
+      "step": 7,
+      "action": "criticize",
+      "reason": "候选还没有被评价过，交出去之前必须先过一轮评审。",
+      "target": null,
+      "input_summary": "allowed=research_topic,deepen_research,extract_evidence,generate_angles,criticize; step=6/12; research=2/4; topics=3; materials=5; facts=3; angles=3; candidates=3; revisions=0/2",
+      "result_summary": "评价 3 条：c0 accept(7.5)；c1 accept(8.5)；c2 accept(8.0)。聚焦 c1"
+    },
+    {
+      "step": 8,
+      "action": "finish",
+      "reason": "三条候选都已评审通过，c1 得分最高，交给人工审核。",
+      "target": null,
+      "input_summary": "allowed=research_topic,deepen_research,extract_evidence,generate_angles,finish; step=7/12; research=2/4; topics=3; materials=5; facts=3; angles=3; candidates=3; revisions=0/2",
+      "result_summary": "交付候选 c1（信息密集，第 0 稿，136 字）"
+    }
+  ],
+  "outcome": {
+    "run_status": "waiting_for_review",
+    "human_review_reached": true,
+    "human_action": null,
+    "published": false,
+    "publish_initiated_by": "none"
+  },
+  "content_quality": {
+    "annotator": "",
+    "note": "synthetic fixture：不填人工标注，评估报告应如实显示 dimensions 全为 unavailable"
+  }
+}

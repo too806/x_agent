@@ -1,0 +1,287 @@
+{
+  "label": "invalid_action_recovery",
+  "synthetic": true,
+  "provenance": "fixture",
+  "note": "synthetic fixture — 第 2 步模型在还没有任何证据时就想 generate_angles，生产按 FALLBACK_ORDER 把它换成 extract_evidence 并在 reason 里写下回退标记。运行本身**完全正常地结束**（这正是要演示的点：回退是安全网，接住了错误决策，所以从结果上看不出任何问题）。RULE-010 必须 FAIL：模型确实提出了一个不可行动作，代价是那一步的决策权被收走。RULE-014 应通过——被记录下来的 extract_evidence 当时是合法的。",
+  "run_id": "run-fixture-invalid-action-recovery",
+  "goal": "长上下文是不是真的解决了 Agent 的记忆问题",
+  "budget": {
+    "max_steps": 12,
+    "max_research_calls": 4,
+    "max_candidates": 3,
+    "max_revisions": 2,
+    "candidates_per_round": 3
+  },
+  "state": {
+    "run_id": "run-fixture-invalid-action-recovery",
+    "goal": "长上下文是不是真的解决了 Agent 的记忆问题",
+    "topic": "长上下文并没有解决 Agent 的记忆问题",
+    "candidate_topics": [
+      {
+        "topic": "长上下文并没有解决 Agent 的记忆问题",
+        "why_now": "新模型把上下文窗口又扩大了一个量级",
+        "signal": "实测里 Agent 仍然会忘掉较早的约束",
+        "source_ids": [
+          "ri-1"
+        ],
+        "confidence": 0.85
+      },
+      {
+        "topic": "Agent 的工具调用在长会话里开始退化",
+        "why_now": "多份复现报告指向同一个退化点",
+        "signal": "同样的工具在同一会话的第 30 轮开始传错参数",
+        "source_ids": [
+          "ri-2"
+        ],
+        "confidence": 0.7
+      }
+    ],
+    "selected_topic": "长上下文并没有解决 Agent 的记忆问题",
+    "research_item_ids": [
+      "ri-1",
+      "ri-2",
+      "ri-3",
+      "ri-4",
+      "ri-5"
+    ],
+    "evidence_pack": {
+      "facts": [
+        {
+          "fact_id": "f1",
+          "fact": "同一份约束在第 12 轮之后被丢弃的概率随轮次线性上升",
+          "source_ids": [
+            "ri-3"
+          ],
+          "timestamp": "2026-09-10T00:00:00Z"
+        },
+        {
+          "fact_id": "f2",
+          "fact": "把约束重复写进系统提示可以推迟丢弃，但代价是每轮都要重读",
+          "source_ids": [
+            "ri-4"
+          ],
+          "timestamp": "2026-09-11T00:00:00Z"
+        },
+        {
+          "fact_id": "f3",
+          "fact": "窗口扩大后丢弃点只是整体后移，没有消失",
+          "source_ids": [
+            "ri-5"
+          ],
+          "timestamp": null
+        }
+      ],
+      "consensus": [
+        "上下文长度与记忆可靠性不是同一个问题"
+      ],
+      "counterpoints": [
+        "检索式记忆可能比扩大窗口更划算"
+      ],
+      "unknowns": [
+        "丢弃点在多长的会话上才会真正影响任务成功率"
+      ],
+      "source_ids": [
+        "ri-3",
+        "ri-4",
+        "ri-5"
+      ]
+    },
+    "angles": [
+      {
+        "angle_id": "a1",
+        "claim": "扩大上下文窗口只是在推迟遗忘，不是在解决遗忘",
+        "why_it_matters": "方向错了会把资源投在一个不会收敛的指标上",
+        "evidence_ids": [
+          "f1",
+          "f3"
+        ],
+        "risk": "窗口再大一个量级可能就够用了",
+        "confidence": 0.75
+      },
+      {
+        "angle_id": "a2",
+        "claim": "重复写约束这种土办法有效，说明瓶颈在注意力的分配而不是容量",
+        "why_it_matters": "它把优化方向从容量转向了检索与重述",
+        "evidence_ids": [
+          "f2"
+        ],
+        "risk": "单一样本，可能是这条提示词特别有效",
+        "confidence": 0.55
+      }
+    ],
+    "selected_angle": {
+      "angle_id": "a1",
+      "claim": "扩大上下文窗口只是在推迟遗忘，不是在解决遗忘",
+      "why_it_matters": "方向错了会把资源投在一个不会收敛的指标上",
+      "evidence_ids": [
+        "f1",
+        "f3"
+      ],
+      "risk": "窗口再大一个量级可能就够用了",
+      "confidence": 0.75
+    },
+    "candidates": [
+      {
+        "candidate_id": "c0",
+        "label": "直接观点",
+        "revision": 0,
+        "content": "把上下文窗口再扩大一个量级，并不会让 Agent 记住东西。同一份约束在第 12 轮之后被丢掉的概率随轮次线性上升，窗口变大只是把这个点整体往后推。我们一直在买容量，但丢的是注意力。"
+      },
+      {
+        "candidate_id": "c1",
+        "label": "信息密集",
+        "revision": 0,
+        "content": "三个数字摆在一起：约束在第 12 轮后开始被丢弃，概率随轮次线性上升；窗口扩大一个量级之后丢弃点只是后移、没有消失；把约束重复写进系统提示确实能推迟它，但每轮都要重读一遍。前两个数字说明容量不是瓶颈，第三个数字说明真正的瓶颈在注意力的分配。"
+      },
+      {
+        "candidate_id": "c2",
+        "label": "反共识",
+        "revision": 0,
+        "content": "所有人在等更大的窗口来解决 Agent 忘事，但数据说的是另一回事：窗口变大之后丢弃点只是后移。真正有效的土办法是把约束反复写进提示里——它不优雅，但它说明问题从来不在容量上。"
+      }
+    ],
+    "critic_results": [
+      {
+        "candidate_id": "c0",
+        "score": 7.5,
+        "flags": [],
+        "revision_targets": [],
+        "decision": "accept",
+        "factual_support": 8.5,
+        "stance_strength": 8.0,
+        "specificity": 7.0,
+        "generic_ai_style": 2.0,
+        "hook_strength": 7.5,
+        "persona_fit": 8.0,
+        "evidence_binding": 8.0
+      },
+      {
+        "candidate_id": "c1",
+        "score": 8.0,
+        "flags": [],
+        "revision_targets": [],
+        "decision": "accept",
+        "factual_support": 9.0,
+        "stance_strength": 7.5,
+        "specificity": 8.5,
+        "generic_ai_style": 1.5,
+        "hook_strength": 7.0,
+        "persona_fit": 8.0,
+        "evidence_binding": 9.0
+      },
+      {
+        "candidate_id": "c2",
+        "score": 8.0,
+        "flags": [],
+        "revision_targets": [],
+        "decision": "accept",
+        "factual_support": 8.0,
+        "stance_strength": 8.5,
+        "specificity": 7.5,
+        "generic_ai_style": 2.5,
+        "hook_strength": 8.0,
+        "persona_fit": 8.0,
+        "evidence_binding": 7.5
+      }
+    ],
+    "critic_result": {
+      "candidate_id": "c1",
+      "score": 8.0,
+      "flags": [],
+      "revision_targets": [],
+      "decision": "accept",
+      "factual_support": 9.0,
+      "stance_strength": 7.5,
+      "specificity": 8.5,
+      "generic_ai_style": 1.5,
+      "hook_strength": 7.0,
+      "persona_fit": 8.0,
+      "evidence_binding": 9.0
+    },
+    "critic_tally": {
+      "accept": 3,
+      "revise": 0,
+      "reject": 0
+    },
+    "step_count": 7,
+    "research_count": 1,
+    "revision_count": 0,
+    "writer_epoch": 1,
+    "critic_epoch": 1,
+    "draft_content": "三个数字摆在一起：约束在第 12 轮后开始被丢弃，概率随轮次线性上升；窗口扩大一个量级之后丢弃点只是后移、没有消失；把约束重复写进系统提示确实能推迟它，但每轮都要重读一遍。前两个数字说明容量不是瓶颈，第三个数字说明真正的瓶颈在注意力的分配。",
+    "draft_id": "draft-fixture-invalid-action-recovery",
+    "guardrail_passed": true,
+    "guardrail_reasons": [],
+    "human_action": null,
+    "final_content": ""
+  },
+  "trace": [
+    {
+      "step": 1,
+      "action": "discover_topics",
+      "reason": "还没有候选选题，先发现一轮。",
+      "target": null,
+      "input_summary": "allowed=discover_topics; step=0/12; research=0/4; topics=0; materials=0; facts=0; angles=0; candidates=0; revisions=0/2",
+      "result_summary": "检索取回 3 条材料，发现 2 个候选选题"
+    },
+    {
+      "step": 2,
+      "action": "extract_evidence",
+      "reason": "（原决策 generate_angles 在当前状态下不可行，按回退顺序改为 extract_evidence）证据包还是空的，先把手上的材料固定成可追溯的事实。",
+      "target": null,
+      "input_summary": "allowed=research_topic,extract_evidence; step=1/12; research=1/4; topics=2; materials=3; facts=0; angles=0; candidates=0; revisions=0/2",
+      "result_summary": "抽取 3 条事实，其中 3 条可追溯到材料"
+    },
+    {
+      "step": 3,
+      "action": "generate_angles",
+      "reason": "事实已经固定，把它变成有立场的观点。",
+      "target": null,
+      "input_summary": "allowed=research_topic,extract_evidence,generate_angles; step=2/12; research=1/4; topics=2; materials=3; facts=3; angles=0; candidates=0; revisions=0/2",
+      "result_summary": "生成 2 个候选观点"
+    },
+    {
+      "step": 4,
+      "action": "select_angle",
+      "reason": "a1 的结论最强且证据最完整。",
+      "target": "a1",
+      "input_summary": "allowed=research_topic,extract_evidence,generate_angles,select_angle; step=3/12; research=1/4; topics=2; materials=3; facts=3; angles=2; candidates=0; revisions=0/2",
+      "result_summary": "选定 a1：扩大上下文窗口只是在推迟遗忘，不是在解决遗忘"
+    },
+    {
+      "step": 5,
+      "action": "generate_candidates",
+      "reason": "立场定了，一次写出三条不同写法。",
+      "target": null,
+      "input_summary": "allowed=research_topic,deepen_research,extract_evidence,generate_angles,select_angle,generate_candidates; step=4/12; research=1/4; topics=2; materials=3; facts=3; angles=2; candidates=0; revisions=0/2",
+      "result_summary": "写出 3 条候选：直接观点、信息密集、反共识"
+    },
+    {
+      "step": 6,
+      "action": "criticize",
+      "reason": "候选还没有被评价过。",
+      "target": null,
+      "input_summary": "allowed=research_topic,deepen_research,extract_evidence,generate_angles,criticize; step=5/12; research=1/4; topics=2; materials=3; facts=3; angles=2; candidates=3; revisions=0/2",
+      "result_summary": "评价 3 条：c0 accept(7.5)；c1 accept(8.0)；c2 accept(8.0)。聚焦 c1"
+    },
+    {
+      "step": 7,
+      "action": "finish",
+      "reason": "三条候选都已评审通过，c1 得分最高，交给人工审核。",
+      "target": null,
+      "input_summary": "allowed=research_topic,deepen_research,extract_evidence,generate_angles,finish; step=6/12; research=1/4; topics=2; materials=3; facts=3; angles=2; candidates=3; revisions=0/2",
+      "result_summary": "交付候选 c1（信息密集，第 0 稿，142 字）"
+    }
+  ],
+  "outcome": {
+    "run_status": "waiting_for_review",
+    "human_review_reached": true,
+    "human_action": null,
+    "published": false,
+    "publish_initiated_by": "none"
+  },
+  "content_quality": {
+    "annotator": "",
+    "note": "synthetic fixture：不填人工标注，评估报告应如实显示 dimensions 全为 unavailable"
+  }
+}

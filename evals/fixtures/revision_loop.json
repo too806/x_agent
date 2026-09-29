@@ -1,0 +1,317 @@
+{
+  "label": "revision_loop",
+  "synthetic": true,
+  "provenance": "fixture",
+  "note": "synthetic fixture — 一次把改稿预算用到顶的运行：criticize → revise 走了两轮（car 满 max_revisions=2），第二轮后重新评审通过才收尾。用于回答「过度修订」：改稿次数贴着上限、总步数偏高，但它**没有越界**，所以 RULE-003 通过、RULE-005 通过。这正是「不要把 revision > 1 设成硬门禁」的例子——贴着预算上限是一种需要被看见的成本，不是违规。",
+  "run_id": "run-fixture-revision-loop",
+  "goal": "帮我找一个最近值得讨论的 AI Agent 话题",
+  "budget": {
+    "max_steps": 12,
+    "max_research_calls": 4,
+    "max_candidates": 3,
+    "max_revisions": 2,
+    "candidates_per_round": 3
+  },
+  "state": {
+    "run_id": "run-fixture-revision-loop",
+    "goal": "帮我找一个最近值得讨论的 AI Agent 话题",
+    "topic": "Agent 的成本结构正在从推理转向工具调用",
+    "candidate_topics": [
+      {
+        "topic": "Agent 的成本结构正在从推理转向工具调用",
+        "why_now": "多家公布的账单里工具调用占比首次超过推理",
+        "signal": "单次任务的 token 花费下降，但外部调用费用上升",
+        "source_ids": [
+          "ri-1",
+          "ri-2"
+        ],
+        "confidence": 0.85
+      },
+      {
+        "topic": "Agent 的评测基准正在从「能不能做」转向「做得多稳」",
+        "why_now": "最近几周连续出现同一类复现失败报告",
+        "signal": "多个团队公布同一任务上的成功率差异",
+        "source_ids": [
+          "ri-3"
+        ],
+        "confidence": 0.75
+      }
+    ],
+    "selected_topic": "Agent 的成本结构正在从推理转向工具调用",
+    "research_item_ids": [
+      "ri-1",
+      "ri-2",
+      "ri-3",
+      "ri-4",
+      "ri-5",
+      "ri-6"
+    ],
+    "evidence_pack": {
+      "facts": [
+        {
+          "fact_id": "f1",
+          "fact": "公开账单里工具调用占单次任务成本的比例从三成升到六成",
+          "source_ids": [
+            "ri-4"
+          ],
+          "timestamp": "2026-09-09T00:00:00Z"
+        },
+        {
+          "fact_id": "f2",
+          "fact": "同一时期内单次任务的推理 token 花费下降了约四成",
+          "source_ids": [
+            "ri-5"
+          ],
+          "timestamp": "2026-09-09T00:00:00Z"
+        },
+        {
+          "fact_id": "f3",
+          "fact": "重试一次的调用成本几乎等于首次调用的成本，因为绝大多数重试来自超时",
+          "source_ids": [
+            "ri-6"
+          ],
+          "timestamp": null
+        }
+      ],
+      "consensus": [
+        "优化 token 用量已经不再是降本的主要手段"
+      ],
+      "counterpoints": [
+        "工具调用单价也在下降，占比上升未必意味着绝对成本上升"
+      ],
+      "unknowns": [
+        "没有披露重试率的分布"
+      ],
+      "source_ids": [
+        "ri-4",
+        "ri-5",
+        "ri-6"
+      ]
+    },
+    "angles": [
+      {
+        "angle_id": "a1",
+        "claim": "继续优化 token 用量是在优化一个已经不占大头的成本项",
+        "why_it_matters": "它决定了下一轮工程投入应该投向哪里",
+        "evidence_ids": [
+          "f1",
+          "f2"
+        ],
+        "risk": "占比上升可能只是因为单价下降得更快",
+        "confidence": 0.7
+      }
+    ],
+    "selected_angle": {
+      "angle_id": "a1",
+      "claim": "继续优化 token 用量是在优化一个已经不占大头的成本项",
+      "why_it_matters": "它决定了下一轮工程投入应该投向哪里",
+      "evidence_ids": [
+        "f1",
+        "f2"
+      ],
+      "risk": "占比上升可能只是因为单价下降得更快",
+      "confidence": 0.7
+    },
+    "candidates": [
+      {
+        "candidate_id": "c0",
+        "label": "直接观点",
+        "revision": 0,
+        "content": "还在盯着 token 用量降本的人，看的已经不是账单的大头了。工具调用占单次任务成本的比例从三成涨到六成，同一时期 token 花费掉了四成。"
+      },
+      {
+        "candidate_id": "c1",
+        "label": "信息密集",
+        "revision": 2,
+        "content": "账单结构变了：工具调用占比三成→六成，同期 token 花费降了四成。更关键的是重试——重试一次的调用成本几乎等于首次，因为绝大多数重试来自超时。也就是说，成本的大头已经不在模型推理，而在工具交互的可靠性上；超时率降一半，账单就降三成。"
+      },
+      {
+        "candidate_id": "c2",
+        "label": "反共识",
+        "revision": 0,
+        "content": "工具调用占比上升这件事，本身不能证明绝对成本在涨——调用单价同时也在降。真正值得注意的是重试：它把一次超时变成了两次花费，这部分才是可以靠工程消掉的。"
+      }
+    ],
+    "critic_results": [
+      {
+        "candidate_id": "c0",
+        "score": 7.4,
+        "flags": [
+          "只有观点没有出处"
+        ],
+        "revision_targets": [],
+        "decision": "accept",
+        "factual_support": 6.5,
+        "stance_strength": 8.0,
+        "specificity": 6.5,
+        "generic_ai_style": 2.0,
+        "hook_strength": 7.5,
+        "persona_fit": 8.0,
+        "evidence_binding": 6.5
+      },
+      {
+        "candidate_id": "c1",
+        "score": 8.6,
+        "flags": [],
+        "revision_targets": [],
+        "decision": "accept",
+        "factual_support": 9.0,
+        "stance_strength": 8.0,
+        "specificity": 9.0,
+        "generic_ai_style": 1.5,
+        "hook_strength": 8.0,
+        "persona_fit": 8.5,
+        "evidence_binding": 9.0
+      },
+      {
+        "candidate_id": "c2",
+        "score": 8.2,
+        "flags": [],
+        "revision_targets": [],
+        "decision": "accept",
+        "factual_support": 8.5,
+        "stance_strength": 8.5,
+        "specificity": 8.0,
+        "generic_ai_style": 2.0,
+        "hook_strength": 8.0,
+        "persona_fit": 8.5,
+        "evidence_binding": 8.5
+      }
+    ],
+    "critic_result": {
+      "candidate_id": "c1",
+      "score": 8.6,
+      "flags": [],
+      "revision_targets": [],
+      "decision": "accept",
+      "factual_support": 9.0,
+      "stance_strength": 8.0,
+      "specificity": 9.0,
+      "generic_ai_style": 1.5,
+      "hook_strength": 8.0,
+      "persona_fit": 8.5,
+      "evidence_binding": 9.0
+    },
+    "critic_tally": {
+      "accept": 7,
+      "revise": 2,
+      "reject": 0
+    },
+    "step_count": 12,
+    "research_count": 2,
+    "revision_count": 2,
+    "writer_epoch": 3,
+    "critic_epoch": 3,
+    "draft_content": "账单结构变了：工具调用占比三成→六成，同期 token 花费降了四成。更关键的是重试——重试一次的调用成本几乎等于首次，因为绝大多数重试来自超时。也就是说，成本的大头已经不在模型推理，而在工具交互的可靠性上；超时率降一半，账单就降三成。",
+    "draft_id": "draft-fixture-revision-loop",
+    "guardrail_passed": true,
+    "guardrail_reasons": [],
+    "human_action": null,
+    "final_content": ""
+  },
+  "trace": [
+    {
+      "step": 1,
+      "action": "discover_topics",
+      "reason": "还没有候选选题，先发现一轮。",
+      "target": null,
+      "input_summary": "allowed=discover_topics; step=0/12; research=0/4; topics=0; materials=0; facts=0; angles=0; candidates=0; revisions=0/2",
+      "result_summary": "检索取回 3 条材料，发现 2 个候选选题"
+    },
+    {
+      "step": 2,
+      "action": "research_topic",
+      "reason": "成本结构这条置信度最高，先展开。",
+      "target": "Agent 的成本结构正在从推理转向工具调用",
+      "input_summary": "allowed=research_topic,extract_evidence; step=1/12; research=0/4; topics=2; materials=3; facts=0; angles=0; candidates=0; revisions=0/2",
+      "result_summary": "研究主题「Agent 的成本结构正在从推理转向工具调用」，取回 2 条材料"
+    },
+    {
+      "step": 3,
+      "action": "extract_evidence",
+      "reason": "材料够了，先固定事实。",
+      "target": null,
+      "input_summary": "allowed=research_topic,extract_evidence; step=2/12; research=1/4; topics=2; materials=5; facts=0; angles=0; candidates=0; revisions=0/2",
+      "result_summary": "抽取 3 条事实，其中 3 条可追溯到材料"
+    },
+    {
+      "step": 4,
+      "action": "generate_angles",
+      "reason": "把事实变成有立场的观点。",
+      "target": null,
+      "input_summary": "allowed=research_topic,extract_evidence,generate_angles; step=3/12; research=1/4; topics=2; materials=5; facts=3; angles=0; candidates=0; revisions=0/2",
+      "result_summary": "生成 1 个候选观点"
+    },
+    {
+      "step": 5,
+      "action": "select_angle",
+      "reason": "只有 a1 一个观点，选它。",
+      "target": "a1",
+      "input_summary": "allowed=research_topic,extract_evidence,generate_angles,select_angle; step=4/12; research=1/4; topics=2; materials=5; facts=3; angles=1; candidates=0; revisions=0/2",
+      "result_summary": "选定 a1：继续优化 token 用量是在优化一个已经不占大头的成本项"
+    },
+    {
+      "step": 6,
+      "action": "generate_candidates",
+      "reason": "立场定了，一次写出三条不同写法。",
+      "target": null,
+      "input_summary": "allowed=research_topic,deepen_research,extract_evidence,generate_angles,select_angle,generate_candidates; step=5/12; research=1/4; topics=2; materials=5; facts=3; angles=1; candidates=0; revisions=0/2",
+      "result_summary": "写出 3 条候选：直接观点、信息密集、反共识"
+    },
+    {
+      "step": 7,
+      "action": "criticize",
+      "reason": "候选还没被评价过。",
+      "target": null,
+      "input_summary": "allowed=research_topic,deepen_research,extract_evidence,generate_angles,criticize; step=6/12; research=1/4; topics=2; materials=5; facts=3; angles=1; candidates=3; revisions=0/2",
+      "result_summary": "评价 3 条：c0 accept(7.4)；c1 revise(6.0)；c2 accept(7.8)。聚焦 c1，要求改稿：重试那一句缺出处"
+    },
+    {
+      "step": 8,
+      "action": "revise",
+      "reason": "Critic 指出重试那一句缺出处，补上。",
+      "target": "c1",
+      "input_summary": "allowed=research_topic,deepen_research,extract_evidence,generate_angles,revise; step=7/12; research=1/4; topics=2; materials=5; facts=3; angles=1; candidates=3; revisions=0/2",
+      "result_summary": "改写 c1 → 第 1 稿，旧评价已作废、需重新评价；针对：重试那一句缺出处"
+    },
+    {
+      "step": 9,
+      "action": "criticize",
+      "reason": "c1 改过，旧评价已作废，重新评审。",
+      "target": null,
+      "input_summary": "allowed=research_topic,deepen_research,extract_evidence,generate_angles,criticize; step=8/12; research=1/4; topics=2; materials=5; facts=3; angles=1; candidates=3; revisions=1/2",
+      "result_summary": "评价 3 条：c0 accept(7.4)；c1 revise(7.0)；c2 accept(8.2)。聚焦 c1，要求改稿：结论太满，补一个限定"
+    },
+    {
+      "step": 10,
+      "action": "revise",
+      "reason": "Critic 要求给结论补一个限定，改。",
+      "target": "c1",
+      "input_summary": "allowed=research_topic,deepen_research,extract_evidence,generate_angles,revise; step=9/12; research=1/4; topics=2; materials=5; facts=3; angles=1; candidates=3; revisions=1/2",
+      "result_summary": "改写 c1 → 第 2 稿，旧评价已作废、需重新评价；针对：结论太满，补一个限定"
+    },
+    {
+      "step": 11,
+      "action": "criticize",
+      "reason": "c1 第 2 稿的旧评价同样已作废，交付前必须再评一次。",
+      "target": null,
+      "input_summary": "allowed=research_topic,deepen_research,extract_evidence,generate_angles,criticize; step=10/12; research=1/4; topics=2; materials=5; facts=3; angles=1; candidates=3; revisions=2/2",
+      "result_summary": "评价 3 条：c0 accept(7.4)；c1 accept(8.6)；c2 accept(8.2)。聚焦 c1"
+    },
+    {
+      "step": 12,
+      "action": "finish",
+      "reason": "c1 第 2 稿已重新评审通过且得分最高，交付人工审核。",
+      "target": null,
+      "input_summary": "allowed=research_topic,deepen_research,extract_evidence,generate_angles,finish; step=11/12; research=1/4; topics=2; materials=5; facts=3; angles=1; candidates=3; revisions=2/2",
+      "result_summary": "交付候选 c1（信息密集，第 2 稿，158 字）"
+    }
+  ],
+  "outcome": {
+    "run_status": "waiting_for_review",
+    "human_review_reached": true,
+    "human_action": null,
+    "published": false,
+    "publish_initiated_by": "none"
+  }
+}
