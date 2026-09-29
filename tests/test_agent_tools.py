@@ -6,6 +6,7 @@
 """
 
 from app.agent.nodes.finalize import pick_final_candidate
+from app.agent.persona import load_persona
 from app.agent.schemas import (
     Angle,
     Candidate,
@@ -14,11 +15,12 @@ from app.agent.schemas import (
     EvidencePack,
     TopicCandidate,
 )
-from app.agent.tools.critic import _bind_to_candidates, _choose_focus
+from app.agent.tools.critic import _bind_to_candidates, _choose_focus, make_critic_tool
 from app.agent.tools.evidence import _keep_traceable
 from app.agent.tools.research import _choose_topic, _deepen_query
-from app.agent.tools.revise import _pick_target
+from app.agent.tools.revise import _pick_target, make_revise_tool
 from app.agent.schemas import AgentDecision, CriticReport
+from fakes import ScriptedLLMService, critic_payload, revise_payload
 
 REAL_IDS = ["11111111-1111-1111-1111-111111111111", "22222222-2222-2222-2222-222222222222"]
 
@@ -230,3 +232,110 @@ def test_angles_can_only_cite_facts():
     assert "source_ids" not in Angle.model_fields
     assert "evidence_ids" in Angle.model_fields
     assert angle.evidence_ids == []
+
+
+# --------------------------------------------------------------------------
+# Phase 5A.1 第二阶段：改稿之后旧评价必须作废
+# --------------------------------------------------------------------------
+
+
+def revised_pool() -> list[Candidate]:
+    """c1 已经改过一稿（revision=1），c2/c3 还是初稿。"""
+    return [
+        Candidate(candidate_id="c1", label="直接观点", content="改过的正文", revision=1),
+        Candidate(candidate_id="c2", label="信息密集", content="正文2"),
+        Candidate(candidate_id="c3", label="反共识", content="正文3"),
+    ]
+
+
+def test_a_revised_candidate_is_not_backed_by_the_score_it_had_before():
+    """改稿作废旧评价之后，被改的那条不能再凭旧分数胜出。
+
+    这是本阶段的核心断言。候选是**原地替换**的——candidate_id 不变、只换正文，
+    而 `finalize` 正是按 candidate_id 取分数的。所以只要旧评价还留在
+    `critic_results` 里，一条改坏了的稿子仍然能顶着改稿**前**的高分被交付。
+    """
+    candidates = revised_pool()
+    stale = verdict("c1", "revise", 9.9)  # 针对"旧正文"打出来的高分
+    fresh = verdict("c2", "accept", 2.0)
+
+    # 旧评价还在时：c1 凭旧分数压过真正被评价过的 c2（＝要消灭的行为）
+    with_stale = {"candidates": candidates, "critic_results": [stale, fresh]}
+    assert pick_final_candidate(with_stale).candidate_id == "c1"
+
+    # revise 工具摘掉旧评价之后：c1 落回"未被评价"一档，不再是已评价候选，
+    # 于是 c2 胜出——c2 的分数才是唯一有依据的那个
+    without_stale = {"candidates": candidates, "critic_results": [fresh]}
+    assert pick_final_candidate(without_stale).candidate_id == "c2"
+
+
+def test_a_rejected_candidate_never_outranks_a_reviewed_one():
+    """被否的候选即使分最高也垫底（工作单第十一节：reject 不该被分数翻盘）。"""
+    state = {
+        "candidates": pool(),
+        "critic_results": [verdict("c3", "reject", 10.0), verdict("c2", "accept", 2.0)],
+    }
+    assert pick_final_candidate(state).candidate_id == "c2"
+
+
+async def test_revise_invalidates_the_verdict_it_just_revised():
+    """revise 工具本身的两件事：摘掉旧评价、清空聚焦对象。
+
+    缺第二件会怎样：`revision_pending` 只看 `critic_result`，不清空的话 revise
+    仍然可行、又排在 FALLBACK_ORDER 首位，于是能连着改两次——而第二次拿到的
+    revision_targets 是针对**上一版**文本写的，等于照着旧意见改新稿。
+    """
+    candidates = pool()
+    state = {
+        "run_id": "run-1",
+        "goal": "目标",
+        "candidates": candidates,
+        "critic_result": verdict("c1", "revise", 4.0),
+        "critic_results": [verdict("c1", "revise", 4.0), verdict("c2", "accept", 8.0)],
+        "evidence_pack": EvidencePack(facts=[EvidenceFact(fact="事实", source_ids=["s"])]),
+        "writer_epoch": 1,
+        "critic_epoch": 1,
+    }
+    llm = ScriptedLLMService(responses={"revise": revise_payload("改好的正文。")})
+    tool = make_revise_tool(llm, load_persona())
+
+    delta = (await tool(state, AgentDecision(action="revise", reason="改", target="c1"))).delta
+
+    # 旧评价被摘掉，别人的不受影响
+    assert [r.candidate_id for r in delta["critic_results"]] == ["c2"]
+    assert delta["critic_result"] is None
+    # 原地替换：id 不变、稿次 +1
+    revised = next(c for c in delta["candidates"] if c.candidate_id == "c1")
+    assert (revised.revision, revised.content) == (1, "改好的正文。")
+    assert [c.candidate_id for c in delta["candidates"]] == ["c1", "c2", "c3"]
+    # 改完必须重新评价的门槛照旧由 epoch 保证
+    assert delta["writer_epoch"] == 2
+
+
+async def test_critic_tally_accumulates_across_rounds():
+    """tally 必须**累计**：critic_results 每轮被整体覆盖，事后反推不出来。
+
+    改回"从 critic_results 现算"会让指标永远只反映最后一轮，
+    而"这一轮 run 里 Critic 一共 accept 了几条"正是要看的东西。
+    """
+    state = {
+        "run_id": "run-1",
+        "goal": "目标",
+        "candidates": pool(),
+        "writer_epoch": 1,
+        "critic_epoch": 0,
+        "evidence_pack": EvidencePack(facts=[EvidenceFact(fact="事实", source_ids=["s"])]),
+    }
+    llm = ScriptedLLMService(
+        responses={"critic": [critic_payload("revise", focus="c1"), critic_payload("accept", score=9.0)]}
+    )
+    tool = make_critic_tool(llm, load_persona())
+
+    first = (await tool(state, AgentDecision(action="criticize", reason="评"))).delta
+    assert first["critic_tally"] == {"revise": 3}  # 三条候选各判一次 revise
+
+    second = (await tool({**state, **first, "writer_epoch": 2}, AgentDecision(action="criticize", reason="重评"))).delta
+    assert second["critic_tally"] == {"revise": 3, "accept": 3}  # 上一轮的累计没有丢
+    # 但 critic_results 只剩最后一轮——这正是不用它的原因
+    assert len(second["critic_results"]) == 3
+    assert {r.decision for r in second["critic_results"]} == {"accept"}

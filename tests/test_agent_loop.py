@@ -14,6 +14,7 @@ from langgraph.types import Command
 from sqlalchemy import select
 
 from app.agent.budget import AgentBudget
+from app.agent.metrics import quality_metrics
 from app.models import AgentRun, Draft, ResearchItem, Review
 from app.agent.schemas import EvidencePack
 from app.repositories import create_agent_run, list_decisions
@@ -392,6 +393,104 @@ async def test_revision_budget_is_enforced(session_factory):
         assert next(c for c in out["candidates"] if c.candidate_id == "c1").revision == 1
         # 第二次 revise 被拒了，轨迹里留下证据
         assert any("不可行" in entry.reason for entry in out["decision_trace"])
+
+
+# --------------------------------------------------------------------------
+# Phase 5A.1：改稿与重新评价的次序
+# --------------------------------------------------------------------------
+
+
+async def test_a_revision_cannot_be_followed_straight_away_by_another(session_factory):
+    """改了稿就必须先重新评价，才能再改一次或收尾。
+
+    这条钉的是 Phase 5A.1 在真机 smoke 里观察到的行为
+    ——"critic → revise → revise → 预算耗尽"。第二次 revise 拿到的
+    revision_targets 是针对**上一版**文本写的：照着旧意见改新稿，
+    改稿额度花掉了，稿子却没变好。
+    """
+    llm = happy_llm(
+        critic=[critic_payload("revise", focus="c1", score=4.0), critic_payload("accept", score=9.0)],
+        revise=revise_payload("改好的正文。"),
+    )
+    llm.decisions = (
+        decision("discover_topics"),
+        decision("research_topic", target="候选选题 1"),
+        decision("extract_evidence"),
+        decision("generate_angles"),
+        decision("select_angle", target="a1"),
+        decision("generate_candidates"),
+        decision("criticize"),
+        decision("revise"),
+        decision("revise"),  # 想连改第二次：不可行，会被换成重新评价
+        decision("finish"),
+    )
+
+    async with runtime_with_checkpointer(session_factory, llm_service=llm) as runtime:
+        _, out = await drive(runtime, session_factory, llm)
+
+    actions = [e.action for e in out["decision_trace"]]
+    assert actions.count("revise") == 1
+    assert out["revision_count"] == 1
+    # 改稿之后紧跟的必须是重新评价，而不是又一次改稿
+    assert actions[actions.index("revise") + 1] == "criticize"
+    # 第二次 revise 被换成别的动作，轨迹里留下证据
+    assert any("不可行" in e.reason for e in out["decision_trace"])
+    assert actions[-1] == "finish"
+
+
+async def test_a_revise_loop_still_terminates(session_factory):
+    """Critic 每轮都要求改稿时，流程仍然会停——只是每改一次都要重新评价一次。
+
+    预算一个都没改（max_steps=6，其余取默认），验的是终止性**不依赖**模型收敛：
+    改稿额度用满后，回退顺序会把它推到别处，最后硬停。
+    """
+    budget = AgentBudget(max_steps=6, max_research_calls=4, max_candidates=3, max_revisions=2)
+    llm = happy_llm(
+        critic=critic_payload("revise", focus="c1", score=4.0),  # 永远不满意
+        revise=revise_payload("又改了一版。"),
+    )
+    # 只给到"写出候选"为止，之后全部交给预算与回退决定
+    llm.decisions = (
+        decision("discover_topics"),
+        decision("research_topic", target="候选选题 1"),
+        decision("extract_evidence"),
+        decision("generate_angles"),
+        decision("select_angle", target="a1"),
+        decision("generate_candidates"),
+    )
+
+    async with runtime_with_checkpointer(session_factory, llm_service=llm, budget=budget) as runtime:
+        _, out = await drive(runtime, session_factory, llm)
+
+    actions = [e.action for e in out["decision_trace"]]
+    # 改稿额度确实被用满，说明"停下来"不是因为没东西可改
+    assert out["revision_count"] == budget.max_revisions
+    # 每一次 revise 后面都必须有一次重新评价
+    for index, action in enumerate(actions):
+        if action == "revise":
+            assert "criticize" in actions[index + 1 :], "改稿之后没有重新评价"
+    assert actions[-1] == "finish"
+    # 最终仍然走到了人工审核，而不是卡死或报错
+    assert "__interrupt__" in out
+
+
+async def test_quality_metrics_are_reported_for_an_agent_run(session_factory):
+    """一次 Agent 运行能报出质量指标，而 topic 链路的 Run 报 None。"""
+    llm = happy_llm(critic=critic_payload("accept", score=9.0))
+    async with runtime_with_checkpointer(session_factory, llm_service=llm) as runtime:
+        run_id, out = await drive(runtime, session_factory, llm)
+        snapshot = await runtime.graph.aget_state(config_for(run_id))
+
+    metrics = quality_metrics(snapshot.values)
+    assert metrics.total_steps == len(out["decision_trace"])
+    assert metrics.candidate_count == 3
+    assert metrics.critic_accept_count == 3
+    assert metrics.critic_revise_count == 0
+    assert metrics.critic_reject_count == 0
+    assert metrics.budget_exhausted is False
+    assert metrics.finish_reason  # 理由必须是原文，不能是空串
+    # 非 Agent 运行没有 planner 循环，那几个计数恒为 0，报出去只会误导
+    assert quality_metrics({"topic": "题"}).total_steps == 0
 
 
 # --------------------------------------------------------------------------
