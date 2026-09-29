@@ -5,10 +5,11 @@ import { Pagination } from '../components/Pagination'
 import { ReviewPane } from '../components/ReviewPane'
 import { RunDetailPanel } from '../components/RunDetailDrawer'
 import { EmptyState, ErrorState, LoadingState } from '../components/States'
+import { useToast } from '../components/ui/Toast'
 import { useAsync } from '../hooks/useAsync'
 import { useConsole } from '../hooks/useConsole'
 import { usePageClamp } from '../hooks/usePageClamp'
-import { EMPTY, relativeTime } from '../utils/format'
+import { EMPTY, dateTime, relativeTime } from '../utils/format'
 import { nextSelection } from '../utils/queue'
 import type { ReviewQueueItem } from '../types/api'
 
@@ -56,6 +57,10 @@ interface Decided {
  * 三条路径给三句不同的话，而不是一句通用的"决定已记录"：Edit 的人需要知道**改稿
  * 被存下来了**，Reject 的人需要知道**这条不会再发出去**——这两件事是操作者按下
  * 按钮后唯一想确认的结果，用一句通用文案把它们的差别抹掉，等于没提示。
+ *
+ * 走全局 Toast（右下角固定位置、统一停留时间），不再由这个页面自己长一块绿色横条。
+ * 同一个"操作成功了"的反馈在审核页是一种样子、在发布页是另一种样子，是这个界面
+ * 之前最明显的"拼装感"来源之一。
  */
 const DECISION_MESSAGES: Record<Decided['action'], string> = {
   approve: '已批准，该内容可以进入发布流程。',
@@ -66,10 +71,10 @@ const DECISION_MESSAGES: Record<Decided['action'], string> = {
 export function Review() {
   const [page, setPage] = useState(1)
   const [selected, setSelected] = useState<string | null>(null)
-  const [justDecided, setJustDecided] = useState<Decided | null>(null)
 
   const queue = useAsync(() => api.listReviews(page), [page])
   const { refresh } = useConsole()
+  const toast = useToast()
 
   // `queue.data?.items` 而不写成 `?? []`：后者每次渲染都产生一个新数组，
   // 会让下面那个 effect 的依赖每次都变，等于每渲染必跑。
@@ -96,7 +101,8 @@ export function Review() {
     const list = items ?? []
     const topic = list.find((item) => item.run_id === selected)?.topic ?? null
 
-    setJustDecided({ topic: topic ?? EMPTY, action })
+    // 提示带上题目：连续审十条时，"已批准"单看不知道批的是哪一条。
+    toast.success(`${topic ?? EMPTY}：${DECISION_MESSAGES[action]}`)
     // 下一条：被决定的这条会从队列里消失，所以它后面的那条会顶上来，位置不变。
     // 没有下一条时**保留刚决定的这条**，不清空 —— 见文件头与 `utils/queue.ts`。
     setSelected(nextSelection(list, selected))
@@ -109,11 +115,12 @@ export function Review() {
     <div className="workspace">
       <div>
         <div className="card card--flush">
-          <div className="card__body" style={{ paddingBottom: 8 }}>
-            <div className="row row--between">
-              <strong>待审核</strong>
-              <span className="cell-muted num">{queue.data?.page.total ?? EMPTY}</span>
+          <div className="card__head">
+            <div>
+              <h3 className="card__title">待审核</h3>
+              <p className="card__hint">Agent 已停下来等人做决定</p>
             </div>
+            <span className="cell-muted num">{queue.data?.page.total ?? EMPTY}</span>
           </div>
 
           {queue.loading && !queue.data ? <LoadingState message="正在加载待审核队列…" /> : null}
@@ -146,12 +153,17 @@ export function Review() {
                   <div className="queue-item__title">{item.topic}</div>
                   <div className="queue-item__meta">
                     {item.draft_preview ? (
-                      <div className="clamp-2">{item.draft_preview}</div>
+                      <div className="table__clamp">{item.draft_preview}</div>
                     ) : (
-                      <div>未存草稿</div>
+                      <div className="cell-muted">未存草稿</div>
                     )}
-                    <div className="row" style={{ gap: 8, marginTop: 4 }}>
-                      <span title={item.created_at}>{relativeTime(item.created_at)}</span>
+                    <div className="row row--tight queue-item__foot">
+                      {/* 相对时间给出"等了多久"，绝对时间在 title 里。
+                          队列最容易出的事就是"有一条被漏了两天"，所以等待时长
+                          是这个列表里唯一必须一直显示的辅助信息。 */}
+                      <span title={dateTime(item.created_at)}>
+                        等待 {relativeTime(item.created_at)}
+                      </span>
                       <QueueStatus item={item} />
                     </div>
                   </div>
@@ -164,23 +176,6 @@ export function Review() {
             <Pagination page={queue.data.page} onChange={setPage} />
           ) : null}
         </div>
-
-        {justDecided ? (
-          <div className="notice notice--ok" style={{ marginTop: 12 }}>
-            <div className="row row--between">
-              <span>
-                <strong>{justDecided.topic}</strong>：{DECISION_MESSAGES[justDecided.action]}
-              </span>
-              <button
-                type="button"
-                className="btn btn--sm"
-                onClick={() => setJustDecided(null)}
-              >
-                知道了
-              </button>
-            </div>
-          </div>
-        ) : null}
       </div>
 
       <div>
