@@ -6,14 +6,18 @@ from httpx import ASGITransport, AsyncClient
 
 from app.agent.graph import GraphDeps, build_graph
 from app.agent.persona import Persona
+from app.config import settings
 from app.db.checkpointer import create_checkpointer, to_libpq_url
 from app.main import Runtime, app, get_runtime
 from app.services.publish import PublishService
 from app.services.x_service import XService
 from fakes import FakeLLMService, FakeXApiClient, draft_json
 
-ADMIN_SYNC = "postgresql+psycopg://xagent:xagent@localhost:5432/postgres"
-TEST_URL = "postgresql+psycopg://xagent:xagent@localhost:5432/xagent_test"
+# 只换库名，主机/端口/凭据一律沿用 .env 的 DATABASE_URL —— 写死 localhost:5432
+# 会让本机把 Postgres 挪到别的端口后，测试静默打到另一个实例上。
+_DB_BASE = settings.database_url.rsplit("/", 1)[0]
+ADMIN_SYNC = f"{_DB_BASE}/postgres"
+TEST_URL = f"{_DB_BASE}/xagent_test"
 CHECKPOINT_URL = to_libpq_url(TEST_URL)
 _ALL_TABLES = "account, agent_run, research_item, draft, review, published_post, agent_decision"
 
