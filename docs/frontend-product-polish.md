@@ -309,6 +309,16 @@ frontend/src
 **没有提交**（属于并行工作的其它工作流，留在工作区）：`docs/agent-evaluation/`、
 `frontend/tests/agent-quality.test.ts`、`docs/setup-new-machine.md`。
 
+> **这个分支上还有别的提交。** 这条分支从 `master`（`c3e0336`）拉出来之后，另一个
+> 并行会话（Phase 5A.1 / Agent 质量与评估）在同一个检出里继续提交，它的提交落在
+> 了同一条分支上（`defc78a` / `e795608` / `f1a641e` / `38f9f12` / `88c6fe4` / `1d35c36`，
+> 都在"运行质量指标 / 评审校准"那条线上）。原因是这个检出里只有一个 worktree，
+> 两个会话共用同一个 HEAD。
+>
+> 影响：`master` **一个字节都没动**（仍在 `c3e0336`）；没有提交丢失；但
+> `feat/frontend-product-polish` 上的 11 个提交是两条工作线交织的结果，不是一条。
+> 要拆开的话由人来决定怎么拆——本次没有做任何 `merge` / `rebase` / `reset`。
+
 > 注：`frontend/src/types/api.ts` 与 `frontend/src/utils/format.ts` 里含有并行工作流
 > （Agent 质量指标）新增的 `AgentQualityMetrics` / `criticOutcomeSummary`，它们与本次
 > 改动在同一个文件里，无法按文件切分，随第 1 个 commit 一并进入。这是刻意的保留，
