@@ -98,6 +98,17 @@ def _prepare_test_db():
         conn.execute(
             text("ALTER TABLE research_item ADD COLUMN IF NOT EXISTS observed_at TIMESTAMPTZ")
         )
+        # Phase 5B.2：style_sample.is_reply。与 alembic c3d8a45e7f21 对应。
+        # **这是一处真实会漏的同步**：style_sample 是 5B.2 新建的表，测试库在
+        # 建表那一刻就有它，于是 create_all 不会再碰它——后加的列永远补不上，
+        # 表现是插入样本时报 UndefinedColumn: is_reply，而错误指向的是采集
+        # 路径，与"测试库少了一列"隔得很远。
+        conn.execute(
+            text(
+                "ALTER TABLE style_sample ADD COLUMN IF NOT EXISTS "
+                "is_reply BOOLEAN NOT NULL DEFAULT FALSE"
+            )
+        )
     sync_eng.dispose()
     yield
 

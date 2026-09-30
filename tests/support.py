@@ -20,7 +20,14 @@ _DB_BASE = settings.database_url.rsplit("/", 1)[0]
 ADMIN_SYNC = f"{_DB_BASE}/postgres"
 TEST_URL = f"{_DB_BASE}/xagent_test"
 CHECKPOINT_URL = to_libpq_url(TEST_URL)
-_ALL_TABLES = "account, agent_run, research_item, draft, review, published_post, agent_decision"
+#: 每个测试前 TRUNCATE 的表。Phase 5B.2 的三张 style 表**必须**在这里：
+#: 它们与 agent_run 没有外键关系，`TRUNCATE agent_run CASCADE` 够不到它们，
+#: 残留行会跨测试存活——而候选工具运行时要读 style_profile，
+#: 上一个测试留下的 Profile 就成了下一个测试的隐藏输入。
+_ALL_TABLES = (
+    "account, agent_run, research_item, draft, review, published_post, agent_decision, "
+    "tracked_account, style_sample, style_profile"
+)
 
 # 固定的"现在"。`SAMPLE_X_RESPONSE` 里的 `created_at` 是写死的，而 Phase 5B.1 的
 # trend 打分按"材料离现在多久"算 recency / novelty —— 不把观察时刻钉死的话，

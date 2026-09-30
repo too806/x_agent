@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     # Phase 5A：Agent 的硬预算（max_steps / max_research_calls / ...）。
     # 与 persona 同样是配置而非代码常量：调预算不该改代码。
     agent_budget_path: str = "config/agent.yaml"
+    # Phase 5B.2：Style Corpus 的采样与筛选阈值、Recipe 的分档切点。
+    # 与预算同理——这些数会随着对样本的认知而调，调它不该改代码。
+    style_config_path: str = "config/style.yaml"
     # Agent 各步 prompt 所在目录（planner / discover / evidence / angles / ...）。
     # 用目录而不是逐项列路径：每加一个 Tool 就要来 settings 里补一行，漏了会在
     # 运行到那一步时才炸。

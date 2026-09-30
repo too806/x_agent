@@ -7,6 +7,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import AgentDecision, AgentRun, Draft, PublishedPost, ResearchItem, Review
+from app.models.style_profile import StyleProfile
 from app.models.published_post import (
     STATUS_FAILED,
     STATUS_PUBLISHED,
@@ -197,6 +198,29 @@ async def release_run_review_claim(
 
 async def get_agent_run(session: AsyncSession, run_id: str) -> AgentRun | None:
     return await session.get(AgentRun, _uuid(run_id))
+
+
+async def get_latest_corpus_profile(session: AsyncSession) -> StyleProfile | None:
+    """最近一次算出的**语料级** Style Profile（Phase 5B.2）。
+
+    只取 `scope='corpus'`：Account Profile 也照常计算与存储，但运行期**不自动
+    挑某一个账号**（工作单第十八、三十二节——学写法的前提是知道在学谁，
+    而"系统替我挑了一个账号"会让这件事重新变得说不清）。
+
+    取最新的一版（`computed_at desc`）：Profile 是随语料演进的快照，
+    运行期应当用最新那版，而"用了哪一版"由 recipe 的 `profile_ref` 记录，
+    事后可回溯。
+
+    没有 Profile 时返回 None —— 那是**正常状态**（还没采过语料），
+    不是错误：调用方据此退化成一个不施加结构约束的中性 recipe。
+    """
+    result = await session.execute(
+        select(StyleProfile)
+        .where(StyleProfile.scope == "corpus")
+        .order_by(StyleProfile.computed_at.desc())
+        .limit(1)
+    )
+    return result.scalars().first()
 
 
 async def get_draft_for_run(session: AsyncSession, run_id: str) -> Draft | None:

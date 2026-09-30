@@ -92,11 +92,20 @@ class XService:
             username = author.get("username") if author else None
             metrics = t.get("public_metrics") or {}
             post_id = t.get("id")
+            referenced = [
+                entry.get("type")
+                for entry in (t.get("referenced_tweets") or [])
+                if isinstance(entry, dict)
+            ]
             url = f"https://x.com/{username}/status/{post_id}" if username and post_id else None
             results.append(
                 ResearchResult(
                     platform_post_id=post_id or "",
                     author_username=username,
+                    # 显示名与自述：回填 tracked_account 用。缺失时是 None，
+                    # 不编一个——账号元信息是"记录下来的"，不是"补出来的"。
+                    author_name=author.get("name") if author else None,
+                    author_description=author.get("description") if author else None,
                     content=t.get("text", ""),
                     url=url,
                     likes=metrics.get("like_count", 0),
@@ -106,6 +115,16 @@ class XService:
                     quote_count=metrics.get("quote_count", 0),
                     published_at=_parse_iso(t.get("created_at")),
                     observed_at=observed_at,
+                    # Phase 5B.2：`referenced_tweets` 非空说明这条指向了别的
+                    # 帖子（转发 / 引用 / 回复）。这个判断**事后从正文看不出来**，
+                    # 所以必须在映射时就记下来（corpus 采集据此剔除转发）。
+                    #
+                    # 两个标志必须分开：`referenced_tweets` 是一个**混装**列表，
+                    # 只看"非空"会把一条回复标成转发，于是筛选层写下一个
+                    # **错误的理由**。引用仍然算 repost（它的正文确实不是
+                    # 自己的完整表达），回复单独一档。
+                    is_repost=any(kind in ("retweeted", "quoted") for kind in referenced),
+                    is_reply="replied_to" in referenced,
                 )
             )
         return results

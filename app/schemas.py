@@ -3,6 +3,8 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, TypeAdapter, field_validator, model_validator
 
+from app.style.schemas import AiStyleSignals
+
 
 class ResearchResult(BaseModel):
     """X API 搜索结果映射后的研究条目。
@@ -29,6 +31,12 @@ class ResearchResult(BaseModel):
 
     platform_post_id: str
     author_username: str | None = None
+    #: 作者显示名与自述，来自 `expansions=author_id` 的 `includes.users`。
+    #: Phase 5B.2 加的，用途只有一个：回填 `tracked_account` 的元信息。
+    #: 采集侧本来就要这两个字段（`user.fields` 已经要了），
+    #: 在映射时丢掉它们等于让人事后凭记忆补账号名——那是编造，不是记录。
+    author_name: str | None = None
+    author_description: str | None = None
     content: str
     url: str | None = None
     likes: int = 0
@@ -40,6 +48,23 @@ class ResearchResult(BaseModel):
     quote_count: int = 0
     published_at: datetime | None = None
     observed_at: datetime | None = None
+    # Phase 5B.2：这条是不是转发/引用他人内容（X 的 `referenced_tweets` 非空）。
+    # 加在这里而不是让 corpus 自己再解析一遍原始响应：来源语义的唯一落点
+    # 是本模型（见模块 docstring），多一个解析点就多一处会漂的口径。
+    # 默认 False 而不是 None：trend 路径拿不到这个信息时，"不是转发"与
+    # "不知道是不是转发"在使用上等价（那两条路径都不据此丢材料）。
+    is_repost: bool = False
+    #: 这条是不是**回复**别人的帖子。
+    #:
+    #: 必须与 `is_repost` 分开：X 的 `referenced_tweets` 是一个**混装**列表，
+    #: `type` 可以是 `retweeted` / `quoted` / `replied_to` 三种。只看"非空"，
+    #: 一条回复就会被标成转发，于是 corpus 把它剔掉并写下一个**错误的理由**
+    #: ——而"理由必须是最具体的那一条"正是筛选层存在的意义（工作单第十一节）。
+    #:
+    #: 一条回复与一条独立发言是两种不同的写作行为：回复是对着别人的半句话
+    #: 接话，没有自己的开头与收尾。学"一段完整表达怎么写"时把它们混进来，
+    #: 会让 Profile 的段落数、开头分布与结尾分布一起失真。
+    is_reply: bool = False
 
 
 class GeneratedDraft(BaseModel):
@@ -443,6 +468,66 @@ class AgentQualityMetrics(BaseModel):
     finish_reason: str = ""
 
 
+class RunStyleSummary(BaseModel):
+    """这次运行采用的写作结构（Phase 5B.2，工作单第三十九节）。
+
+    数据来自 checkpoint 里的 `style_recipe`。非 Agent 运行（`goal` 为空）
+    没有 recipe，所以外层的 `style` 是可选的——与 `quality` 同一种门控。
+
+    ## 为什么取值和中文标签**都**给
+
+    只给取值（`opinion_first`），界面得自己维护一份映射表，于是同一组标签
+    在 prompt 与前端各有一份，将来必然漂——而漂了不报错，只是人和模型
+    理解的"目标结构"悄悄变成两个东西。只给标签，界面就失去了原始取值，
+    没法做筛选、也没法在标签表更新后核对旧运行。所以两个都给，且**同源于**
+    `app/style/labels.py`。
+
+    ## 这里没有样本原文
+
+    recipe 本身就不含任何一条真实帖子的句子（工作单第二十二节），所以这个
+    块里不可能漏出语料。想加也加不进来——它没有能装正文的字段。
+    """
+
+    structure_type: str
+    structure_label: str
+    hook_type: str
+    hook_label: str
+
+    #: 长度有三个数，**它们是三件不同的事**（Phase 5B.2 收口）：
+    #:
+    #: - `observed_target_length`：语料里典型的一条多长（语料观察）
+    #: - `effective_target_length`：这次实际让 Writer 写多长（执行值）
+    #: - `hard_max_length`：发布路径的硬上限（平台约束）
+    #:
+    #: 三者都给，而不是只给 `effective`：只给执行值时，界面上的 140
+    #: 看起来像一条关于语料的结论，而事实上语料说的是 180。人被这个数
+    #: 误导的方向恰好是最难发现的那种——他会以为"我们学到的写法就是写短句"。
+    observed_target_length: int | None = None
+    effective_target_length: int | None = None
+    hard_max_length: int | None = None
+    density: str
+    density_label: str
+    stance_strength: str
+    stance_label: str
+    evidence_requirement: str
+    evidence_label: str
+    tone: str
+    tone_label: str
+    ending_type: str
+    ending_label: str
+
+    #: 选择依据原文（"因为证据包里有 2 条反方说法…"）。折进技术细节。
+    reasons: list[str] = []
+    #: 这一版 recipe 依据的 Profile，形如 `corpus@2026-09-30T11:00:00+00:00`。
+    #: 没有它，一个 recipe 就是一组无法复核的参数。
+    profile_ref: str = ""
+
+    #: 交付正文的确定性 AI 味辅助信号。**按需重算、不入库**：它是正文的纯函数，
+    #: 重算逐位相同，存一份只会多一个会漂移的来源。
+    #: 它在界面上的措辞必须是"这些痕迹出现了几次"，**不是**"AI 概率"。
+    ai_signals: AiStyleSignals | None = None
+
+
 class AdminRunDetail(BaseModel):
     """Run 的完整生命周期视图。
 
@@ -477,6 +562,9 @@ class AdminRunDetail(BaseModel):
     decision_trace: list[DecisionTraceRecord] = []
     # 只有 Agent 运行（goal 非空）才有；topic 链路的 Run 这一项是 None。
     quality: AgentQualityMetrics | None = None
+    # 同上，只有 Agent 运行才有 recipe 可展示。**必须与 quality 同一处门控**，
+    # 否则 V1 topic 链的 Run 会冒出一个空白的"写作结构"块。
+    style: RunStyleSummary | None = None
     draft: DraftRecord | None = None
     review: ReviewRecord | None = None
     publish: PublishRecord | None = None

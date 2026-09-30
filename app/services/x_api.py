@@ -174,12 +174,18 @@ class RealXApiClient:
         是 X 无论怎么问都不会给我们的；调用方声明的窗口语义不变。
         """
         url = f"{self._base_url}/2/tweets/search/recent"
+        # `referenced_tweets` 与 `description` 是 Phase 5B.2 加的，都是**只读**字段：
+        #   - referenced_tweets 用来判转发/引用。这个判断事后从正文看不出来，
+        #     所以必须在采集时拿到并落库（style_sample.is_repost）。
+        #   - description 回填 tracked_account.description（账号自述）。
+        # 两个字段对 trend 路径是多余的，但多要两个字段不会改变响应语义——
+        # 映射层只读它认识的键，其余的忽略。分两次请求反而会多花一次额度。
         params: dict[str, object] = {
             "query": query,
             "max_results": max_results,
-            "tweet.fields": "author_id,created_at,public_metrics",
+            "tweet.fields": "author_id,created_at,public_metrics,referenced_tweets",
             "expansions": "author_id",
-            "user.fields": "username,name",
+            "user.fields": "username,name,description",
         }
         if start_time is not None:
             params["start_time"] = _rfc3339(start_time)

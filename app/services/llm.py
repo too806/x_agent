@@ -31,6 +31,17 @@ class OpenAILLMService:
         self._timeout = timeout if timeout is not None else settings.llm_timeout_seconds
         self._client = client
 
+    @property
+    def model_name(self) -> str:
+        """本次实际使用的模型名。
+
+        公开出来是为了**留痕**：`style_sample.annotation_model` 要记的是
+        "这个标注是哪版模型给的"，而重跑标注会静默改变 Profile。
+        没有它，那一列只能记成类名（`OpenAILLMService`），
+        而"换了模型重标一遍"与"同一模型重标一遍"就分不开了。
+        """
+        return self._model
+
     def _get_client(self) -> AsyncOpenAI:
         if self._client is None:
             self._client = AsyncOpenAI(

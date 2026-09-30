@@ -1,0 +1,145 @@
+# Phase 5B.2 Style & Structure Intelligence 的阈值。
+#
+# 工作单第十一节把"阈值写进配置、不要硬编码"写成硬要求。这里集中放两件事：
+#   1. corpus —— 一条帖子够不够格进 Style Corpus（工作单第十一、十二节）
+#   2. recipe —— 从 Profile 推导 StyleRecipe 时的分档切点（工作单第十九节）
+#
+# 由 app/style/config.py 加载，纯 Python 判定，不依赖 LLM 自觉。
+
+# ---------------------------------------------------------------------------
+# 采样账号：**由人指定**（工作单第七、八、三十节）
+# ---------------------------------------------------------------------------
+#
+# 这张清单是本阶段唯一决定"学谁"的地方。刻意放在配置文件里而不是做一个
+# 账号管理界面：工作单第三十节把"账号集合由配置/数据库人工指定，代码只负责
+# 采集/分析/统计/提炼"写成硬约束，一个可以在界面上点点就加账号的入口，
+# 会让"这批语料到底学了谁"变成一个没人答得上来的问题。
+#
+# 三条纪律（工作单第七、八、三十二节）：
+#   1. **没有**自动发现、没有排行榜、没有"高粉优先"。这里列出的就是全部。
+#   2. **高互动 ≠ 适合学习的写法**。互动在筛选里只是挡住零互动灌水，
+#      不参与任何质量打分，也不影响账号是否入选。
+#   3. 学的是**结构与表达方式**，不是某个人的观点、身份、口头禅或人设。
+#      所以这本清单里的任何一个账号名都不会出现在给模型的 prompt 里——
+#      recipe 只描述"该写成什么样"（见 app/style/recipe.py）。
+#
+# category 取值见 app/style/taxonomy.py::ACCOUNT_CATEGORIES。
+# enabled: false 表示停采，历史样本与已算出的 Profile 不受影响。
+#
+# 下面这 9 个是 **2026-09-30 人工核对过**的第一批：每一个都用
+# `from:<username>` 只读检索确认过"在这个窗口里确实发过中文科技内容"，
+# 而不是从任何榜单上摘下来的。核对方式与被排除的候选见
+# `docs/phase-5b2-style-intelligence.md` 的采集一节。
+#
+# `display_name` 刻意**不在这里写**：由采集时 X 自己返回的
+# `includes.users[].name` 回填（见 `scripts/collect_style_corpus.py`）。
+# 凭记忆手打一串账号名，会在一个没人会去核对的地方引入事实错误；
+# 从来源取值则每一条都能回查。
+accounts:
+  - username: dotey
+    category: AI
+    source_type: manual
+  - username: shao__meng
+    category: 大模型
+    source_type: manual
+  - username: op7418
+    category: 大模型
+    source_type: manual
+  - username: vikingmute
+    category: 开发者
+    source_type: manual
+  - username: lxfater
+    category: 开发者
+    source_type: manual
+  - username: yihong0618
+    category: 开发者
+    source_type: manual
+  - username: geekbb
+    category: 科技媒体
+    source_type: manual
+  - username: starzq
+    category: 创业
+    source_type: manual
+  - username: tuturetom
+    category: 产品
+    source_type: manual
+
+corpus:
+  # 取样窗口（天）。**刻意与 trend 的 72 小时窗口分开**：
+  # 72 小时回答"为什么现在值得写"，这个回答"这些人平时怎么写"。
+  # 取 6 而不是 7：X 的 end_time 有最小滞后钳制，从 7 天整往回数会丢掉
+  # 窗口最老的那几秒帖子。
+  window_days: 6
+
+  # 单次搜索请求要回多少条。X 的 /2/tweets/search/recent 要求 [10, 100] 区间，
+  # 越界会被直接拒绝。
+  #
+  # 取上界 100（第一批用的是 50，实测不够）。原因不是"门槛太严"，而是
+  # 一页里大部分根本不是独立发言：第一批 368 条里 147 条是回复、143 条是
+  # 转发——两类都不该进语料（回复没有自己的开头与收尾，转发不是他写的话），
+  # 于是 50 条的一页里只剩下十几条可用的。**把页码加深而不是把门槛放松**：
+  # 前者只是多看几页同一个人在同一个窗口里发的东西，标准一点没动；
+  # 后者会让"这条够不够格"这个判断本身变得不可信。
+  max_results_per_request: 100
+
+  # 把 6 天窗口切成 6 段、每段各问一次（= 每个账号 6 次请求）。
+  #
+  # **没有这一项，上面那 100 条就是个陷阱**：一次请求最多回 100 条、
+  # 而且这个客户端不翻页，于是"窗口 6 天"实际只覆盖了窗口最新的那一页。
+  # 报告上写着"取回 100 条"，读起来像"这个账号 6 天只发了 100 条"，
+  # 而事实是我们只看了顶端。切片之后，"取回 N 条"才真的是窗口里的 N 条。
+  #
+  # 取 6 而不是更大：切分只是把同一个窗口问得更细（1 天一段），
+  # 不会凭空多出材料，代价却是每加一段就多一次请求、多一份额度。
+  # 为每个账号记下的 `slice_fetches` / `truncated_slices` 会如实说明
+  # 哪一段顶到了上限——**哪一段被截断了，报告里看得见**，
+  # 而不是靠"取回 100 条"去猜。
+  slices_per_window: 6
+
+  # 一条帖子进入 corpus 的最低互动门槛。
+  #
+  # **这不是质量真值**（工作单第十二节）。它只是一个粗筛：把明显的零互动
+  # 灌水挡在外面。高互动也**不**代表写法值得学——所以互动数在 Profile 里
+  # 不参与任何质量打分，只作为样本属性保留。
+  min_likes: 5
+  # 四项互动计数按权重折算成一个标量，只用于过门槛。
+  # 引用权重最高：它是"这条内容被当作论据引用"的信号，与点赞不是一回事。
+  engagement_weights:
+    likes: 1
+    reposts: 2
+    replies: 2
+    quotes: 3
+  min_engagement_score: 20
+
+  # 正文长度合法区间（字符）。太短的学不到结构，太长的多半是长文串。
+  min_length: 40
+  max_length: 1200
+
+  # 采集时是否剔除转发/引用他人内容的帖子。默认剔除：
+  # 要学的是"他怎么写自己的话"，不是"他转了什么"。
+  exclude_reposts: true
+  # 采集时是否剔除正文只有链接的帖子。
+  exclude_link_only: true
+
+recipe:
+  # 目标长度的收敛区间（字符）。Profile 的 median_length 会落在这个区间里。
+  min_target_length: 80
+  max_target_length: 600
+
+  # 信息密度分档切点，按 Profile 的 number_density（每百字数字个数）+ 长度一起看。
+  # 低于 low_below 判 low，高于 high_above 判 high，中间判 medium。
+  density_low_below: 1.0
+  density_high_above: 4.0
+
+  # 立场强度分档：证据包里反方说法的条数。
+  # >= strong_at 判 strong，>= moderate_at 判 moderate，否则 soft。
+  stance_strong_at: 2
+  stance_moderate_at: 1
+
+  # 证据要求分档：证据包里可用事实的条数。
+  # >= strict_at 判 strict，>= required_at 判 required，否则 optional。
+  evidence_strict_at: 4
+  evidence_required_at: 1
+
+  # 口语化语气判定：emoji 密度高于此值判 conversational。
+  conversational_emoji_above: 0.5
