@@ -305,6 +305,74 @@ def check_every_gate_can_fail() -> list[str]:
     )
     fired.append("RULE-018")
 
+    # RULE-019：两类违规各验一次——(a) 样本被带进了 state，
+    # (b) recipe 是一个无法复核的约束（没有依据）。
+    #
+    # (a) 是工作单第二十二、四十节那条"Writer 永远不读样本原文"的机器守卫。
+    # 用 model_extra 塞一个键来构造：在真实链路里它就是"有人顺手把语料样本
+    # 放进 state 给 Writer 看"，而那条路正是这条门禁要拦的。
+    carrying = _base()
+    dirty_state = carrying.state.model_copy(
+        update={"style_samples": [{"content": "一条被带进 state 的样本原文"}]}
+    )
+    _check(
+        _status_of(carrying.model_copy(update={"state": dirty_state}), "RULE-019") == "fail",
+        "RULE-019 未在「state 携带样本原文」上失败",
+    )
+
+    from app.style.schemas import StyleRecipe
+
+    unexplained = _with_state(
+        _base(),
+        style_recipe=StyleRecipe(
+            observed_target_length=200,
+            reasons=[],
+            profile_ref="corpus@2026-09-30T00:00:00+00:00",
+        ),
+    )
+    _check(
+        _status_of(unexplained, "RULE-019") == "fail",
+        "RULE-019 未在「recipe 没有依据」上失败",
+    )
+
+    # 长度被平台上限压过、却没有任何一句解释 —— 这正是 5B.2 收口的那个缺陷：
+    # 执行值 140 单独摆在那里，会看起来像"语料认为该写 140 字"。
+    _check(
+        _status_of(
+            _with_state(
+                _base(),
+                style_recipe=StyleRecipe(
+                    observed_target_length=180,
+                    hard_max_length=140,
+                    reasons=["语料长度中位数是 180 字。"],
+                    profile_ref="corpus@2026-09-30T00:00:00+00:00",
+                ),
+            ),
+            "RULE-019",
+        )
+        == "fail",
+        "RULE-019 未在「长度被硬上限压过却没有解释」上失败",
+    )
+    # 反过来：同一组长度，只要 reasons 里说清了收缩，就必须通过。
+    # 没有这一条，上面那条可以靠"永远失败"来通过。
+    _check(
+        _status_of(
+            _with_state(
+                _base(),
+                style_recipe=StyleRecipe(
+                    observed_target_length=180,
+                    hard_max_length=140,
+                    reasons=["当前发布长度硬上限是 140 字，小于语料目标 180 字；本次实际执行目标取 140 字。"],
+                    profile_ref="corpus@2026-09-30T00:00:00+00:00",
+                ),
+            ),
+            "RULE-019",
+        )
+        == "pass",
+        "RULE-019 在「长度收缩已解释」的正常 recipe 上误报",
+    )
+    fired.append("RULE-019")
+
     _check(
         sorted(fired) == sorted(GATE_RULE_IDS),
         f"被验证会失败的门禁 {sorted(fired)} 与 GATE_RULE_IDS {sorted(GATE_RULE_IDS)} 不一致",

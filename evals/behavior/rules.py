@@ -1249,6 +1249,128 @@ def rule_018_stale_topics_are_not_marked_fresh(analysis: RunAnalysis) -> RuleRes
     )
 
 
+#: state 里**不得出现**的键名片段。它们代表"样本原文被带进了运行期状态"——
+#: 工作单第二十二、四十节明令禁止。按片段匹配而不是精确键名：
+#: `style_samples` / `corpus_samples` / `raw_samples` 都要能被抓住，
+#: 而精确匹配只能抓住恰好拼成那个词的那一个。
+FORBIDDEN_STATE_KEY_FRAGMENTS: tuple[str, ...] = ("sample", "corpus")
+
+#: recipe 里单个字符串字段的长度上限。
+#:
+#: recipe 是**约束**，约束的每一条都该是一句话（"语料里 X 占 60%，本次采用它"）。
+#: 一段能到几百字的文本不是约束，而是一条被塞进来的正文——它一旦出现在
+#: recipe 里，Writer 就有东西可抄了。300 是"一句话"与"一段话"之间的一条线，
+#: 刻意取得宽松：这里拦的是结构性的错误，不是文风。
+MAX_RECIPE_FIELD_CHARS = 300
+
+#: 目标长度的**合理性**上界，刻意**不**读 `config/style.yaml`。
+#:
+#: 读配置会让历史 Run 的判定随配置漂移（同 `app/agent/metrics.py` 记录过的
+#: 那个坑：昨天的运行今天变成违规）。这里只拦"它根本不是个长度"的情况。
+MAX_SANE_TARGET_LENGTH = 5000
+
+
+def rule_019_style_recipe_is_a_constraint_not_a_corpus(
+    analysis: RunAnalysis,
+) -> RuleResult:
+    """查什么：施加了 StyleRecipe 的运行里，(a) state 不得携带样本原文，
+    (b) recipe 必须是一组可解释的结构化约束（有依据、长度合理、没有长文本）。
+
+    为什么值得查：工作单第二十二、四十节把"Writer 永远不读样本原文"写成硬约束。
+    这条约束在生产侧由 `app/style/recipe.py` 的结构保证（recipe 里根本没有装原文
+    的字段），但"设计上没有这个字段"不等于"没人会加一个"。这条规则是那份保证的
+    独立检查：它不 import recipe 的实现，只读 checkpoint 里实际存下来的值——
+    所以它拦得住"把语料样本塞进 state 顺手给 Writer 看"这种方便的退路。
+
+    `style_recipe` 缺席（Phase 5B.2 之前的运行、以及本次改动前的全部 fixture）
+    ⇒ pass：不适用，不是失败。把"没施加约束"判成违规，会让所有历史运行集体变红，
+    而那正是"一条规则把没跑的路径判成错的"。
+
+    判不出来时：判得出来。recipe 与 state 都在 checkpoint 里，是显式字段。
+    """
+    state = analysis.record.state
+    recipe = state.style_recipe
+
+    # state 里的样本原文：无论有没有 recipe 都查——把样本带进状态本身就是违规，
+    # 哪怕这一轮最终没走写作路径。
+    carried = sorted(
+        key
+        for key in (state.model_extra or {})
+        if any(fragment in key.lower() for fragment in FORBIDDEN_STATE_KEY_FRAGMENTS)
+    )
+
+    if recipe is None:
+        if carried:
+            return _fail(
+                "RULE-019", "StyleRecipe 必须是约束，不得携带样本原文", "gate",
+                f"state 里出现了疑似样本字段：{'、'.join(carried)}",
+                *[f"state.{key}" for key in carried],
+            )
+        return _pass(
+            "RULE-019", "StyleRecipe 必须是约束，不得携带样本原文", "gate",
+            "本次运行未施加结构约束（Phase 5B.2 之前的运行），此项不适用",
+        )
+
+    problems: list[str] = []
+    if carried:
+        problems.append(f"state 里出现了疑似样本字段：{'、'.join(carried)}")
+    if not recipe.reasons:
+        problems.append("recipe 没有任何依据（reasons 为空），这是一个无法复核的约束")
+    if not recipe.profile_ref:
+        problems.append("recipe 没有 profile_ref，事后无法回到它依据的那一版 Profile")
+    observed = recipe.observed_target_length
+    hard_max = recipe.hard_max_length
+    for field_name, value in (
+        ("observed_target_length", observed),
+        ("hard_max_length", hard_max),
+    ):
+        if value is not None and not (0 < value <= MAX_SANE_TARGET_LENGTH):
+            problems.append(f"{field_name}={value} 不是一个合理的长度")
+
+    # (b) 目标长度被硬上限压过时，**必须**在 reasons 里说出来。
+    #
+    # 这是这条规则里唯一**能红**的长度检查，也是本阶段收口的那个缺陷本身：
+    # 语料说 180、平台只让发 140 时，执行值会变成 140。若没人解释这次收缩，
+    # Run Detail 上就只剩一个 140——任何人（包括写报告的我们）都会把它读成
+    # "语料认为该写 140 字"，而语料从没这么说。
+    #
+    # 为什么**不**在这里再查 `effective <= hard_max`：那个不等式由
+    # `StyleRecipe.effective_target_length` 的 `min` 结构保证，对**存下来的**
+    # recipe 永远为真——一条不可能红的检查留在 gate 里，只会让人以为
+    # "长度这块查过了"。它属于 `tests/test_style_recipe.py`（那里能直接
+    # 构造一个不合法的对象），不属于这里。
+    if (
+        observed is not None
+        and hard_max is not None
+        and hard_max < observed
+        and not any(str(hard_max) in reason for reason in recipe.reasons)
+    ):
+        problems.append(
+            f"语料目标 {observed} 字被发布硬上限 {hard_max} 字压过，"
+            f"但 reasons 里没有一句提到这次收缩——这一个数会看起来像语料的结论"
+        )
+
+    for name, value in recipe.model_dump().items():
+        for text in value if isinstance(value, list) else [value]:
+            if isinstance(text, str) and len(text) > MAX_RECIPE_FIELD_CHARS:
+                problems.append(
+                    f"recipe.{name} 里有一段 {len(text)} 字的文本"
+                    f"（上限 {MAX_RECIPE_FIELD_CHARS}）——约束里不该有正文"
+                )
+
+    if problems:
+        return _fail(
+            "RULE-019", "StyleRecipe 必须是约束，不得携带样本原文", "gate",
+            "；".join(problems[:5]) + ("…" if len(problems) > 5 else ""),
+            *problems,
+        )
+    return _pass(
+        "RULE-019", "StyleRecipe 必须是约束，不得携带样本原文", "gate",
+        f"recipe 是 {len(recipe.reasons)} 条依据约束的结构化配方（{recipe.profile_ref}），"
+        f"state 里没有样本原文",
+    )
+
+
 #: 全部规则，按编号顺序。报告按这个顺序渲染。
 RULES: tuple[Callable[[RunAnalysis], RuleResult], ...] = (
     rule_001_actions_are_defined,
@@ -1269,6 +1391,7 @@ RULES: tuple[Callable[[RunAnalysis], RuleResult], ...] = (
     rule_016_delivery_path_went_through_evidence,
     rule_017_trend_score_is_reproducible,
     rule_018_stale_topics_are_not_marked_fresh,
+    rule_019_style_recipe_is_a_constraint_not_a_corpus,
 )
 
 
@@ -1290,6 +1413,7 @@ GATE_RULE_IDS: tuple[str, ...] = (
     "RULE-016",
     "RULE-017",
     "RULE-018",
+    "RULE-019",
 )
 
 

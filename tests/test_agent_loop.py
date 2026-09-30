@@ -9,6 +9,8 @@
 发生、人工审核接不接得上），而不是盯着节点数量。
 """
 
+import re
+
 import pytest
 from langgraph.types import Command
 from sqlalchemy import select
@@ -18,6 +20,7 @@ from app.agent.metrics import quality_metrics
 from app.agent.nodes.finalize import make_finalize_node
 from app.models import AgentRun, Draft, ResearchItem, Review
 from app.agent.schemas import Candidate, CandidateTopic, EvidencePack
+from app.style.schemas import StyleRecipe
 from app.repositories import create_agent_run, list_decisions, set_run_topic
 from app.services.x_service import XService
 from fakes import (
@@ -659,6 +662,12 @@ async def test_agent_run_state_is_resumable_from_checkpoint(session_factory):
         assert snapshot.values["candidate_topics"][0].topic_id == "t1"
         assert snapshot.values["selected_angle"].angle_id == "a1"
         assert snapshot.values["critic_result"].candidate_id == "c1"
+        # Phase 5B.2：style_recipe 是**以顶层值**进 state 的（不是嵌在别的模型里），
+        # 所以它必须在 SERDE 里显式登记。漏登记的失败模式**不报错**：msgpack 的
+        # EXT 钩子拒绝它、返回原始 payload，顶层模型安静地退化成 dict——上面那些
+        # 断言全部照常通过，只有恢复时下游按属性读才炸。这一条 isinstance 是唯一
+        # 能抓住它的断言。
+        assert isinstance(snapshot.values["style_recipe"], StyleRecipe)
         assert len(snapshot.values["decision_trace"]) == len(HAPPY_PATH)
 
         resumed = await runtime.graph.ainvoke(
@@ -666,6 +675,53 @@ async def test_agent_run_state_is_resumable_from_checkpoint(session_factory):
         )
         assert resumed["human_action"] == "approve"
         assert resumed["final_content"] == out["draft_content"]
+
+
+async def test_no_agent_prompt_is_sent_with_unreplaced_placeholders(session_factory):
+    """发给模型的 prompt 里不得残留 `{{...}}`。
+
+    `render()` 只替换**传进去的键**，对模板里存在、调用点没传的占位符**不报错**——
+    它会把字面量 `{{STYLE}}` 原样发给模型。这不是崩溃，是安静地少了一整段输入：
+    Writer 以为自己在按结构写作，其实收到的是一串花括号。Phase 5B.2 往
+    candidates/revise/critic 三个模板里各插了一个 `{{STYLE}}`，正好是这类漏传的
+    高发处（三个调用点、三个 kwargs，漏一个不会有任何其他测试变红）。
+
+    这条测试断言的是**真实发出去的 prompt**，不是模板文件——它同时覆盖了
+    "模板里有占位符"和"调用点补上了值"两件事，比逐个核对 kwargs 更结实。
+    走一条含改稿的完整路径，把 planner 与全部工具模板都过一遍。
+    """
+    llm = happy_llm(
+        critic=[critic_payload("revise", focus="c1", score=4.0), critic_payload("accept", score=9.0)],
+        revise=revise_payload("改好的正文：直接给结论。"),
+    )
+    llm.decisions = (
+        decision("discover_topics"),
+        decision("select_topic", target="t1"),
+        decision("research_topic"),
+        decision("extract_evidence"),
+        decision("generate_angles"),
+        decision("select_angle", target="a1"),
+        decision("generate_candidates"),
+        decision("criticize"),
+        decision("revise"),
+        decision("criticize"),
+        decision("finish"),
+    )
+
+    async with runtime_with_checkpointer(session_factory, llm_service=llm) as runtime:
+        await drive(runtime, session_factory, llm)
+
+    kinds = {call["kind"] for call in llm.calls}
+    # 先确认这条路径真的走过了我们关心的模板——否则"没有残留"可能是因为
+    # 那个模板压根没被调用（改坏了调用点，测试反而变绿）。
+    assert {"candidates", "critic", "revise"} <= kinds, kinds
+
+    leftovers = [
+        (call["kind"], sorted(set(re.findall(r"\{\{[A-Z_]+\}\}", call["prompt"]))))
+        for call in llm.calls
+        if "{{" in call["prompt"]
+    ]
+    assert leftovers == []
 
 
 async def test_goal_and_topic_are_mutually_exclusive(session_factory):

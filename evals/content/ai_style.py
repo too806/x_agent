@@ -27,75 +27,61 @@ Evaluation Lab 存在的理由。
 带 `_approx`，并且出现在 `approximate_metrics` 里——报告会明确告诉读者
 "这个数别单独用"。**能算但不准**和**算不出来**是两件事：前者照样报，
 但要标出来；后者报 unavailable。见 `evals/values.py`。
+
+## Phase 5B.2：算法原语已上移到 `app/style/features.py`
+
+同一批原语现在两边都要用——评估侧拿它诊断稿子，生产侧拿它从真实样本里统计
+"人是怎么写的"。抄一份会在某天漂成两套口径，所以定义搬到了 `app/`，
+本模块**只剩适配**：把 `app` 侧返回的朴素 `float | None` 映射成
+`MetricValue` / `UNAVAILABLE`。
+
+方向是刻意的单向：`evals → app`。所以 `MetricValue` / `UNAVAILABLE` / `rate`
+**留在这里**，没有跟着原语一起走——把"算不出来就说算不出来"这个评估契约
+搬进生产代码，既是反向依赖，也会把它复制成两份。
 """
 
 from __future__ import annotations
 
-import re
 import statistics
-from typing import Iterable
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.style.features import (
+    APPROXIMATE_METRICS,
+    GENERIC_PHRASES,
+    HEDGES,
+    abstract_noun_density,
+    count_hedges,
+    count_numbers,
+    find_concrete_entities,
+    find_generic_phrases,
+    find_repeated_patterns,
+    repeated_openers,
+    split_sentences,
+)
 from evals.values import UNAVAILABLE, MetricValue, rate
 
-# ---------------------------------------------------------------------------
-# 词表
-# ---------------------------------------------------------------------------
+__all__ = [
+    "APPROXIMATE_METRICS",
+    "GENERIC_PHRASES",
+    "HEDGES",
+    "AiStyleReport",
+    "abstract_noun_density",
+    "analyze_style",
+    "count_hedges",
+    "find_concrete_entities",
+    "find_generic_phrases",
+    "find_repeated_patterns",
+    "human_edit_distance",
+    "repeated_openers",
+    "split_sentences",
+]
 
-#: 套话。命中即计数，命中的词原样回传，方便人核对"这个也算套话？"。
-#: 词表是**评估资产**，会随认知变化——但改它要同时进位
-#: `evals.__version__`，否则两份报告会因为口径不同而被误读成"稿子变了"。
-GENERIC_PHRASES: tuple[str, ...] = (
-    # 中文：起承转合的连接件
-    "在当今", "在如今", "随着", "在这个", "背景下", "大背景下",
-    "综上所述", "总而言之", "总的来说", "由此可见", "不难看出",
-    "值得注意的是", "需要指出的是", "不可否认", "毋庸置疑", "毫无疑问",
-    "由此可见的是", "换句话说", "从某种意义上",
-    # 中文：空转的形容词
-    "颠覆性", "革命性", "前所未有的", "极大地", "深刻的变革",
-    "引发了广泛关注", "具有重要意义", "深远的影响", "新的高度",
-    "赋能", "闭环", "抓手", "颗粒度", "底层逻辑", "心智",
-    "拉通", "对齐", "复盘", "组合拳", "护城河", "双刃剑",
-    # 中文：面向读者的口号
-    "让我们", "我们不妨", "各位", "朋友们",
-    # 英文
-    "in today's", "in the ever-evolving", "it's worth noting",
-    "it is important to note", "game-changer", "game changer",
-    "delve into", "the landscape of", "unlock the", "leverage the",
-    "in conclusion", "at the end of the day", "paradigm shift",
-)
-
-#: 模糊限定词。**不是**套话，单独一栏：一个观点稿里出现一两次是诚实，
-#: 出现十次是没观点。两者要分开看，所以不并进套话计数。
-HEDGES: tuple[str, ...] = (
-    "可能", "或许", "也许", "大概", "似乎", "看起来",
-    "某种程度上", "一定程度上", "在某种意义上", "应该说", "相对而言",
-)
-
-_SENTENCE_SPLIT = re.compile(r"[。！？!?；;…\n]+")
-_LATIN_TOKEN = re.compile(r"[A-Za-z][A-Za-z0-9._-]{1,}")
-_NUMBER = re.compile(r"\d+(?:\.\d+)?")
-_HANDLE_OR_TAG = re.compile(r"[@#][A-Za-z0-9_一-鿿]{1,50}")
-_QUOTED = re.compile(r"[「『“\"]([^」』”\"]{1,40})[」』”\"]")
-#: 抽象名词后缀。只用于近似指标，见模块 docstring。
-_ABSTRACT_SUFFIX = re.compile(r"[一-鿿]{2}(性|化|度|力|感|主义)")
-
-#: 英语里高频出现的功能词。`_LATIN_TOKEN` 会把它们一起收进来，
-#: 而 "the" 不是"具体实体"。这份小表把它摘掉：
-#: 宁可少算几个实体，也不要把功能词算成"具体"。
-_LATIN_STOPWORDS: frozenset[str] = frozenset(
-    {
-        "the", "and", "for", "with", "that", "this", "from", "have", "has",
-        "are", "was", "were", "you", "your", "but", "not", "can", "will",
-        "just", "they", "them", "their", "there", "here", "what", "when",
-        "how", "why", "who", "all", "any", "one", "two", "our", "its",
-        "it", "is", "of", "to", "in", "on", "at", "by", "as", "be", "or",
-    }
-)
-
-#: 本模块里所有**近似**指标的名字。报告会据此提醒"别单独用这些数"。
-APPROXIMATE_METRICS: tuple[str, ...] = ("abstract_noun_density_approx",)
+#: `float | None` → `MetricValue`。None（生产侧口径的"算不出来"）映射成
+#: `UNAVAILABLE`（评估侧口径的同一件事）。集中在一处，免得每个调用点
+#: 各写一遍 `or UNAVAILABLE`——那样迟早有人漏一个，让一个 None 混进聚合。
+def _metric(value: float | None) -> MetricValue:
+    return UNAVAILABLE if value is None else value
 
 
 class AiStyleReport(BaseModel):
@@ -155,100 +141,6 @@ class AiStyleReport(BaseModel):
         return [n for n in names if not isinstance(getattr(self, n), (int, float))]
 
 
-def split_sentences(text: str) -> list[str]:
-    """切句。中英标点一起切，切成空串的段丢掉。
-
-    不引第三方分句器：本项目的正文是短帖（Persona.max_length = 280），
-    标点切分在这个尺度上足够，而多一个依赖就多一处版本风险。
-    """
-    return [piece.strip() for piece in _SENTENCE_SPLIT.split(text or "") if piece.strip()]
-
-
-def find_generic_phrases(text: str) -> list[str]:
-    """命中的套话原文。大小写不敏感（英文词表用小写写的）。"""
-    lowered = (text or "").lower()
-    return [phrase for phrase in GENERIC_PHRASES if phrase.lower() in lowered]
-
-
-def count_hedges(text: str) -> int:
-    return sum((text or "").count(hedge) for hedge in HEDGES)
-
-
-def find_concrete_entities(text: str) -> list[str]:
-    """具体实体的**去重**列表。
-
-    四类：数字、拉丁词（去掉英语功能词）、@handle/#hashtag、引号内的专名。
-    去重是刻意的：一段话里 "GPT-5" 出现五次，具体性并不因此翻五倍——
-    它仍然是**一个**具体的指称。重复本身由 `repeated_pattern_count` 管。
-    """
-    text = text or ""
-    found: set[str] = set()
-
-    for match in _NUMBER.finditer(text):
-        found.add(match.group(0))
-    for match in _LATIN_TOKEN.finditer(text):
-        token = match.group(0)
-        if token.lower() not in _LATIN_STOPWORDS:
-            found.add(token)
-    for match in _HANDLE_OR_TAG.finditer(text):
-        found.add(match.group(0))
-    for match in _QUOTED.finditer(text):
-        found.add(match.group(1).strip())
-
-    return sorted(found)
-
-
-def find_repeated_patterns(text: str, *, n: int = 4, threshold: int = 3) -> list[str]:
-    """重复出现的 n 字片段（去掉空白后按字符滑窗）。
-
-    为什么按字符而不是按词：中文没有空格，按词要先分词；而"重复的 4 个字"
-    已经足够抓住模板感的来源（同一句式的反复使用）。
-    `threshold=3` 是刻意的低门槛：出现两次可能是修辞，出现三次就是套路。
-    """
-    stripped = re.sub(r"\s+", "", text or "")
-    if len(stripped) < n:
-        return []
-    counts: dict[str, int] = {}
-    for index in range(len(stripped) - n + 1):
-        gram = stripped[index : index + n]
-        # 纯标点/纯数字的片段不算"句式"。
-        if not any(ch.isalpha() or "一" <= ch <= "鿿" for ch in gram):
-            continue
-        counts[gram] = counts.get(gram, 0) + 1
-    return sorted(gram for gram, count in counts.items() if count >= threshold)
-
-
-def repeated_openers(sentences: Iterable[str], *, width: int = 4) -> int:
-    """以相同前缀开头的句子数（超过 1 才算重复）。
-
-    这是"模板感"最直观的一个信号：每段都以"首先/其次/另外"开头，
-    句式就固定了。取前 4 个字符，是长度与噪声之间的一个折中。
-    """
-    counts: dict[str, int] = {}
-    for sentence in sentences:
-        head = sentence[:width]
-        if len(head) < width:
-            continue
-        counts[head] = counts.get(head, 0) + 1
-    return sum(count - 1 for count in counts.values() if count > 1)
-
-
-def abstract_noun_density(text: str) -> MetricValue:
-    """抽象名词密度（**近似**）。
-
-    分子是后缀匹配（性/化/度/力/感/主义）的命中数，分母是总字数 × 100。
-    它对中文只是粗略信号：`温度`、`时代`、`力气` 都会被误算。所以：
-    - 名字里带 `_approx`；
-    - 出现在 `approximate_metrics` 里；
-    - **不**参与任何加权或门禁。
-    """
-    text = re.sub(r"\s+", "", text or "")
-    if not text:
-        return UNAVAILABLE
-    hits = len(_ABSTRACT_SUFFIX.findall(text))
-    return hits / len(text) * 100
-
-
 def analyze_style(text: str) -> AiStyleReport:
     """算一条正文的全部确定性风格指标。纯函数，无 IO，无 LLM。"""
     text = text or ""
@@ -268,6 +160,7 @@ def analyze_style(text: str) -> AiStyleReport:
 
     entities = find_concrete_entities(text)
     repeated = find_repeated_patterns(text)
+    generic = find_generic_phrases(text)
 
     return AiStyleReport(
         available=True,
@@ -276,19 +169,19 @@ def analyze_style(text: str) -> AiStyleReport:
         avg_sentence_length=avg,
         sentence_length_variance=variance,
         sentence_length_stdev=stdev,
-        generic_phrase_count=len(find_generic_phrases(text)),
-        generic_phrases=find_generic_phrases(text),
+        generic_phrase_count=len(generic),
+        generic_phrases=generic,
         hedge_count=count_hedges(text),
         concrete_entity_count=len(entities),
         concrete_entities=entities[:40],
-        number_count=len(_NUMBER.findall(text)),
+        number_count=count_numbers(text),
         concrete_entity_density=rate(len(entities) * 100, len(text)),
         question_count=text.count("?") + text.count("？"),
         exclamation_count=text.count("!") + text.count("！"),
         repeated_pattern_count=len(repeated),
         repeated_patterns=repeated[:20],
         repeated_opener_count=repeated_openers(sentences),
-        abstract_noun_density_approx=abstract_noun_density(text),
+        abstract_noun_density_approx=_metric(abstract_noun_density(text)),
     )
 
 

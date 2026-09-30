@@ -39,6 +39,7 @@ from app.agent.schemas import (
     CriticResult,
     EvidencePack,
 )
+from app.style.schemas import StyleRecipe
 
 __all__ = [
     "AgentRunRecord",
@@ -115,6 +116,10 @@ class AgentRunState(BaseModel):
     selected_angle: Angle | None = None
 
     # --- 写作 ---
+    # Phase 5B.2：本次运行采用的写作结构约束。声明它评估才能断言
+    # "Writer 收到的是 recipe 而不是样本原文"（extra="allow" 本来也能收下它，
+    # 但那样规则里只能按 dict 读，读错字段名不会报错）。
+    style_recipe: StyleRecipe | None = None
     candidates: list[Candidate] = Field(default_factory=list)
 
     # --- 评审 ---
