@@ -123,6 +123,25 @@ TREND_WEIGHTS: tuple[tuple[str, float], ...] = (
 ENGAGEMENT_WEIGHTS = {"likes": 1, "reposts": 2, "replies": 2, "quotes": 3}
 
 
+def scan_window(now: datetime) -> tuple[datetime, datetime]:
+    """一次扫描的时间窗 `[now - TREND_WINDOW_HOURS, now]`。
+
+    "最近"在 Phase 5B.1 里必须有唯一定义，否则 `discover_topics` 说的 72 小时
+    与 `research_topic` 说的"最近"可以是两件不同的事——真机 smoke 就出现过这种
+    情形：发现阶段带着窗口，后续的研究与深化检索却退化成无界的 recent search，
+    于是窗口外的材料（最早早约 7 天）一路混进打分。三条检索路径共用这一个函数，
+    "这次运行在看哪一段时间"才不会有第二种答案。
+
+    `now` 由调用方传入（工具层用 `x_service.now()`），本模块**不取挂钟时间**：
+    保持纯函数，测试才能把整个窗口钉死（见模块开头）。
+
+    右端不在这里收窄。X 不接受距请求时刻 10 秒以内的窗口右端，那 10 秒的
+    收窄由 `app/services/x_api.py` 的 `END_TIME_MIN_LAG` 在传输层完成——
+    那是 X 的硬约束，不是本模块的口径。
+    """
+    return now - timedelta(hours=TREND_WINDOW_HOURS), now
+
+
 @dataclass(frozen=True)
 class TopicScanItem:
     """参与打分的一条**已观测**帖子。

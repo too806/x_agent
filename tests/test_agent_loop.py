@@ -15,9 +15,10 @@ from sqlalchemy import select
 
 from app.agent.budget import AgentBudget
 from app.agent.metrics import quality_metrics
+from app.agent.nodes.finalize import make_finalize_node
 from app.models import AgentRun, Draft, ResearchItem, Review
-from app.agent.schemas import EvidencePack
-from app.repositories import create_agent_run, list_decisions
+from app.agent.schemas import Candidate, CandidateTopic, EvidencePack
+from app.repositories import create_agent_run, list_decisions, set_run_topic
 from app.services.x_service import XService
 from fakes import (
     FakeXApiClient,
@@ -128,6 +129,93 @@ async def test_goal_only_run_stops_at_human_review(session_factory):
         # 6) Agent 还没有权限做人工审核：review 表此时是空的
         async with session_factory() as session:
             assert (await session.execute(select(Review))).scalars().all() == []
+
+
+async def test_finalize_persists_the_selected_topic(session_factory):
+    """定了题目的 Run，题目必须落到 `agent_run.topic`。
+
+    这是真机数据里一批 Run 的缺陷点（29 个产出了 draft 的 Run 全部 topic=NULL，
+    而它们的 checkpoint 里 `selected_topic` **都有值**）。原因不是"没选出来"，
+    而是写库那一句藏在 `if not state.get("selected_topic")` 里：`select_topic`
+    只把题目写进 state，于是最正常的那条路径（选完题目直接出稿，不再经过
+    research_topic）条件恒为假，库里的 topic 一直是 NULL。
+
+    这里刻意让 state 里的 `selected_topic` 与候选分数最高的那个**不同**：
+    题目以 `selected_topic` 为准（那才是 Agent 实际选的），不是按分数重挑一个。
+    """
+    run_id = await start_goal_run(session_factory)
+    node = make_finalize_node(session_factory)
+
+    await node(
+        {
+            "run_id": run_id,
+            "goal": GOAL,
+            "selected_topic": "Agent 实际选定的题目",
+            "candidate_topics": [CandidateTopic(title="分数更高的另一个候选", trend_score=99.0)],
+            "candidates": [Candidate(candidate_id="c1", label="直接观点", content="正文。")],
+            "step_count": 3,
+        }
+    )
+
+    async with session_factory() as session:
+        run = (await session.execute(select(AgentRun))).scalars().one()
+        assert run.topic == "Agent 实际选定的题目"
+
+
+async def test_finalize_falls_back_to_the_top_scoring_candidate(session_factory):
+    """没有 `selected_topic` 时用**分数最高**的候选兜底。
+
+    这条路径是真机里另一半 Run 的形态（全靠 discovery 的材料就出稿，
+    从没走过 select_topic）。兜底依据必须是 trend_score——
+    这一列会进运行记录列表，编一个等于让历史记录失真。
+    """
+    run_id = await start_goal_run(session_factory)
+    node = make_finalize_node(session_factory)
+
+    await node(
+        {
+            "run_id": run_id,
+            "goal": GOAL,
+            "candidate_topics": [
+                CandidateTopic(title="低分候选", trend_score=12.0),
+                CandidateTopic(title="高分候选", trend_score=88.0),
+            ],
+            "candidates": [Candidate(candidate_id="c1", label="直接观点", content="正文。")],
+            "step_count": 3,
+        }
+    )
+
+    async with session_factory() as session:
+        run = (await session.execute(select(AgentRun))).scalars().one()
+        assert run.topic == "高分候选"
+
+
+async def test_finalize_does_not_overwrite_a_topic_that_is_already_set(session_factory):
+    """库里已经有题目时不覆盖它。
+
+    `topic` 是运行记录列表里"这次在研究什么"的唯一说明，而它一旦写下去，
+    看的人就已经照着那个在看内容了——半路改名会让历史与实际不符。
+    `set_run_topic` 只在 topic 还是 NULL 时生效，这条测试钉住那个条件。
+    """
+    run_id = await start_goal_run(session_factory)
+    async with session_factory() as session:
+        await set_run_topic(session, run_id, "早就定下来的题目")
+
+    node = make_finalize_node(session_factory)
+    await node(
+        {
+            "run_id": run_id,
+            "goal": GOAL,
+            "selected_topic": "运行途中另起的题目",
+            "candidate_topics": [CandidateTopic(title="又一个候选", trend_score=70.0)],
+            "candidates": [Candidate(candidate_id="c1", label="直接观点", content="正文。")],
+            "step_count": 3,
+        }
+    )
+
+    async with session_factory() as session:
+        run = (await session.execute(select(AgentRun))).scalars().one()
+        assert run.topic == "早就定下来的题目"
 
 
 async def test_decision_trace_records_every_step(session_factory):

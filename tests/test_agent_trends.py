@@ -29,6 +29,7 @@ from app.agent.trends import (
     observed_engagement,
     qualify,
     rank_key,
+    scan_window,
     score_novelty,
     score_recency,
     score_source_quality,
@@ -163,6 +164,21 @@ def test_engagement_saturates_instead_of_growing_forever():
     assert modest.engagement_score > 0.5
     assert viral.engagement_score == 1.0
     assert viral.engagement_score - modest.engagement_score < 0.5
+
+
+def test_scan_window_is_the_single_definition_of_recent():
+    """`scan_window(T)` 就是 Phase 5B.1 里"最近"的唯一定义：`[T − 72h, T]`。
+
+    三条检索路径（discover_topics / research_topic / deepen_research）共用它。
+    真机 smoke 里出现过"发现阶段带窗口、研究与深化不带"的分裂——同一句话
+    "最近 72 小时"于是有两套口径，窗口外的材料（最早早约 7 天）混进了打分。
+    所以窗口只能在一个地方算，而它必须是纯函数：`now` 由调用方给，
+    本模块不取挂钟时间，测试才能把整个区间钉死（见模块文档）。
+    """
+    start, end = scan_window(NOW)
+    assert end == NOW
+    assert start == NOW - timedelta(hours=TREND_WINDOW_HOURS)
+    assert end - start == timedelta(hours=72)
 
 
 def test_novelty_measures_position_in_the_window():

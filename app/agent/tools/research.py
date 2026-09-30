@@ -16,9 +16,9 @@ import logging
 from app.agent import search_query
 from app.agent.budget import counter
 from app.agent.prompts import format_sources, load_prompt, render
-from app.agent.trends import is_link_only_title
+from app.agent.trends import is_link_only_title, scan_window
 from app.agent.tools.base import ToolResult, append_research, complete_json, pairs
-from app.repositories import create_research_items, set_run_topic
+from app.repositories import create_research_items
 from app.services.llm import LLMService
 from app.services.x_service import XService
 
@@ -102,12 +102,20 @@ def make_research_tool(x_service: XService, session_factory):
                 note,
             )
 
-        results = await x_service.research(query, max_results=RESEARCH_RESULTS)
+        # 与 discover 用**同一个**窗口：研究链路对"最近"只能有一个定义。
+        # 不带窗口的检索会退化成 X 的默认 recent search（最近 7 天），
+        # 窗口外的材料就一路混进打分——真机 smoke 实测到过最早早约 7 天的材料。
+        observed_at = x_service.now()
+        window_start, window_end = scan_window(observed_at)
+        results = await x_service.research(
+            query,
+            max_results=RESEARCH_RESULTS,
+            start_time=window_start,
+            end_time=window_end,
+            observed_at=observed_at,
+        )
         async with session_factory() as session:
             item_ids = await create_research_items(session, run_id, results)
-            # 把题目镜像到 Run 上供运行记录列表显示。同一个 session 里做掉，
-            # 少一次连接往返；`set_run_topic` 只在 topic 还是空时写入。
-            await set_run_topic(session, run_id, topic)
 
         delta = append_research(state, results, item_ids)
         delta["selected_topic"] = topic
@@ -152,7 +160,17 @@ def make_deepen_tool(x_service: XService, session_factory):
         query, how = search_query.choose(_deepen_options(state, decision))
         logger.info("agent deepen started (run_id=%s, query=%r)", run_id, query)
 
-        results = await x_service.research(query, max_results=RESEARCH_RESULTS)
+        # 深化检索也必须落在同一个窗口里：它取回的材料与首次研究**一起**进入
+        # 证据与打分，两条路径的窗口不一致等于同一个话题有两套时间口径。
+        observed_at = x_service.now()
+        window_start, window_end = scan_window(observed_at)
+        results = await x_service.research(
+            query,
+            max_results=RESEARCH_RESULTS,
+            start_time=window_start,
+            end_time=window_end,
+            observed_at=observed_at,
+        )
         async with session_factory() as session:
             item_ids = await create_research_items(session, run_id, results)
 

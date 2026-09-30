@@ -1,7 +1,8 @@
 """检索词能不能原样交给 X。
 
-X 的 recent search 用自己的查询语法解析 `query`，而那条语法里 `/`、`:` 与
-ASCII 括号都有特殊含义：`(` `)` 是分组运算符，`/` 与 `:` 构不成任何合法 token。
+X 的 recent search 用自己的查询语法解析 `query`，而那条语法里 `/`、`:`、
+ASCII 括号与 `|` 都有特殊含义：`(` `)` 是分组运算符，`|` 是 OR，
+`/` 与 `:` 构不成任何合法 token。
 一个 URL 同时含 `/` 与 `:`，于是**拿 URL 当检索词必然 400**——真机 smoke 实测：
 
     GET .../search/recent?query=https%3A%2F%2Ft.co%2FRMhWA6lmX9
@@ -34,7 +35,15 @@ from collections.abc import Sequence
 
 #: 会让 X 判成非法查询的字符。`(` `)` 是查询语法里的分组运算符，
 #: `/` 与 `:` 在查询里不构成任何合法 token（URL 一定同时带这两个）。
-UNUSABLE_CHARS = ("/", ":", "(", ")")
+#: `|` 同样是查询语法里的运算符（OR 的另一种写法），单独出现时 X 的解析器
+#: 直接拒绝——真机 smoke 实测：
+#:
+#:     GET .../search/recent?query=...%20%7C%20...
+#:     400 {"message":"...no viable alternative at character '|' (at position 20)"}
+#:
+#: 这一类检索词不是模型编的：`A | B` 是中文标题里很常见的并列写法，所以它出现
+#: 在候选标题里的概率不低（`discover` 的兜底路径更是直接拿帖子正文当标题）。
+UNUSABLE_CHARS = ("/", ":", "(", ")", "|")
 
 #: 候选全部不能用时的兜底替换：非法字符 → 空格。
 _REPLACEMENT = " "

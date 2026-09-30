@@ -30,7 +30,7 @@
 
 import logging
 import re
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from app.agent import search_query
 from app.agent.budget import counter
@@ -49,6 +49,7 @@ from app.agent.trends import (
     is_link_only_title,
     qualify,
     rank_key,
+    scan_window,
     score_topic,
 )
 from app.repositories import create_research_items
@@ -282,7 +283,7 @@ def make_discover_tool(x_service: XService, llm_service: LLMService, session_fac
         # 一次扫描 = 一个观察时刻。窗口的右端、材料的 observed_at、打分用的
         # observed_at 共用它，三处不同就会让 novelty 出现无法解释的偏差。
         observed_at = x_service.now()
-        window_start = observed_at - timedelta(hours=TREND_WINDOW_HOURS)
+        window_start, window_end = scan_window(observed_at)
 
         logger.info(
             "agent discover started (run_id=%s, query=%r, window=%s..%s)",
@@ -295,7 +296,7 @@ def make_discover_tool(x_service: XService, llm_service: LLMService, session_fac
             query,
             max_results=DISCOVERY_RESULTS,
             start_time=window_start,
-            end_time=observed_at,
+            end_time=window_end,
             observed_at=observed_at,
         )
         async with session_factory() as session:

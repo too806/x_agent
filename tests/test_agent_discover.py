@@ -18,12 +18,13 @@
 """
 
 import json
+from datetime import timedelta
 
 import pytest_asyncio
 
 from app.agent.schemas import AgentDecision
 from app.agent.tools.discover import make_discover_tool
-from app.agent.trends import LINK_ONLY_TITLE
+from app.agent.trends import LINK_ONLY_TITLE, TREND_WINDOW_HOURS
 from app.repositories import create_agent_run
 from app.services.x_service import XService
 from fakes import SAMPLE_X_RESPONSE, FakeXApiClient, ScriptedLLMService
@@ -264,3 +265,19 @@ async def test_discover_never_sends_a_query_x_cannot_parse(session_factory, run_
     sent = client.searches[0]["query"]
     assert "https" not in sent
     assert sent == GOAL  # 检索词一路降级到目标文本
+
+
+async def test_discover_declares_the_scan_window_it_used(session_factory, run_id):
+    """72 小时是一个**执行事实**，不是一个写在文档里的常数。
+
+    X 的服务端过滤靠 start_time / end_time 做（`x_api` 刻意不在本地丢，
+    否则窗口外的帖子会占满 max_results）。少传一个等于让 X 用他自己的默认
+    范围回答我们——回来的材料看着正常，只是不是被问到的那一段。
+    """
+    tool, client = _tool_with_client(session_factory, clusters([["m1", "m2"]]))
+
+    await tool(discover_state(run_id), decide(query="AI Agent 智能体"))
+
+    sent = client.searches[0]
+    assert sent["start_time"] == FIXED_NOW - timedelta(hours=TREND_WINDOW_HOURS)
+    assert sent["end_time"] == FIXED_NOW

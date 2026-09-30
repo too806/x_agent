@@ -98,17 +98,25 @@ def make_finalize_node(session_factory):
                 prompt_version=PROMPT_VERSION,
                 model_name=settings.llm_model,
             )
-            # 运行记录列表要显示题目。正常情况下 selected_topic 由 select_topic /
-            # research_topic 写入；Agent 若没走到那一步（例如全靠 discovery 的材料
-            # 就出稿了），这里用**分数最高**的候选兜底，避免列表里出现一条没有题目的 Run。
-            # 兜底依据必须是 trend_score 而不是让模型补一个：这一列会进运行记录列表，
-            # 也就成了"这次运行在研究什么"的唯一说明，编一个等于让历史记录失真。
-            if not state.get("selected_topic"):
+            # 运行记录列表要显示题目，而这里是**唯一**把它写进 `agent_run.topic`
+            # 的地方（工具层不再各写各的）。
+            #
+            # 题目以 `selected_topic` 为准：它由 `select_topic` 决定，而那个工具
+            # 只写 state、不碰库。所以这一句是"Agent 已经选定的题目"落进数据库的
+            # 唯一通道——原来写成 `if not state.get("selected_topic")` 时，最正常的
+            # 那条路径（select_topic 选完直接出稿）条件恒为假，分支被整个跳过，
+            # 库里留下的永远是 NULL。真机数据里 29 个产出了 draft 的 Run 全部如此。
+            #
+            # 没有 selected_topic 时才回退到**分数最高**的候选：兜底依据必须是
+            # trend_score 而不是让模型补一个——这一列会进运行记录列表，也就成了
+            # "这次运行在研究什么"的唯一说明，编一个等于让历史记录失真。
+            topic = state.get("selected_topic")
+            if not topic:
                 topics = state.get("candidate_topics") or []
                 if topics:
-                    await set_run_topic(
-                        session, run_id, max(topics, key=lambda t: t.trend_score).title
-                    )
+                    topic = max(topics, key=lambda t: t.trend_score).title
+            if topic:
+                await set_run_topic(session, run_id, topic)
 
             # finish 那一步没有执行节点（它不进工具表），所以由这里补上结果。
             await record_decision_result(session, run_id=run_id, step=step, result_summary=summary)

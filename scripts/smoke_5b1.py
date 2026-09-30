@@ -26,6 +26,7 @@ selected_topic / evidence_count / finish_reason
 
 import asyncio
 import json
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -42,11 +43,13 @@ if str(ROOT) not in sys.path[:1]:
     sys.path.insert(0, str(ROOT))
 
 import httpx  # noqa: E402
+from sqlalchemy import select  # noqa: E402
 
 from app.agent.schemas import AgentAction  # noqa: E402
 from app.db.checkpointer import create_checkpointer  # noqa: E402
 from app.diagnostics import describe  # noqa: E402
 from app.main import _thread_config, build_runtime  # noqa: E402
+from app.models import AgentRun  # noqa: E402
 from app.repositories import (  # noqa: E402
     create_agent_run,
     mark_run_completed,
@@ -86,8 +89,7 @@ SMOKES: tuple[dict[str, str], ...] = (
 
 REPORT_PATH = ROOT / "docs" / "phase-5b1-smoke-runs.json"
 
-# 对 X 发出的每一次请求。方法 + 路径（不含查询串：检索词是目标的一部分，
-# 留在这里会把报告撑大，而这份清单要证明的只是"没有非只读请求"）。
+# 对 X 发出的每一次请求。方法 + 路径 + （检索请求）实际发出去的 query 与窗口。
 X_REQUESTS: list[dict[str, str]] = []
 
 
@@ -97,7 +99,20 @@ def install_read_only_guard() -> None:
 
     async def guarded(self, method: str, url: str, **kwargs):  # type: ignore[no-untyped-def]
         upper = method.upper()
-        X_REQUESTS.append({"method": upper, "path": httpx.URL(url).path})
+        entry: dict[str, str] = {"method": upper, "path": httpx.URL(url).path}
+        if upper == "GET" and entry["path"].endswith("/2/tweets/search/recent"):
+            # 检索词与窗口都要落进报告，理由不同：
+            #
+            # - 窗口（start_time / end_time）是**执行事实**的证据。没有它们，
+            #   "72 小时窗口有没有退化成无界的 recent search"只能靠读代码相信。
+            # - query 是**非法检索词**的证据。`A | B` 这类词一旦真的发出去，X 会回
+            #   400；记录下每一次实际发送的 query，才能证明"窗口外的与非法的东西
+            #   都没有出门"，而不是证明"我们改过代码了"。
+            params = kwargs.get("params") or {}
+            for key in ("query", "start_time", "end_time", "max_results"):
+                if params.get(key) is not None:
+                    entry[key] = str(params[key])
+        X_REQUESTS.append(entry)
         if upper != "GET":
             # 抛在发出去**之前**：这是守卫，不是审计。
             raise AssertionError(f"Phase 5B.1 只允许只读请求，收到了 {upper} {url}")
@@ -206,7 +221,7 @@ def _select_step(trace: list) -> int | None:
     return None
 
 
-def _collect(run_id: str, final_state: dict, x_slice: list[dict]) -> dict:
+def _collect(run_id: str, final_state: dict, x_slice: list[dict], db_row: dict) -> dict:
     trace = final_state.get("decision_trace") or []
     sequence = _actions(trace)
     topics = final_state.get("candidate_topics") or []
@@ -241,10 +256,33 @@ def _collect(run_id: str, final_state: dict, x_slice: list[dict]) -> dict:
                 1 for r in x_slice if r["path"].endswith("/2/tweets/search/recent")
             ),
             "x_requests_total": len(x_slice),
+            # 非 GET 请求数。守卫会在发出去之前抛（见 install_read_only_guard），
+            # 所以这个数正常恒为 0——留着它是为了让"只读"这件事在报告里可查，
+            # 而不是只能靠"脚本里有那个守卫"相信。
+            "x_post_requests": sum(1 for r in x_slice if r["method"] != "GET"),
         },
+        # 这次运行**真正发给 X** 的每一次检索：检索词 + 窗口（工作单第二十节）。
+        # 窗口是执行事实，query 是"非法检索词有没有出门"的证据。
+        "x_search_windows": [
+            {
+                "query": r.get("query"),
+                "start_time": r.get("start_time"),
+                "end_time": r.get("end_time"),
+                "max_results": r.get("max_results"),
+            }
+            for r in x_slice
+            if r["path"].endswith("/2/tweets/search/recent")
+        ],
         "candidate_topics": _candidates(topics),
         "selected_topic": final_state.get("selected_topic"),
         "selected_topic_step": select_step,
+        # 落在库里的那两个值。它们与上面那个 state 值是**分头取的**：
+        # "选出来了"和"记下来了"本来就是两件事，这个缺陷就是两者长期不一致。
+        "agent_run_topic": db_row.get("topic"),
+        "run_status": db_row.get("status"),
+        "critic_count": sequence.count(AgentAction.CRITICIZE.value),
+        "revision_count": final_state.get("revision_count"),
+        "research_count": final_state.get("research_count"),
         "evidence_count": _evidence(final_state.get("evidence_pack")),
         "evidence_traceability": _traceability(final_state.get("evidence_pack"), final_state),
         "angles": [
@@ -261,6 +299,61 @@ def _collect(run_id: str, final_state: dict, x_slice: list[dict]) -> dict:
         "interrupted": "__interrupt__" in final_state,
         "draft_chars": len(final_state.get("draft_content") or ""),
     }
+
+
+#: 会让 X 回 400 的字符（与 `app/agent/search_query.py::UNUSABLE_CHARS` 同一套）。
+#: 这里**独立抄一份**而不是 import：这份清单是验收判据，它必须能独立地回答
+#: "实际发出去的检索词里有没有非法字符"，而不是复用被测代码自己的判断——
+#: 复用的话，黑名单少一个字符时判据也跟着少一个，两边一起错。
+ILLEGAL_QUERY_CHARS = ("/", ":", "(", ")", "|")
+
+
+def _acceptance(record: dict) -> dict:
+    """工作单第二十一节的逐条判定。**只判定，不改任何东西。**
+
+    每一条都落在报告里已有的原始字段上，所以判据说"通过"时，读的人可以
+    顺着同一份记录自己复核一遍——这是它和"跑完脚本看退出码"的区别。
+    """
+    searches = record.get("x_search_windows") or []
+    windows = [(w.get("start_time"), w.get("end_time")) for w in searches]
+    candidates = record.get("candidate_topics") or []
+    queries = [w.get("query") or "" for w in searches]
+
+    checks = {
+        # 传输层：真的打到过 X 并且没抛错。这两个条件缺一不可——只判"没报错"
+        # 的话，一次根本没发请求的运行也会算通过。
+        "x_get_ok": record.get("error") is None
+        and (record.get("research_calls", {}).get("x_search_requests") or 0) > 0,
+        # 模型层同理。这里只能由"整条没失败"来推定：任何一次 LLM 调用失败都会
+        # 抛穿工具、让 run 判 failed（见 run_one 的 except）。
+        "llm_ok": record.get("error") is None,
+        # Agent 真的把流程走完了：有轨迹、有稿子、停在人工审核
+        "agent_completed": bool(record.get("steps")) and bool(record.get("draft_chars")),
+        "candidate_count_gt_1": len(candidates) > 1,
+        "real_source_post_ids": bool(candidates)
+        and all(t.get("source_post_ids") for t in candidates),
+        "trend_score_present": bool(candidates)
+        and all(isinstance(t.get("trend_score"), (int, float)) for t in candidates),
+        "evidence_traceable": bool(record.get("evidence_traceability", {}).get("checked"))
+        and not record.get("evidence_traceability", {}).get("broken"),
+        "waiting_for_review": record.get("interrupted") is True
+        and record.get("run_status") == "waiting_for_review",
+        # Defect 1 的判据：定出来的题目必须真的落进 `agent_run.topic`
+        "topic_persisted": bool(record.get("selected_topic"))
+        and record.get("agent_run_topic") == record.get("selected_topic"),
+        # Defect 2 的判据：**每一次**检索都带窗口。少数一次不带就整条判否——
+        # 这正是 smoke-3 当初"5 条材料里 2 条在窗口外"的成因。
+        "all_searches_windowed": bool(searches)
+        and all(start and end for start, end in windows),
+        # Defect 3 的判据：非法字符一个都没出门
+        "no_illegal_query": bool(queries)
+        and not any(
+            char in query for query in queries for char in ILLEGAL_QUERY_CHARS
+        ),
+        # 只读：这次运行对 X 的非 GET 请求必须是 0
+        "no_real_post": record.get("research_calls", {}).get("x_post_requests") == 0,
+    }
+    return {"checks": checks, "passed": all(checks.values())}
 
 
 async def run_one(runtime, smoke: dict[str, str]) -> dict:  # type: ignore[no-untyped-def]
@@ -302,6 +395,15 @@ async def run_one(runtime, smoke: dict[str, str]) -> dict:  # type: ignore[no-un
         else:
             await mark_run_completed(session, run_id)
 
+    # 题目与状态**从库里读回来**，不是从 state 拿。这是刻意的：
+    # Defect 1 恰好就是"state 里有、库里没有"，从 state 取等于把那个缺陷
+    # 从报告里洗掉。读库这一步让报告能直接回答"到底存进去了没有"。
+    async with session_factory() as session:
+        row = (
+            await session.execute(select(AgentRun).where(AgentRun.id == run_id))
+        ).scalars().one()
+        db_row = {"topic": row.topic, "status": row.status}
+
     record = {
         "id": smoke["id"],
         "goal": smoke["goal"],
@@ -310,7 +412,8 @@ async def run_one(runtime, smoke: dict[str, str]) -> dict:  # type: ignore[no-un
         "elapsed_seconds": round((datetime.now(timezone.utc) - started).total_seconds(), 1),
         "error": failure,
     }
-    record.update(_collect(run_id, final_state, X_REQUESTS[x_start:]))
+    record.update(_collect(run_id, final_state, X_REQUESTS[x_start:], db_row))
+    record["acceptance"] = _acceptance(record)
     return record
 
 
@@ -342,6 +445,15 @@ def _print_summary(records: list[dict]) -> None:
         )
         print(f"  finish      {record['finish_action']}  {record['finish_reason']}")
         print("  trace       " + " → ".join(record["action_sequence"]))
+        print(
+            f"  topic       state={record['selected_topic']!r}  "
+            f"db={record['agent_run_topic']!r}  status={record['run_status']}"
+        )
+        for search in record["x_search_windows"]:
+            print(
+                f"  x search    [{search['start_time']} .. {search['end_time']}]  "
+                f"q={search['query']!r}"
+            )
         for topic in record["candidate_topics"]:
             print(
                 f"    [{topic['topic_id']}] {topic['trend_score']:>6.2f} "
@@ -349,12 +461,17 @@ def _print_summary(records: list[dict]) -> None:
             )
         if record["evidence_traceability"]["broken"]:
             print(f"  !! 追溯断链 {record['evidence_traceability']['broken']}")
+        failed = [name for name, ok in record["acceptance"]["checks"].items() if not ok]
+        verdict = "通过" if record["acceptance"]["passed"] else "未通过 " + ", ".join(failed)
+        print(f"  验收        {verdict}")
     print("=" * 78)
     methods: dict[str, int] = {}
     for request in X_REQUESTS:
         methods[request["method"]] = methods.get(request["method"], 0) + 1
     print(f"对 X 的请求共 {len(X_REQUESTS)} 次，按方法：{methods or '{}'}")
     print(f"（其中 POST = {methods.get('POST', 0)}）")
+    passed = sum(1 for r in records if r.get("acceptance", {}).get("passed"))
+    print(f"验收结果：{passed}/{len(records)} 次全部满足工作单第二十一节")
 
 
 async def main(argv: list[str]) -> int:
@@ -400,6 +517,19 @@ async def main(argv: list[str]) -> int:
                     "它不是基准，是当时的记录。"
                 ),
                 "x_requests": {"total": len(X_REQUESTS), "by_method": _method_counts()},
+                "network": _network_note(),
+                # 工作单第二十一节的整批判定。它与下面的 `runs` 是同一份数据的
+                # 两种读法：判定只引用已记录的字段，读的人可以自己复核。
+                "acceptance": {
+                    "criteria": "工作单第二十一节",
+                    "passed": sum(
+                        1 for r in records if r.get("acceptance", {}).get("passed")
+                    ),
+                    "total": len(records),
+                    "all_passed": all(
+                        r.get("acceptance", {}).get("passed") for r in records
+                    ),
+                },
                 "runs": records,
             },
             ensure_ascii=False,
@@ -417,6 +547,19 @@ def _method_counts() -> dict[str, int]:
     for request in X_REQUESTS:
         counts[request["method"]] = counts.get(request["method"], 0) + 1
     return counts
+
+
+def _network_note() -> dict:
+    """记下这批运行是**怎么到达 X 的**。
+
+    2026-09-29 这天，本机直连 `api.x.com` 时通时不通（TLS 握手被中断），最后是
+    走本机代理跑完的。请求本身两条路一样，但对读记录的人来说这不该是隐形的：
+    "哪一次是直连、哪一次走了代理"决定了下次同样跑出问题时该先怀疑什么。
+    httpx 只认环境变量（不读 Windows 注册表的系统代理），所以这里看的就是它们。
+    """
+    keys = ("HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy")
+    proxy = next((os.environ[key] for key in keys if os.environ.get(key)), None)
+    return {"via_proxy": proxy, "direct": proxy is None}
 
 
 if __name__ == "__main__":
