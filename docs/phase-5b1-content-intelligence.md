@@ -4,9 +4,30 @@
 > 基线：`master` 的 `56e327b`（Phase 5A 收口，266 tests 绿）。
 > 本阶段：功能与修复 commit + 1 个文档 commit；测试基线 **341 后端 + 46 前端**
 > （原 300 项全部通过，本阶段新增 41 项）。
-> 分支：`feat/phase-5b1-content-intelligence`（工作树 `../X_Agent-phase-5b1`，**未并回 master**）。
+> 分支：`feat/phase-5b1-content-intelligence`（工作树 `../X_Agent-phase-5b1`），
+> 已于 2026-09-30 以 `--ff-only` 合并进 `master`。
 > 第 10 节与第 13 节记录的是**同一批**五次真机 smoke（`generated_at` 见下），
 > 批次之前的 4/5 结果不再作为验收依据。
+
+## Status
+
+**Complete.** Phase 5B.1 已 fast-forward 合并进 `master`，没有 rebase / squash / amend。
+
+| | |
+|---|---|
+| 5B.1 合并 HEAD（fast-forward 后的 `master`） | `6522c06` |
+| 合并方式 | `git merge --ff-only feat/phase-5b1-content-intelligence` |
+| Real X smoke | **5/5**（同一批次，只读，`POST` = 0） |
+| 后端测试（新 master 上复跑） | 341 passed |
+| Eval selftest | 12 通过 / 0 失败 |
+| Eval dataset | 16 通过 / 0 未通过 |
+| 前端 / tsc / build | 46 通过；`tsc --noEmit` exit 0；`vite build` exit 0 |
+| 72h 窗口 | 10/10 次检索带窗口（71.9958 h）；98 条材料 0 条越界 |
+| `agent_run.topic` | 5/5 `state == db` |
+
+> 读到这一节所在的 commit 时，`master` 比 `6522c06` 多一个 commit——**只有这份
+> 文档**，是封版时补记上面这张表用的。5B.1 实际合并产生的那一个 HEAD 是
+> `6522c06`；验证数字是在**它**上面复跑出来的（见第 6 节命令）。
 
 北极星（工作单第三十四节）：
 
@@ -425,6 +446,13 @@ pytest -q                          # 341 passed（必须串行，见 docs/setup-
 **本阶段没有跨 Run 的智力。** 同一个话题今天发现、明天再发现，两次互不知道；
 `normalized_topic` / `topic_fingerprint` 只是设计预留，不落库、不查询、不参与打分。
 
+**选定题目可能只是帖子正文的逐字摘录，读起来不像一个"选题"。** 最终批次里
+smoke-3 的 `selected_topic` 是 `🚀 找官方 MCP Server 不再大海捞针：开发者必备的
+MCP 生态清单`——带 emoji、带吆喝腔的原文照搬，不是一句像样的题目。这一条是在
+**封版时如实记下的观察，不是 defect**：题目质量属于"语言风格 / 结构质量"，
+本阶段（工作单第十五节）不做，因此**没有改 prompt、没有加清洗**。留待下一阶段
+（topic title quality）。
+
 **真机验证停在 `waiting_for_review`。** review → resume → publish 这条路径
 由 `tests/test_agent_loop.py` 覆盖，smoke 按工作单不触发发布。
 
@@ -465,7 +493,9 @@ Playwright / 浏览器自动化   Google / Bing 抓取        第三方搜索 AP
 权重、单来源封顶或达标阈值，没有改 schema，没有**批量回填历史 Run 的 topic**
 （历史数据保持审计事实），没有碰前端。
 
-**没有并回 master。** 分支停在 `feat/phase-5b1-content-intelligence`。
+**当时的结论是"不进 master"。** 后来终验收补上了缺失的那两条要求
+（第 13 节的三条缺陷修复 + 同一批次 5/5 真机 smoke），本节这段排除项才被解禁；
+封版合并见文首 Status。
 
 ---
 
@@ -576,4 +606,5 @@ GET .../search/recent?query=...%20%7C%20...
 
 ---
 
-**本阶段到此为止**（工作单第三十九节）。下一步做什么属于下一个阶段，见交接文档。
+**本阶段到此为止**（工作单第三十九节）：已合并进 `master`，状态见文首 Status。
+下一步做什么属于下一个阶段，见交接文档。
