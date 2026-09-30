@@ -1,0 +1,882 @@
+{
+  "phase": "5B.2",
+  "note": "每次采集一份记录，累积保存在 runs 里。",
+  "runs": [
+    {
+      "phase": "5B.2",
+      "generated_at": "2026-09-30T10:03:32.317673+00:00",
+      "note": "只重算 Profile，没有采集（不产生任何 X 请求）。",
+      "window_days": 6,
+      "window": [
+        "2026-09-24T10:03:32.317673+00:00",
+        "2026-09-30T10:03:32.317673+00:00"
+      ],
+      "accounts": [],
+      "profiles": [
+        {
+          "scope": "corpus",
+          "sample_count": 0
+        }
+      ],
+      "x_requests": {
+        "total": 0,
+        "by_method": {},
+        "queries": []
+      }
+    },
+    {
+      "phase": "5B.2",
+      "generated_at": "2026-09-30T10:34:44.672154+00:00",
+      "note": "Style Corpus 的一次采集记录。语料是**真实 X 只读检索**的产物，因此不可复现：它不是基准，是当时的记录（工作单第二十九节）。",
+      "window_days": 6,
+      "window": [
+        "2026-09-24T10:34:44.672154+00:00",
+        "2026-09-30T10:34:44.672154+00:00"
+      ],
+      "accounts": [
+        {
+          "username": "dotey",
+          "query": "from:dotey",
+          "window": [
+            "2026-09-24T10:34:44.672154+00:00",
+            "2026-09-30T10:34:44.672154+00:00"
+          ],
+          "fetched": 50,
+          "included": 4,
+          "excluded": 46,
+          "author_name": "宝玉",
+          "exclusion_reasons": {
+            "link_only": 2,
+            "reply": 26,
+            "repost": 18
+          },
+          "inserted": 50,
+          "skipped_existing": 0
+        },
+        {
+          "username": "shao__meng",
+          "query": "from:shao__meng",
+          "window": [
+            "2026-09-24T10:34:44.672154+00:00",
+            "2026-09-30T10:34:44.672154+00:00"
+          ],
+          "fetched": 50,
+          "included": 2,
+          "excluded": 48,
+          "author_name": "meng shao",
+          "exclusion_reasons": {
+            "link_only": 5,
+            "low_engagement(<20)": 1,
+            "low_likes(<5)": 6,
+            "reply": 1,
+            "repost": 35
+          },
+          "inserted": 50,
+          "skipped_existing": 0
+        },
+        {
+          "username": "op7418",
+          "query": "from:op7418",
+          "window": [
+            "2026-09-24T10:34:44.672154+00:00",
+            "2026-09-30T10:34:44.672154+00:00"
+          ],
+          "fetched": 50,
+          "included": 6,
+          "excluded": 44,
+          "author_name": "歸藏(guizang.ai)",
+          "exclusion_reasons": {
+            "link_only": 6,
+            "reply": 23,
+            "repost": 15
+          },
+          "inserted": 50,
+          "skipped_existing": 0
+        },
+        {
+          "username": "vikingmute",
+          "query": "from:vikingmute",
+          "window": [
+            "2026-09-24T10:34:44.672154+00:00",
+            "2026-09-30T10:34:44.672154+00:00"
+          ],
+          "fetched": 20,
+          "included": 10,
+          "excluded": 10,
+          "author_name": "Viking",
+          "exclusion_reasons": {
+            "reply": 4,
+            "repost": 6
+          },
+          "inserted": 20,
+          "skipped_existing": 0
+        },
+        {
+          "username": "lxfater",
+          "query": "from:lxfater",
+          "window": [
+            "2026-09-24T10:34:44.672154+00:00",
+            "2026-09-30T10:34:44.672154+00:00"
+          ],
+          "fetched": 49,
+          "included": 10,
+          "excluded": 39,
+          "author_name": "铁锤人",
+          "exclusion_reasons": {
+            "low_engagement(<20)": 1,
+            "low_likes(<5)": 1,
+            "reply": 23,
+            "repost": 11,
+            "too_short(<40)": 3
+          },
+          "inserted": 49,
+          "skipped_existing": 0
+        },
+        {
+          "username": "yihong0618",
+          "query": "from:yihong0618",
+          "window": [
+            "2026-09-24T10:34:44.672154+00:00",
+            "2026-09-30T10:34:44.672154+00:00"
+          ],
+          "fetched": 50,
+          "included": 1,
+          "excluded": 49,
+          "author_name": "yihong0618",
+          "exclusion_reasons": {
+            "link_only": 2,
+            "reply": 9,
+            "repost": 36,
+            "too_short(<40)": 2
+          },
+          "inserted": 50,
+          "skipped_existing": 0
+        },
+        {
+          "username": "geekbb",
+          "query": "from:geekbb",
+          "window": [
+            "2026-09-24T10:34:44.672154+00:00",
+            "2026-09-30T10:34:44.672154+00:00"
+          ],
+          "fetched": 50,
+          "included": 10,
+          "excluded": 40,
+          "author_name": "Geek",
+          "exclusion_reasons": {
+            "low_engagement(<20)": 2,
+            "reply": 29,
+            "repost": 9
+          },
+          "inserted": 50,
+          "skipped_existing": 0
+        },
+        {
+          "username": "starzq",
+          "query": "from:starzq",
+          "window": [
+            "2026-09-24T10:34:44.672154+00:00",
+            "2026-09-30T10:34:44.672154+00:00"
+          ],
+          "fetched": 30,
+          "included": 2,
+          "excluded": 28,
+          "author_name": "Star@Day1Global Podcast",
+          "exclusion_reasons": {
+            "low_engagement(<20)": 1,
+            "low_likes(<5)": 1,
+            "reply": 19,
+            "repost": 7
+          },
+          "inserted": 30,
+          "skipped_existing": 0
+        },
+        {
+          "username": "tuturetom",
+          "query": "from:tuturetom",
+          "window": [
+            "2026-09-24T10:34:44.672154+00:00",
+            "2026-09-30T10:34:44.672154+00:00"
+          ],
+          "fetched": 19,
+          "included": 0,
+          "excluded": 19,
+          "author_name": "Tom Huang",
+          "exclusion_reasons": {
+            "reply": 13,
+            "repost": 6
+          },
+          "inserted": 19,
+          "skipped_existing": 0
+        }
+      ],
+      "annotation": {
+        "annotated": 45,
+        "failed": []
+      },
+      "profiles": [
+        {
+          "scope": "corpus",
+          "sample_count": 45
+        },
+        {
+          "scope": "account",
+          "username": "dotey",
+          "sample_count": 4
+        },
+        {
+          "scope": "account",
+          "username": "shao__meng",
+          "sample_count": 2
+        },
+        {
+          "scope": "account",
+          "username": "op7418",
+          "sample_count": 6
+        },
+        {
+          "scope": "account",
+          "username": "vikingmute",
+          "sample_count": 10
+        },
+        {
+          "scope": "account",
+          "username": "lxfater",
+          "sample_count": 10
+        },
+        {
+          "scope": "account",
+          "username": "yihong0618",
+          "sample_count": 1
+        },
+        {
+          "scope": "account",
+          "username": "geekbb",
+          "sample_count": 10
+        },
+        {
+          "scope": "account",
+          "username": "starzq",
+          "sample_count": 2
+        }
+      ],
+      "x_requests": {
+        "total": 9,
+        "by_method": {
+          "GET": 9
+        },
+        "queries": [
+          "from:dotey",
+          "from:geekbb",
+          "from:lxfater",
+          "from:op7418",
+          "from:shao__meng",
+          "from:starzq",
+          "from:tuturetom",
+          "from:vikingmute",
+          "from:yihong0618"
+        ]
+      }
+    },
+    {
+      "phase": "5B.2",
+      "generated_at": "2026-09-30T10:40:59.491403+00:00",
+      "note": "Style Corpus 的一次采集记录。语料是**真实 X 只读检索**的产物，因此不可复现：它不是基准，是当时的记录（工作单第二十九节）。",
+      "window_days": 6,
+      "window": [
+        "2026-09-24T10:40:59.491403+00:00",
+        "2026-09-30T10:40:59.491403+00:00"
+      ],
+      "accounts": [
+        {
+          "username": "dotey",
+          "query": "from:dotey",
+          "window": [
+            "2026-09-24T10:40:59.491403+00:00",
+            "2026-09-30T10:40:59.491403+00:00"
+          ],
+          "fetched": 100,
+          "included": 6,
+          "excluded": 94,
+          "author_name": "宝玉",
+          "exclusion_reasons": {
+            "link_only": 3,
+            "reply": 52,
+            "repost": 39
+          },
+          "inserted": 100,
+          "skipped_existing": 0
+        },
+        {
+          "username": "shao__meng",
+          "query": "from:shao__meng",
+          "window": [
+            "2026-09-24T10:40:59.491403+00:00",
+            "2026-09-30T10:40:59.491403+00:00"
+          ],
+          "fetched": 100,
+          "included": 8,
+          "excluded": 92,
+          "author_name": "meng shao",
+          "exclusion_reasons": {
+            "link_only": 14,
+            "low_engagement(<20)": 1,
+            "low_likes(<5)": 7,
+            "reply": 1,
+            "repost": 69
+          },
+          "inserted": 100,
+          "skipped_existing": 0
+        },
+        {
+          "username": "op7418",
+          "query": "from:op7418",
+          "window": [
+            "2026-09-24T10:40:59.491403+00:00",
+            "2026-09-30T10:40:59.491403+00:00"
+          ],
+          "fetched": 52,
+          "included": 6,
+          "excluded": 46,
+          "author_name": "歸藏(guizang.ai)",
+          "exclusion_reasons": {
+            "link_only": 6,
+            "reply": 25,
+            "repost": 15
+          },
+          "inserted": 52,
+          "skipped_existing": 0
+        },
+        {
+          "username": "vikingmute",
+          "query": "from:vikingmute",
+          "window": [
+            "2026-09-24T10:40:59.491403+00:00",
+            "2026-09-30T10:40:59.491403+00:00"
+          ],
+          "fetched": 20,
+          "included": 10,
+          "excluded": 10,
+          "author_name": "Viking",
+          "exclusion_reasons": {
+            "reply": 4,
+            "repost": 6
+          },
+          "inserted": 20,
+          "skipped_existing": 0
+        },
+        {
+          "username": "lxfater",
+          "query": "from:lxfater",
+          "window": [
+            "2026-09-24T10:40:59.491403+00:00",
+            "2026-09-30T10:40:59.491403+00:00"
+          ],
+          "fetched": 66,
+          "included": 18,
+          "excluded": 48,
+          "author_name": "铁锤人",
+          "exclusion_reasons": {
+            "low_engagement(<20)": 2,
+            "low_likes(<5)": 1,
+            "reply": 31,
+            "repost": 11,
+            "too_short(<40)": 3
+          },
+          "inserted": 66,
+          "skipped_existing": 0
+        },
+        {
+          "username": "yihong0618",
+          "query": "from:yihong0618",
+          "window": [
+            "2026-09-24T10:40:59.491403+00:00",
+            "2026-09-30T10:40:59.491403+00:00"
+          ],
+          "fetched": 100,
+          "included": 4,
+          "excluded": 96,
+          "author_name": "yihong0618",
+          "exclusion_reasons": {
+            "link_only": 6,
+            "low_engagement(<20)": 1,
+            "reply": 24,
+            "repost": 63,
+            "too_short(<40)": 2
+          },
+          "inserted": 100,
+          "skipped_existing": 0
+        },
+        {
+          "username": "geekbb",
+          "query": "from:geekbb",
+          "window": [
+            "2026-09-24T10:40:59.491403+00:00",
+            "2026-09-30T10:40:59.491403+00:00"
+          ],
+          "fetched": 57,
+          "included": 12,
+          "excluded": 45,
+          "author_name": "Geek",
+          "exclusion_reasons": {
+            "low_engagement(<20)": 3,
+            "reply": 32,
+            "repost": 10
+          },
+          "inserted": 57,
+          "skipped_existing": 0
+        },
+        {
+          "username": "starzq",
+          "query": "from:starzq",
+          "window": [
+            "2026-09-24T10:40:59.491403+00:00",
+            "2026-09-30T10:40:59.491403+00:00"
+          ],
+          "fetched": 30,
+          "included": 2,
+          "excluded": 28,
+          "author_name": "Star@Day1Global Podcast",
+          "exclusion_reasons": {
+            "low_engagement(<20)": 1,
+            "low_likes(<5)": 1,
+            "reply": 19,
+            "repost": 7
+          },
+          "inserted": 30,
+          "skipped_existing": 0
+        },
+        {
+          "username": "tuturetom",
+          "query": "from:tuturetom",
+          "window": [
+            "2026-09-24T10:40:59.491403+00:00",
+            "2026-09-30T10:40:59.491403+00:00"
+          ],
+          "fetched": 19,
+          "included": 0,
+          "excluded": 19,
+          "author_name": "Tom Huang",
+          "exclusion_reasons": {
+            "reply": 13,
+            "repost": 6
+          },
+          "inserted": 19,
+          "skipped_existing": 0
+        }
+      ],
+      "annotation": {
+        "annotated": 66,
+        "failed": []
+      },
+      "profiles": [
+        {
+          "scope": "corpus",
+          "sample_count": 66
+        },
+        {
+          "scope": "account",
+          "username": "dotey",
+          "sample_count": 6
+        },
+        {
+          "scope": "account",
+          "username": "shao__meng",
+          "sample_count": 8
+        },
+        {
+          "scope": "account",
+          "username": "op7418",
+          "sample_count": 6
+        },
+        {
+          "scope": "account",
+          "username": "vikingmute",
+          "sample_count": 10
+        },
+        {
+          "scope": "account",
+          "username": "lxfater",
+          "sample_count": 18
+        },
+        {
+          "scope": "account",
+          "username": "yihong0618",
+          "sample_count": 4
+        },
+        {
+          "scope": "account",
+          "username": "geekbb",
+          "sample_count": 12
+        },
+        {
+          "scope": "account",
+          "username": "starzq",
+          "sample_count": 2
+        }
+      ],
+      "x_requests": {
+        "total": 9,
+        "by_method": {
+          "GET": 9
+        },
+        "queries": [
+          "from:dotey",
+          "from:geekbb",
+          "from:lxfater",
+          "from:op7418",
+          "from:shao__meng",
+          "from:starzq",
+          "from:tuturetom",
+          "from:vikingmute",
+          "from:yihong0618"
+        ]
+      }
+    },
+    {
+      "phase": "5B.2",
+      "generated_at": "2026-09-30T10:48:11.325942+00:00",
+      "note": "Style Corpus 的一次采集记录。语料是**真实 X 只读检索**的产物，因此不可复现：它不是基准，是当时的记录（工作单第二十九节）。",
+      "window_days": 6,
+      "window": [
+        "2026-09-24T10:48:11.325942+00:00",
+        "2026-09-30T10:48:11.325942+00:00"
+      ],
+      "accounts": [
+        {
+          "username": "dotey",
+          "query": "from:dotey",
+          "window": [
+            "2026-09-24T10:48:11.325942+00:00",
+            "2026-09-30T10:48:11.325942+00:00"
+          ],
+          "slices": 6,
+          "slice_fetches": [
+            9,
+            32,
+            39,
+            19,
+            34,
+            22
+          ],
+          "truncated_slices": 0,
+          "fetched": 155,
+          "included": 8,
+          "excluded": 147,
+          "author_name": "宝玉",
+          "exclusion_reasons": {
+            "link_only": 3,
+            "reply": 84,
+            "repost": 60
+          },
+          "inserted": 155,
+          "skipped_existing": 0
+        },
+        {
+          "username": "shao__meng",
+          "query": "from:shao__meng",
+          "window": [
+            "2026-09-24T10:48:11.325942+00:00",
+            "2026-09-30T10:48:11.325942+00:00"
+          ],
+          "slices": 6,
+          "slice_fetches": [
+            20,
+            21,
+            12,
+            16,
+            24,
+            26
+          ],
+          "truncated_slices": 0,
+          "fetched": 119,
+          "included": 10,
+          "excluded": 109,
+          "author_name": "meng shao",
+          "exclusion_reasons": {
+            "link_only": 15,
+            "low_engagement(<20)": 1,
+            "low_likes(<5)": 7,
+            "reply": 2,
+            "repost": 84
+          },
+          "inserted": 119,
+          "skipped_existing": 0
+        },
+        {
+          "username": "op7418",
+          "query": "from:op7418",
+          "window": [
+            "2026-09-24T10:48:11.325942+00:00",
+            "2026-09-30T10:48:11.325942+00:00"
+          ],
+          "slices": 6,
+          "slice_fetches": [
+            17,
+            17,
+            7,
+            2,
+            7,
+            0
+          ],
+          "truncated_slices": 0,
+          "fetched": 50,
+          "included": 6,
+          "excluded": 44,
+          "author_name": "歸藏(guizang.ai)",
+          "exclusion_reasons": {
+            "link_only": 6,
+            "reply": 23,
+            "repost": 15
+          },
+          "inserted": 50,
+          "skipped_existing": 0
+        },
+        {
+          "username": "vikingmute",
+          "query": "from:vikingmute",
+          "window": [
+            "2026-09-24T10:48:11.325942+00:00",
+            "2026-09-30T10:48:11.325942+00:00"
+          ],
+          "slices": 6,
+          "slice_fetches": [
+            2,
+            5,
+            4,
+            4,
+            2,
+            3
+          ],
+          "truncated_slices": 0,
+          "fetched": 20,
+          "included": 10,
+          "excluded": 10,
+          "author_name": "Viking",
+          "exclusion_reasons": {
+            "reply": 4,
+            "repost": 6
+          },
+          "inserted": 20,
+          "skipped_existing": 0
+        },
+        {
+          "username": "lxfater",
+          "query": "from:lxfater",
+          "window": [
+            "2026-09-24T10:48:11.325942+00:00",
+            "2026-09-30T10:48:11.325942+00:00"
+          ],
+          "slices": 6,
+          "slice_fetches": [
+            4,
+            8,
+            14,
+            8,
+            10,
+            22
+          ],
+          "truncated_slices": 0,
+          "fetched": 66,
+          "included": 18,
+          "excluded": 48,
+          "author_name": "铁锤人",
+          "exclusion_reasons": {
+            "low_engagement(<20)": 2,
+            "low_likes(<5)": 1,
+            "reply": 31,
+            "repost": 11,
+            "too_short(<40)": 3
+          },
+          "inserted": 66,
+          "skipped_existing": 0
+        },
+        {
+          "username": "yihong0618",
+          "query": "from:yihong0618",
+          "window": [
+            "2026-09-24T10:48:11.325942+00:00",
+            "2026-09-30T10:48:11.325942+00:00"
+          ],
+          "slices": 6,
+          "slice_fetches": [
+            17,
+            15,
+            19,
+            20,
+            13,
+            17
+          ],
+          "truncated_slices": 0,
+          "fetched": 101,
+          "included": 4,
+          "excluded": 97,
+          "author_name": "yihong0618",
+          "exclusion_reasons": {
+            "link_only": 6,
+            "low_engagement(<20)": 1,
+            "reply": 25,
+            "repost": 63,
+            "too_short(<40)": 2
+          },
+          "inserted": 101,
+          "skipped_existing": 0
+        },
+        {
+          "username": "geekbb",
+          "query": "from:geekbb",
+          "window": [
+            "2026-09-24T10:48:11.325942+00:00",
+            "2026-09-30T10:48:11.325942+00:00"
+          ],
+          "slices": 6,
+          "slice_fetches": [
+            10,
+            7,
+            10,
+            10,
+            8,
+            12
+          ],
+          "truncated_slices": 0,
+          "fetched": 57,
+          "included": 12,
+          "excluded": 45,
+          "author_name": "Geek",
+          "exclusion_reasons": {
+            "low_engagement(<20)": 3,
+            "reply": 32,
+            "repost": 10
+          },
+          "inserted": 57,
+          "skipped_existing": 0
+        },
+        {
+          "username": "starzq",
+          "query": "from:starzq",
+          "window": [
+            "2026-09-24T10:48:11.325942+00:00",
+            "2026-09-30T10:48:11.325942+00:00"
+          ],
+          "slices": 6,
+          "slice_fetches": [
+            8,
+            2,
+            1,
+            9,
+            8,
+            2
+          ],
+          "truncated_slices": 0,
+          "fetched": 30,
+          "included": 2,
+          "excluded": 28,
+          "author_name": "Star@Day1Global Podcast",
+          "exclusion_reasons": {
+            "low_engagement(<20)": 1,
+            "low_likes(<5)": 1,
+            "reply": 19,
+            "repost": 7
+          },
+          "inserted": 30,
+          "skipped_existing": 0
+        },
+        {
+          "username": "tuturetom",
+          "query": "from:tuturetom",
+          "window": [
+            "2026-09-24T10:48:11.325942+00:00",
+            "2026-09-30T10:48:11.325942+00:00"
+          ],
+          "slices": 6,
+          "slice_fetches": [
+            0,
+            0,
+            0,
+            0,
+            9,
+            10
+          ],
+          "truncated_slices": 0,
+          "fetched": 19,
+          "included": 0,
+          "excluded": 19,
+          "author_name": "Tom Huang",
+          "exclusion_reasons": {
+            "reply": 13,
+            "repost": 6
+          },
+          "inserted": 19,
+          "skipped_existing": 0
+        }
+      ],
+      "annotation": {
+        "annotated": 70,
+        "failed": []
+      },
+      "profiles": [
+        {
+          "scope": "corpus",
+          "sample_count": 70
+        },
+        {
+          "scope": "account",
+          "username": "dotey",
+          "sample_count": 8
+        },
+        {
+          "scope": "account",
+          "username": "shao__meng",
+          "sample_count": 10
+        },
+        {
+          "scope": "account",
+          "username": "op7418",
+          "sample_count": 6
+        },
+        {
+          "scope": "account",
+          "username": "vikingmute",
+          "sample_count": 10
+        },
+        {
+          "scope": "account",
+          "username": "lxfater",
+          "sample_count": 18
+        },
+        {
+          "scope": "account",
+          "username": "yihong0618",
+          "sample_count": 4
+        },
+        {
+          "scope": "account",
+          "username": "geekbb",
+          "sample_count": 12
+        },
+        {
+          "scope": "account",
+          "username": "starzq",
+          "sample_count": 2
+        }
+      ],
+      "x_requests": {
+        "total": 54,
+        "by_method": {
+          "GET": 54
+        },
+        "queries": [
+          "from:dotey",
+          "from:geekbb",
+          "from:lxfater",
+          "from:op7418",
+          "from:shao__meng",
+          "from:starzq",
+          "from:tuturetom",
+          "from:vikingmute",
+          "from:yihong0618"
+        ]
+      }
+    }
+  ]
+}

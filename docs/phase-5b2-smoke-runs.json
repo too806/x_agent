@@ -1,0 +1,958 @@
+{
+  "phase": "5B.2",
+  "note": "每次 smoke 一份记录，累积保存在 runs 里。",
+  "runs": [
+    {
+      "phase": "5B.2",
+      "generated_at": "2026-09-30T09:59:10.317354+00:00",
+      "note": "5 次真机验收 smoke 的观察记录（工作单第三十八节）。内容是当天真实 X 检索与真实 LLM 的产物，因此**不可复现**——它不是基准，是当时的记录。",
+      "goal": "今天帮我找一个最近值得在中文科技 X 圈讨论的 AI Agent 话题。",
+      "smokes": {
+        "1_no_recipe": {
+          "structure_type": null,
+          "hook_type": null,
+          "target_length": null,
+          "prompt_chars": 2450,
+          "unreplaced_placeholders": 0,
+          "candidates": [
+            {
+              "content": "dots 的卖点不是模型有多强，而是每个 agent 一台云端计算机。GPT-6.1 Sol 只是配件。Agent 竞争的主战场已经从模型分数搬到执行环境，还在比跑分就慢了。",
+              "chars": 87,
+              "sentences": 3,
+              "paragraphs": 1,
+              "median_sentence_length": 34.0,
+              "numbers_per_100": 1.235,
+              "concrete_entities": 6,
+              "questions": 0,
+              "emojis": 0,
+              "english_ratio": 0.247,
+              "opening_pattern": "statement",
+              "closing_pattern": "statement",
+              "generic_phrase_hits": 0
+            },
+            {
+              "content": "DevDay 2026 预览：dots 由 GPT-6 Astra 驱动，每个 dots 自带云端计算机，能在用户连接的应用中干活，用户给目标并划定可自主执行的操作，仅限 Pro、Business Premium、Enterprise。模型是配件，云端环境才是门槛。",
+              "chars": 133,
+              "sentences": 2,
+              "paragraphs": 1,
+              "median_sentence_length": 65.5,
+              "numbers_per_100": 1.626,
+              "concrete_entities": 10,
+              "questions": 0,
+              "emojis": 0,
+              "english_ratio": 0.407,
+              "opening_pattern": "statement",
+              "closing_pattern": "statement",
+              "generic_phrase_hits": 0
+            },
+            {
+              "content": "多数人还在比 Agent 背后模型谁跑分高，方向错了。dots 只对 Pro 及以上开放，却给每个 agent 配一台云端计算机。OpenAI 卖的不是智能，是运行环境加账号体系，能接多少应用才是胜负手。",
+              "chars": 102,
+              "sentences": 3,
+              "paragraphs": 1,
+              "median_sentence_length": 36.0,
+              "numbers_per_100": 0.0,
+              "concrete_entities": 5,
+              "questions": 0,
+              "emojis": 0,
+              "english_ratio": 0.245,
+              "opening_pattern": "statement",
+              "closing_pattern": "statement",
+              "generic_phrase_hits": 0
+            }
+          ],
+          "metrics": {
+            "chars_median": 102.0,
+            "chars_min": 87,
+            "chars_max": 133,
+            "sentences_median": 3.0,
+            "paragraphs_median": 1.0,
+            "numbers_per_100_median": 1.235,
+            "concrete_entities_median": 6.0,
+            "questions_total": 0,
+            "generic_phrase_hits_total": 0,
+            "openings": [
+              "statement"
+            ],
+            "closings": [
+              "statement"
+            ]
+          }
+        },
+        "2_with_recipe": {
+          "structure_type": "opinion_first",
+          "hook_type": "statement",
+          "target_length": 180,
+          "prompt_chars": 2569,
+          "unreplaced_placeholders": 0,
+          "candidates": [
+            {
+              "content": "dots 的卖点不是模型，是每个 agent 一台云端计算机。[f3] GPT-6.1 Sol 只是配件。[f1][f7] Agent 竞争的主战场已从跑分转向执行环境：自带计算机、连接应用、用户划定自主权限。[f4][f5] 该盯的是运行环境和账号体系。[f6]",
+              "chars": 132,
+              "sentences": 5,
+              "paragraphs": 1,
+              "median_sentence_length": 22.0,
+              "numbers_per_100": 5.691,
+              "concrete_entities": 18,
+              "questions": 0,
+              "emojis": 0,
+              "english_ratio": 0.211,
+              "opening_pattern": "statement",
+              "closing_pattern": "statement",
+              "generic_phrase_hits": 0
+            },
+            {
+              "content": "GPT-6.1 Sol 只是配件。[f1][f7] dots 由 GPT-6 Astra 驱动，各有云端计算机、可跨应用、用户划定权限。[f2][f3][f4][f5] 仅限 Pro、Business Premium、Enterprise。[f6] 该盯的是运行环境与账号体系。",
+              "chars": 139,
+              "sentences": 4,
+              "paragraphs": 1,
+              "median_sentence_length": 34.0,
+              "numbers_per_100": 7.031,
+              "concrete_entities": 24,
+              "questions": 0,
+              "emojis": 0,
+              "english_ratio": 0.414,
+              "opening_pattern": "statement",
+              "closing_pattern": "statement",
+              "generic_phrase_hits": 0
+            },
+            {
+              "content": "看 GPT-6.1 Sol 的跑分没意义。[f7] DevDay 预览里真正的新东西是 dots：每个 agent 一台云端计算机，可连接应用、按用户授权自主执行，仅限 Pro 及以上。[f1][f3][f4][f5][f6] 跑分高的模型可以替换，运行环境不行。",
+              "chars": 132,
+              "sentences": 3,
+              "paragraphs": 1,
+              "median_sentence_length": 38.0,
+              "numbers_per_100": 5.785,
+              "concrete_entities": 19,
+              "questions": 0,
+              "emojis": 0,
+              "english_ratio": 0.248,
+              "opening_pattern": "statement",
+              "closing_pattern": "statement",
+              "generic_phrase_hits": 0
+            }
+          ],
+          "metrics": {
+            "chars_median": 132.0,
+            "chars_min": 132,
+            "chars_max": 139,
+            "sentences_median": 4.0,
+            "paragraphs_median": 1.0,
+            "numbers_per_100_median": 5.785,
+            "concrete_entities_median": 19.0,
+            "questions_total": 0,
+            "generic_phrase_hits_total": 0,
+            "openings": [
+              "statement"
+            ],
+            "closings": [
+              "statement"
+            ]
+          }
+        },
+        "3_alt_recipe": {
+          "structure_type": "contrast",
+          "hook_type": "statistic",
+          "target_length": 90,
+          "prompt_chars": 2580,
+          "unreplaced_placeholders": 0,
+          "candidates": [
+            {
+              "content": "3 个档位才能用 dots：真正的卖点是每个 agent 一台云端计算机，不是 GPT-6.1 Sol。模型只是配件，OpenAI 把 Agent 竞争从跑分搬到执行环境。跑分还值得盯吗？",
+              "chars": 94,
+              "sentences": 3,
+              "paragraphs": 1,
+              "median_sentence_length": 33.0,
+              "numbers_per_100": 2.353,
+              "concrete_entities": 8,
+              "questions": 1,
+              "emojis": 0,
+              "english_ratio": 0.306,
+              "opening_pattern": "number",
+              "closing_pattern": "question",
+              "generic_phrase_hits": 0
+            },
+            {
+              "content": "每个 dots 1 台云端计算机，可连各类应用，用户给目标并划定自主操作范围，仅限 Pro、Business Premium、Enterprise。而 GPT-6.1 Sol 只是让高难度任务更接近 GPT-6 的配件。护城河在执行环境。谁的账号体系在跑 agent？",
+              "chars": 134,
+              "sentences": 4,
+              "paragraphs": 1,
+              "median_sentence_length": 24.5,
+              "numbers_per_100": 2.439,
+              "concrete_entities": 12,
+              "questions": 1,
+              "emojis": 0,
+              "english_ratio": 0.374,
+              "opening_pattern": "statement",
+              "closing_pattern": "question",
+              "generic_phrase_hits": 1
+            },
+            {
+              "content": "GPT-6.1 Sol 让高难度任务更接近 GPT-6，但 dots 的主线是执行环境：1 个目标、1 台云端计算机、划定的自主权限。分数会被追平，运行环境和账号体系不会。还只比跑分吗？",
+              "chars": 93,
+              "sentences": 3,
+              "paragraphs": 1,
+              "median_sentence_length": 18.0,
+              "numbers_per_100": 4.651,
+              "concrete_entities": 7,
+              "questions": 1,
+              "emojis": 0,
+              "english_ratio": 0.151,
+              "opening_pattern": "statement",
+              "closing_pattern": "question",
+              "generic_phrase_hits": 0
+            }
+          ],
+          "metrics": {
+            "chars_median": 94.0,
+            "chars_min": 93,
+            "chars_max": 134,
+            "sentences_median": 3.0,
+            "paragraphs_median": 1.0,
+            "numbers_per_100_median": 2.439,
+            "concrete_entities_median": 8.0,
+            "questions_total": 3,
+            "generic_phrase_hits_total": 1,
+            "openings": [
+              "number",
+              "statement"
+            ],
+            "closings": [
+              "question"
+            ]
+          }
+        },
+        "1_vs_2": {
+          "chars_median": {
+            "from": 102.0,
+            "to": 132.0
+          },
+          "sentences_median": {
+            "from": 3.0,
+            "to": 4.0
+          },
+          "paragraphs_median": {
+            "from": 1.0,
+            "to": 1.0
+          },
+          "numbers_per_100_median": {
+            "from": 1.235,
+            "to": 5.785
+          },
+          "concrete_entities_median": {
+            "from": 6.0,
+            "to": 19.0
+          },
+          "questions_total": {
+            "from": 0,
+            "to": 0
+          },
+          "generic_phrase_hits_total": {
+            "from": 0,
+            "to": 0
+          },
+          "openings": {
+            "from": [
+              "statement"
+            ],
+            "to": [
+              "statement"
+            ]
+          },
+          "closings": {
+            "from": [
+              "statement"
+            ],
+            "to": [
+              "statement"
+            ]
+          }
+        },
+        "2_vs_3": {
+          "chars_median": {
+            "from": 132.0,
+            "to": 94.0
+          },
+          "sentences_median": {
+            "from": 4.0,
+            "to": 3.0
+          },
+          "paragraphs_median": {
+            "from": 1.0,
+            "to": 1.0
+          },
+          "numbers_per_100_median": {
+            "from": 5.785,
+            "to": 2.439
+          },
+          "concrete_entities_median": {
+            "from": 19.0,
+            "to": 8.0
+          },
+          "questions_total": {
+            "from": 0,
+            "to": 3
+          },
+          "generic_phrase_hits_total": {
+            "from": 0,
+            "to": 1
+          },
+          "openings": {
+            "from": [
+              "statement"
+            ],
+            "to": [
+              "number",
+              "statement"
+            ]
+          },
+          "closings": {
+            "from": [
+              "statement"
+            ],
+            "to": [
+              "question"
+            ]
+          }
+        },
+        "2_recipe": {
+          "structure_type": "opinion_first",
+          "hook_type": "statement",
+          "target_length": 180,
+          "density": "medium",
+          "ending_type": "conclusion",
+          "profile_ref": "smoke@no-corpus"
+        },
+        "4_no_profile_run": {
+          "neutral_recipe": {
+            "structure_type": "unclassified",
+            "hook_type": "unclassified",
+            "target_length": null,
+            "density": "medium",
+            "ending_type": "conclusion",
+            "profile_ref": ""
+          },
+          "neutral_prompt_has_no_placeholder": true,
+          "run_id": "1b729abe-ee2e-435f-b1f3-410a71d7432c",
+          "completed": true,
+          "steps": 9,
+          "finish_reason": null,
+          "guardrail_passed": true,
+          "recipe_used": {
+            "structure_type": "unclassified",
+            "hook_type": "unclassified",
+            "target_length": null,
+            "density": "medium",
+            "ending_type": "conclusion",
+            "profile_ref": ""
+          }
+        },
+        "5_profile_determinism": {
+          "sample_count": 0,
+          "identical": true,
+          "differing_fields": [],
+          "profile": {
+            "sample_count": 0,
+            "median_length": null,
+            "p25_length": null,
+            "p75_length": null,
+            "median_paragraphs": null,
+            "mean_sentence_count": null,
+            "emoji_density": null,
+            "question_density": null,
+            "number_density": null,
+            "english_ratio": null,
+            "structure_distribution": {},
+            "hook_distribution": {},
+            "opening_distribution": {},
+            "closing_distribution": {},
+            "sentence_length_distribution": {}
+          }
+        }
+      },
+      "frozen_input": {
+        "run_id": "186400e0-d2a0-47fb-866c-2b118a7158da",
+        "topic": "GPT-6.1 Sol 出现在 DevDay 2026 预览中，主打高难度任务表现接近 GPT-6",
+        "angle_id": "a1",
+        "claim": "dots 的真正卖点不是模型有多强，而是「每个 agent 一台云端计算机」——GPT-6.1 Sol 只是配件，OpenAI 已经把 Agent 竞争的主战场从模型分数搬到了执行环境。",
+        "evidence_text": "[f1] OpenAI 2026DevDay 发布预览材料中提到了 dots 与 GPT-6.1 Sol。（出处：f9ef46b5-873d-4350-89e7-5efc481428b4）\n[f2] dots 由 GPT-6 Astra 驱动。（出处：f9ef46b5-873d-4350-89e7-5efc481428b4）\n[f3] dots 拥有各自的云端计算机。（出处：f9ef46b5-873d-4350-89e7-5efc481428b4）\n[f4] dots 能在用户选择连接的各类应用中开展工作。（出处：f9ef46b5-873d-4350-89e7-5efc481428b4）\n[f5] 使用 dots 时，用户给它一个目标，并明确它可以自主执行的操作。（出处：f9ef46b5-873d-4350-89e7-5efc481428b4）\n[f6] dots 仅适用于 Pro、Business Premium 和 Enterprise。（出处：f9ef46b5-873d-4350-89e7-5efc481428b4）\n[f7] GPT-6.1 Sol 让 Sol 在高难度任务上的表现更接近 GPT-6。（出处：f9ef46b5-873d-4350-89e7-5efc481428b4）\n[f8] 财经要闻材料标题为“最新24小时财经要闻（10条）”。（出处：6eaf8132-75e1-41b8-bd79-06ff20ff800b）\n[f9] 该财经要闻的第 1 条是“中金公司：电子布需求景气，国产设备迎扩容窗口”。（出处：6eaf8132-75e1-41b8-bd79-06ff20ff800b）\n未知：多条材料仅包含 t.co 短链接，未提供正文，无法从中提取与 AI Agent 相关的事实。；GPT-6.1 Sol 的发布时间、可用范围、具体评测数据未给出。；GPT-6 Astra 与 GPT-6、GPT-6.1 Sol 之间的关系未说明。；dots 的云端计算机、可连接应用、自主执行操作的具体机制与限制未说明。；OpenAI 2026 DevDay 的官方时间、地点以及 GPT-6.1 Sol 是否正式发布未说明。；“它让 Sol 在高难度任务上的表现更接近 GPT-6”中的“它”指代不清晰，原文未明确是否指 GPT-6.1 Sol。；财经要闻仅显示标题和第 1 条，其余 9 条内容未提供。；材料中没有中文科技 X 圈讨论或热度信息，无法判断该话题是否值得讨论。；各 t.co 短链接目标页面的内容未知，是否与 AI Agent 话题相关无法确认。",
+        "evidence": {
+          "facts": 9,
+          "sources": 2,
+          "counterpoints": 0,
+          "unknowns": 9
+        },
+        "recipe_used": {
+          "structure_type": "unclassified",
+          "hook_type": "unclassified",
+          "target_length": null,
+          "density": "medium",
+          "ending_type": "conclusion",
+          "profile_ref": ""
+        },
+        "steps": 9
+      },
+      "profile_recipe_available": false,
+      "profile_recipe_note": "库里没有 corpus Profile，Smoke 2 改用一份**显式构造**的 recipe。它仍然证明'接 recipe 与不接 recipe 的稿子不一样'，但证明不了'从真实语料推出来的 recipe 有用'——后者需要先采语料。",
+      "x_requests": {
+        "total": 4,
+        "by_method": {
+          "GET": 4
+        },
+        "queries": [
+          "AI Agent 智能体 讨论",
+          "AI Agent 智能体 讨论 最新",
+          "GPT-6.1 Sol DevDay 智能体 能力",
+          "Meta Muse AI Agent 产品 发布"
+        ]
+      }
+    },
+    {
+      "phase": "5B.2",
+      "generated_at": "2026-09-30T10:58:17.276199+00:00",
+      "note": "5 次真机验收 smoke 的观察记录（工作单第三十八节）。内容是当天真实 X 检索与真实 LLM 的产物，因此**不可复现**——它不是基准，是当时的记录。",
+      "goal": "今天帮我找一个最近值得在中文科技 X 圈讨论的 AI Agent 话题。",
+      "smokes": {
+        "1_corpus_to_recipe": {
+          "corpus_samples": 70,
+          "profile_row_id_present": true,
+          "profile": {
+            "sample_count": 70,
+            "median_length": 155.0,
+            "p25_length": 108.5,
+            "p75_length": 192.0,
+            "median_paragraphs": 3.0,
+            "mean_sentence_count": 3.914285714285714,
+            "emoji_density": 0.0,
+            "question_density": 0.0,
+            "number_density": 1.673669467787115,
+            "english_ratio": 0.3316813840331591,
+            "structure_distribution": {
+              "case_review": 0.02857142857142857,
+              "contrast": 0.1,
+              "fact_first": 0.3142857142857143,
+              "how_to": 0.04285714285714286,
+              "observation": 0.12857142857142856,
+              "opinion_first": 0.21428571428571427,
+              "prediction": 0.014285714285714285,
+              "question_answer": 0.08571428571428572,
+              "unclassified": 0.07142857142857142
+            },
+            "hook_distribution": {
+              "contrast": 0.07142857142857142,
+              "list": 0.014285714285714285,
+              "question": 0.11428571428571428,
+              "quote": 0.04285714285714286,
+              "statement": 0.6714285714285714,
+              "statistic": 0.014285714285714285,
+              "story": 0.07142857142857142
+            },
+            "opening_distribution": {
+              "address": 0.014285714285714285,
+              "number": 0.014285714285714285,
+              "question": 0.11428571428571428,
+              "quote": 0.014285714285714285,
+              "statement": 0.8428571428571429
+            },
+            "closing_distribution": {
+              "question": 0.04285714285714286,
+              "statement": 0.9571428571428572
+            },
+            "sentence_length_distribution": {
+              "p25": 18.25,
+              "p50": 27.5,
+              "p75": 44.0
+            }
+          },
+          "recipe": {
+            "structure_type": "contrast",
+            "hook_type": "statistic",
+            "observed_target_length": 155,
+            "effective_target_length": 140,
+            "hard_max_length": 140,
+            "density": "medium",
+            "ending_type": "conclusion",
+            "profile_ref": "corpus@2026-09-30T10:56:17.624917+00:00"
+          },
+          "recipe_reasons": [
+            "证据包里有 3 条反方说法，采用对比结构（语料里最常见的是 fact_first，占比 31%）。",
+            "证据包里有带数字的事实，开头用数据切入，比语料里最常见的写法更具体。",
+            "语料长度中位数是 155 字，本次目标 155 字。",
+            "语料每百字 1.67 个数字，密度取中档。",
+            "证据包里有 3 条反方说法，立场取强。",
+            "证据包里有 20 条事实，证据要求取严。",
+            "语料没有明显的口语化或分析型特征，语气取中性。",
+            "语料里 96% 的样本以陈述收尾，本次用结论收尾。",
+            "当前发布长度硬上限是 140 字，小于语料目标 155 字；本次实际执行目标取 140 字。**这是平台约束的结果，不是语料的结论**——语料观察到的是 155 字。",
+            "本次参考的是 70 条真实样本统计出的 Profile（profile_ref=corpus@2026-09-30T10:56:17.624917+00:00）。"
+          ]
+        },
+        "2_baseline_no_recipe": {
+          "structure_type": null,
+          "hook_type": null,
+          "observed_target_length": null,
+          "effective_target_length": null,
+          "hard_max_length": null,
+          "prompt_chars": 6223,
+          "unreplaced_placeholders": 0,
+          "candidates": [
+            {
+              "content": "AI Agent 的胜负手不是模型多聪明，而是谁有权执行、谁来付钱、出了事谁负责。模型能力会被拉平，结算与授权层一旦被占住，就是生态级锁定。",
+              "chars": 70,
+              "sentences": 2,
+              "paragraphs": 1,
+              "median_sentence_length": 34.0,
+              "numbers_per_100": 0.0,
+              "concrete_entities": 2,
+              "questions": 0,
+              "emojis": 0,
+              "english_ratio": 0.103,
+              "opening_pattern": "statement",
+              "closing_pattern": "statement",
+              "generic_phrase_hits": 0
+            },
+            {
+              "content": "一个 agent 要串起模型提供商、工具开发者、支付服务和产品团队；GPT-6.1 Sol 已把价格压到约五分之一。能力层在被拉平，卡住结算与授权这条管道才有锁定。",
+              "chars": 82,
+              "sentences": 3,
+              "paragraphs": 1,
+              "median_sentence_length": 23.0,
+              "numbers_per_100": 1.282,
+              "concrete_entities": 4,
+              "questions": 0,
+              "emojis": 0,
+              "english_ratio": 0.141,
+              "opening_pattern": "statement",
+              "closing_pattern": "statement",
+              "generic_phrase_hits": 0
+            },
+            {
+              "content": "都在比谁的 agent 更强，这个问题问错了。当 agent 要调用外部服务并为此付费，门槛就变成授权与结算。谁握住这条管道，谁定义生态。",
+              "chars": 69,
+              "sentences": 3,
+              "paragraphs": 1,
+              "median_sentence_length": 22.0,
+              "numbers_per_100": 0.0,
+              "concrete_entities": 1,
+              "questions": 0,
+              "emojis": 0,
+              "english_ratio": 0.154,
+              "opening_pattern": "statement",
+              "closing_pattern": "statement",
+              "generic_phrase_hits": 0
+            }
+          ],
+          "metrics": {
+            "chars_median": 70.0,
+            "chars_min": 69,
+            "chars_max": 82,
+            "sentences_median": 3.0,
+            "paragraphs_median": 1.0,
+            "numbers_per_100_median": 0.0,
+            "concrete_entities_median": 2.0,
+            "questions_total": 0,
+            "generic_phrase_hits_total": 0,
+            "openings": [
+              "statement"
+            ],
+            "closings": [
+              "statement"
+            ]
+          }
+        },
+        "2_writer_with_real_recipe": {
+          "structure_type": "contrast",
+          "hook_type": "statistic",
+          "observed_target_length": 155,
+          "effective_target_length": 140,
+          "hard_max_length": 140,
+          "prompt_chars": 6823,
+          "unreplaced_placeholders": 0,
+          "candidates": [
+            {
+              "content": "GPT-6.1 Sol 价格约为 GPT-6 Astra 的五分之一，模型能力正在被拉平。AI Agent 的分水岭不在谁更聪明，而在谁有权执行、谁来付钱、出了事谁负责。材料已提到，智能体要调用外部服务并为消耗的资源付费。这层管道一旦被占住，就是生态级锁定。",
+              "chars": 129,
+              "sentences": 4,
+              "paragraphs": 1,
+              "median_sentence_length": 32.0,
+              "numbers_per_100": 1.639,
+              "concrete_entities": 8,
+              "questions": 0,
+              "emojis": 0,
+              "english_ratio": 0.172,
+              "opening_pattern": "statement",
+              "closing_pattern": "statement",
+              "generic_phrase_hits": 0
+            },
+            {
+              "content": "OpenAI 2026 DevDay 预览中，dots 由 GPT-6 Astra 驱动，仅对 Pro、Business Premium 和 Enterprise 开放；GPT-6.1 Sol 以约五分之一价格接近其水平。能力在收敛，准入、付费与授权没变。分水岭在结算与授权层。",
+              "chars": 139,
+              "sentences": 4,
+              "paragraphs": 1,
+              "median_sentence_length": 20.5,
+              "numbers_per_100": 2.4,
+              "concrete_entities": 14,
+              "questions": 0,
+              "emojis": 0,
+              "english_ratio": 0.464,
+              "opening_pattern": "statement",
+              "closing_pattern": "statement",
+              "generic_phrase_hits": 0
+            },
+            {
+              "content": "6 月 18 日，OpenAI 一次内部 evaluation 中，agent 查询澳洲医药支出等公开统计数据，被传成“黑进 Medicare”。多数人担心越权，但材料显示只是查询。真正的分水岭在授权与结算：agent 要调用外部服务并为消耗的资源付费。",
+              "chars": 127,
+              "sentences": 3,
+              "paragraphs": 1,
+              "median_sentence_length": 35.0,
+              "numbers_per_100": 1.695,
+              "concrete_entities": 7,
+              "questions": 0,
+              "emojis": 0,
+              "english_ratio": 0.288,
+              "opening_pattern": "number",
+              "closing_pattern": "statement",
+              "generic_phrase_hits": 0
+            }
+          ],
+          "metrics": {
+            "chars_median": 129.0,
+            "chars_min": 127,
+            "chars_max": 139,
+            "sentences_median": 4.0,
+            "paragraphs_median": 1.0,
+            "numbers_per_100_median": 1.695,
+            "concrete_entities_median": 8.0,
+            "questions_total": 0,
+            "generic_phrase_hits_total": 0,
+            "openings": [
+              "number",
+              "statement"
+            ],
+            "closings": [
+              "statement"
+            ]
+          }
+        },
+        "2_recipe": {
+          "structure_type": "contrast",
+          "hook_type": "statistic",
+          "observed_target_length": 155,
+          "effective_target_length": 140,
+          "hard_max_length": 140,
+          "density": "medium",
+          "ending_type": "conclusion",
+          "profile_ref": "corpus@2026-09-30T10:56:17.624917+00:00"
+        },
+        "2_vs_baseline": {
+          "chars_median": {
+            "from": 70.0,
+            "to": 129.0
+          },
+          "sentences_median": {
+            "from": 3.0,
+            "to": 4.0
+          },
+          "paragraphs_median": {
+            "from": 1.0,
+            "to": 1.0
+          },
+          "numbers_per_100_median": {
+            "from": 0.0,
+            "to": 1.695
+          },
+          "concrete_entities_median": {
+            "from": 2.0,
+            "to": 8.0
+          },
+          "questions_total": {
+            "from": 0,
+            "to": 0
+          },
+          "generic_phrase_hits_total": {
+            "from": 0,
+            "to": 0
+          },
+          "openings": {
+            "from": [
+              "statement"
+            ],
+            "to": [
+              "number",
+              "statement"
+            ]
+          },
+          "closings": {
+            "from": [
+              "statement"
+            ],
+            "to": [
+              "statement"
+            ]
+          }
+        },
+        "4_alt_recipe": {
+          "structure_type": "contrast",
+          "hook_type": "statistic",
+          "observed_target_length": 90,
+          "effective_target_length": 90,
+          "hard_max_length": null,
+          "prompt_chars": 6353,
+          "unreplaced_placeholders": 0,
+          "candidates": [
+            {
+              "content": "1/5 的价格就能贴近 GPT-6 Astra，模型这层正被拉平。Meta 的 Muse 也被卷进同一场竞争。真正的分水岭是谁有权执行、谁来付钱、出了事谁负责：这层结算与授权一旦被占住，就是生态级锁定。你的 agent 打算走谁的管道？",
+              "chars": 118,
+              "sentences": 4,
+              "paragraphs": 1,
+              "median_sentence_length": 26.5,
+              "numbers_per_100": 2.727,
+              "concrete_entities": 8,
+              "questions": 1,
+              "emojis": 0,
+              "english_ratio": 0.191,
+              "opening_pattern": "number",
+              "closing_pattern": "question",
+              "generic_phrase_hits": 0
+            },
+            {
+              "content": "GPT-6.1 Sol 以约 1/5 价格贴近 GPT-6 Astra，dots 各带云端计算机跨应用执行。但一个 agent 要调模型、调外部服务、还要付费，金融基础设施因此成了设计的一部分。模型会被拉平，这层不会。你押能力层还是押它？",
+              "chars": 119,
+              "sentences": 4,
+              "paragraphs": 1,
+              "median_sentence_length": 26.5,
+              "numbers_per_100": 3.636,
+              "concrete_entities": 10,
+              "questions": 1,
+              "emojis": 0,
+              "english_ratio": 0.209,
+              "opening_pattern": "statement",
+              "closing_pattern": "question",
+              "generic_phrase_hits": 0
+            },
+            {
+              "content": "1/5 的价差就抹平了模型差距，说明能力层本身没有护城河。大家还在比谁的 agent 更聪明，可 agent 要调模型、用外部服务并付费——钱和权限走谁的管道，谁就赢。你还盯着跑分看吗？",
+              "chars": 93,
+              "sentences": 3,
+              "paragraphs": 1,
+              "median_sentence_length": 28.0,
+              "numbers_per_100": 2.273,
+              "concrete_entities": 3,
+              "questions": 1,
+              "emojis": 0,
+              "english_ratio": 0.114,
+              "opening_pattern": "number",
+              "closing_pattern": "question",
+              "generic_phrase_hits": 1
+            }
+          ],
+          "metrics": {
+            "chars_median": 118.0,
+            "chars_min": 93,
+            "chars_max": 119,
+            "sentences_median": 4.0,
+            "paragraphs_median": 1.0,
+            "numbers_per_100_median": 2.727,
+            "concrete_entities_median": 8.0,
+            "questions_total": 3,
+            "generic_phrase_hits_total": 1,
+            "openings": [
+              "number",
+              "statement"
+            ],
+            "closings": [
+              "question"
+            ]
+          }
+        },
+        "4_vs_2": {
+          "chars_median": {
+            "from": 129.0,
+            "to": 118.0
+          },
+          "sentences_median": {
+            "from": 4.0,
+            "to": 4.0
+          },
+          "paragraphs_median": {
+            "from": 1.0,
+            "to": 1.0
+          },
+          "numbers_per_100_median": {
+            "from": 1.695,
+            "to": 2.727
+          },
+          "concrete_entities_median": {
+            "from": 8.0,
+            "to": 8.0
+          },
+          "questions_total": {
+            "from": 0,
+            "to": 3
+          },
+          "generic_phrase_hits_total": {
+            "from": 0,
+            "to": 1
+          },
+          "openings": {
+            "from": [
+              "number",
+              "statement"
+            ],
+            "to": [
+              "number",
+              "statement"
+            ]
+          },
+          "closings": {
+            "from": [
+              "statement"
+            ],
+            "to": [
+              "question"
+            ]
+          }
+        },
+        "4_alt_recipe_recipe": {
+          "structure_type": "contrast",
+          "hook_type": "statistic",
+          "observed_target_length": 90,
+          "effective_target_length": 90,
+          "hard_max_length": null,
+          "density": "high",
+          "ending_type": "question",
+          "profile_ref": "smoke@alt"
+        },
+        "5_no_recipe_full_run": {
+          "neutral_recipe": {
+            "structure_type": "unclassified",
+            "hook_type": "unclassified",
+            "observed_target_length": null,
+            "effective_target_length": null,
+            "hard_max_length": null,
+            "density": "medium",
+            "ending_type": "conclusion",
+            "profile_ref": ""
+          },
+          "neutral_prompt_has_no_placeholder": true,
+          "profile_lookup_hidden_for_this_run": true,
+          "run_id": "17b7eed1-e234-4ef3-b5fd-1e5063ef1e33",
+          "completed": true,
+          "steps": 10,
+          "finish_reason": null,
+          "guardrail_passed": true,
+          "recipe_used": {
+            "structure_type": "unclassified",
+            "hook_type": "unclassified",
+            "observed_target_length": null,
+            "effective_target_length": null,
+            "hard_max_length": 140,
+            "density": "medium",
+            "ending_type": "conclusion",
+            "profile_ref": ""
+          },
+          "recipe_was_neutral": true
+        },
+        "3_profile_determinism": {
+          "sample_count": 70,
+          "identical": true,
+          "differing_fields": [],
+          "profile": {
+            "sample_count": 70,
+            "median_length": 155.0,
+            "p25_length": 108.5,
+            "p75_length": 192.0,
+            "median_paragraphs": 3.0,
+            "mean_sentence_count": 3.914285714285714,
+            "emoji_density": 0.0,
+            "question_density": 0.0,
+            "number_density": 1.673669467787115,
+            "english_ratio": 0.3316813840331591,
+            "structure_distribution": {
+              "case_review": 0.02857142857142857,
+              "contrast": 0.1,
+              "fact_first": 0.3142857142857143,
+              "how_to": 0.04285714285714286,
+              "observation": 0.12857142857142856,
+              "opinion_first": 0.21428571428571427,
+              "prediction": 0.014285714285714285,
+              "question_answer": 0.08571428571428572,
+              "unclassified": 0.07142857142857142
+            },
+            "hook_distribution": {
+              "contrast": 0.07142857142857142,
+              "list": 0.014285714285714285,
+              "question": 0.11428571428571428,
+              "quote": 0.04285714285714286,
+              "statement": 0.6714285714285714,
+              "statistic": 0.014285714285714285,
+              "story": 0.07142857142857142
+            },
+            "opening_distribution": {
+              "address": 0.014285714285714285,
+              "number": 0.014285714285714285,
+              "question": 0.11428571428571428,
+              "quote": 0.014285714285714285,
+              "statement": 0.8428571428571429
+            },
+            "closing_distribution": {
+              "question": 0.04285714285714286,
+              "statement": 0.9571428571428572
+            },
+            "sentence_length_distribution": {
+              "p25": 18.25,
+              "p50": 27.5,
+              "p75": 44.0
+            }
+          }
+        }
+      },
+      "frozen_input": {
+        "run_id": "62d651e0-acca-41ea-b461-9b67181594fb",
+        "topic": "Meta 加速进入 AI Agent 竞争，Muse 进展引发「从模型能力转向智能体时代」的讨论",
+        "angle_id": "a2",
+        "claim": "AI Agent 竞争真正的分水岭不在模型有多聪明，而在「谁有权执行、谁来付钱、出了事谁负责」这套结算与授权层——模型会被拉平，但这层基础设施一旦被某家占住，就是生态级的锁定。",
+        "evidence_text": "[f1] Meta 正加速进入 AI Agent 竞争，Muse 的快速发展引发市场关注，外界正在讨论 Meta 如何整合 AI Agent 技术与团队能力。（出处：70f3446b-36c0-433f-a6c0-f45076b1fde2, 75c4e452-03c1-4e1e-9706-2eb010b07322, 931d028a-479e-4305-91f3-d577dcaaef7e, 38bf4a41-9c35-4bce-a045-642c5ef0edd8, a63001b9-7002-4398-ab48-c69a93bffe43, 272db497-7d70-429e-96ac-2e5bef643058, 63287387-6a9c-4a30-becb-6880757f4d8b, e9fc86ec-76ff-43cd-bf94-5223589242cd, 0a7f46e9-46ed-48cf-8eb3-173802157499, a1a3da14-6f91-4d7c-8697-e0f9738a3473, 3b98e16e-748b-4326-b80f-28282723beea, 940d154e-0a87-45ee-8107-fc57c251d3be, 0a503360-c55a-4993-b463-ed1bdb54c937, d3a9c6c0-9a86-4ba2-985f-e315b48675cd, bc7fb076-7572-4002-99c8-7aba39259aee, f4827e75-5f4d-4e69-950c-3266fea7625d, 7df49076-418c-45f7-9c53-9219f76fd0aa, dcf3ea89-3c3b-4c41-a79d-9ecd193a7c56）\n[f2] 材料称从 Llama 到 Muse，AI 竞争正在从模型能力进入智能体时代。（出处：70f3446b-36c0-433f-a6c0-f45076b1fde2, 75c4e452-03c1-4e1e-9706-2eb010b07322, 931d028a-479e-4305-91f3-d577dcaaef7e, 38bf4a41-9c35-4bce-a045-642c5ef0edd8, a63001b9-7002-4398-ab48-c69a93bffe43, 272db497-7d70-429e-96ac-2e5bef643058, 63287387-6a9c-4a30-becb-6880757f4d8b, e9fc86ec-76ff-43cd-bf94-5223589242cd, 0a7f46e9-46ed-48cf-8eb3-173802157499, a1a3da14-6f91-4d7c-8697-e0f9738a3473, 3b98e16e-748b-4326-b80f-28282723beea, 940d154e-0a87-45ee-8107-fc57c251d3be, 0a503360-c55a-4993-b463-ed1bdb54c937, d3a9c6c0-9a86-4ba2-985f-e315b48675cd, bc7fb076-7572-4002-99c8-7aba39259aee, f4827e75-5f4d-4e69-950c-3266fea7625d, 7df49076-418c-45f7-9c53-9219f76fd0aa, dcf3ea89-3c3b-4c41-a79d-9ecd193a7c56）\n[f3] AI 技术正从“生成内容（Generative）”快速向“自主执行任务（Agentic）”演进，近两日全球范围内关于 AI 智能体应用落地与合规监管的讨论再度达到高潮。（出处：e46c5f16-5a30-4319-9712-bce54f7ef2b2）\n[f4] 上述讨论涉及的具体场景包括自动代劳复杂的法律文件审计、跨平台代码部署，以及直接调用 API。（出处：e46c5f16-5a30-4319-9712-bce54f7ef2b2）\n[f5] 材料将“当 AI 不仅能回答、还能替你做决定”作为讨论切入点，提出是否准备好迎接自治智能体时代的问题。（出处：e46c5f16-5a30-4319-9712-bce54f7ef2b2）\n[f6] 材料列出 OpenAI 2026 DevDay 发布预览中的一项为 dots：由 GPT-6 Astra 驱动，拥有各自的云端计算机，能在用户选择连接的各类应用中开展工作，给定一个目标并明确其可自主执行的操作，仅适用于 Pro、Business Premium 和 Enterprise。（出处：b918f693-9576-40b9-a4ff-cbf8cf6a2b1f）\n[f7] 同一材料称 GPT-6.1 Sol 让 Sol 在高难度任务上的表现更接近 GPT-6。（出处：b918f693-9576-40b9-a4ff-cbf8cf6a2b1f）\n[f8] OpenAI 发布 GPT-6.1 Sol，在智能体编码、计算机使用和专业工作上接近 GPT-6 Astra，价格约为其五分之一。（出处：959efc94-f9ba-4ada-a385-abcca0f21dc2）\n[f9] 该材料提到 GPT-6.1 Sol 的 API 定价为每百万输入 token，原文在此处截断。（出处：959efc94-f9ba-4ada-a385-abcca0f21dc2）\n[f10] 该材料将 GPT-6.1 Sol 发布标注为“影响大·可执行高”。（出处：959efc94-f9ba-4ada-a385-abcca0f21dc2）\n[f11] 材料称事情始于 6 月 18 日，OpenAI 在一次内部 evaluation 中，让一个尚未公开具体型号的 AI agent 查询澳洲医药支出等公开统计数据。（出处：234e9937-7737-4315-a7df-ad025368e0c7）\n[f12] 材料提到有说法称 OpenAI 的 AI agent“黑进”了澳洲 Medicare，并提出“智能体真的觉醒了么”的疑问。（出处：234e9937-7737-4315-a7df-ad025368e0c7）\n[f13] 一个智能体应用可能依赖多个参与方：模型提供商、工具开发者、支付服务，以及负责用户体验的产品团队。（出处：a264857a-ab66-45a8-97fc-63b0850a7acf）\n[f14] 智能体基础设施需要共同设计，这些系统需要相互配合，才能让任务从请求顺利推进到结果。（出处：a264857a-ab66-45a8-97fc-63b0850a7acf）\n[f15] AI Agent Summit 为讨论不同服务之间的衔接提供了合适的场景。（出处：a264857a-ab66-45a8-97fc-63b0850a7acf）\n[f16] 材料称 https://t.co/75nSdsZ6MN 将作为战略合作伙伴参与 Noos Network 的 AI Agent Summit，让开发者有机会把反复失败的任务、耗时过长的集成或难以解释的成本等实际问题带到线下讨论。（出处：be8f6450-b0c4-41ec-9f7b-a49a8e045d9b）\n[f17] 一个 AI Agent 在执行任务时，可能需要调用模型、使用外部服务，并为所消耗的资源支付费用。（出处：af5905be-d3fe-47bc-9c9e-737c09a705b3）\n[f18] 材料称这让金融基础设施成为智能体设计中值得深入讨论的一部分。（出处：af5905be-d3fe-47bc-9c9e-737c09a705b3）\n[f19] 材料称 https://t.co/75nSdsZ6MN 将作为战略合作伙伴，参与 TOKEN2049 期间由 Noos Network 举办的 AI Agent（原文在此处截断）。（出处：af5905be-d3fe-47bc-9c9e-737c09a705b3）\n[f20] 材料将房地产贴息、AI智能体、超节点、AI安全列为概念股梳理涉及的题材。（出处：e7dc2ccb-9225-4d5a-a77b-3984782c4b70）\n共识：“Meta 正加速进入 AI Agent 竞争、Muse 进展受关注、从 Llama 到 Muse 意味着 AI 竞争从模型能力进入智能体时代”这一说法在材料中以完全相同文本被多次重复出现（同一账号 @XBITDEX_ZH 的转述）。；“AI 竞争/技术重心从生成内容转向自主执行任务的智能体”这一判断，在 Meta/Muse 相关材料与 AI 智能体合规监管讨论材料中同时出现。；“智能体执行任务需要依赖模型之外的多个参与方（外部服务/工具/支付）”与“金融基础设施是智能体设计的一部分”两处材料相互印证。；智能体相关活动（AI Agent Summit）被材料描述为让开发者把集成、失败任务、成本等实际问题带入线下讨论的场景，与“智能体基础设施需要共同设计”的说法相互印证。\n反方：围绕 OpenAI agent 与澳洲 Medicare 的传闻，材料给出的实际情形是：该 agent 在一次内部 evaluation 中被要求查询澳洲医药支出等公开统计数据，材料以“智能体真的觉醒了么”作疑问，而非认定 agent 越权入侵。；在“AI 从生成走向自主执行”的乐观叙事之外，材料同时指出近两日关于 AI 智能体应用落地与“合规监管”的讨论也达到高潮，并直接提出“我们准备好迎接自治智能体时代了吗”。；OpenAI 相关材料将 GPT-6.1 Sol 的定位描述为“以约五分之一价格接近 GPT-6 Astra 的智能水平”“在高难度任务上的表现更接近 GPT-6”，属于“接近”而非超越的表述。\n未知：Meta 的 Muse 具体是什么、何时发布、模型或产品细节、团队整合方式为何，材料中除重复的转述外没有任何具体信息。；重复出现的 Meta/Muse 转述材料均未附带时间信息，无法确定这批说法的时间与是否为同一时间的重复扩散。；OpenAI 2026 DevDay 相关内容在材料中被标为“发布预览”，无法确认这些发布是否已经正式发生。；GPT-6.1 Sol 的 API 每百万输入 token 定价具体数值在材料中被截断，无法获得。；材料仅写“6 月 18 日”，未给出年份与具体时刻，无法确定该事件的确切时间。；Noos Network 举办的 AI Agent Summit 的具体时间、地点、议程未见说明，且材料只给出截断的活动名称。；多条材料仅有 t.co 短链而无正文（3c631c60-ea12-4cd3-b15c-24b787513837、a6cc747f-9016-498b-9e1b-faa9f4499e55、f5515a26-078a-402a-a4df-bbe9dfacdaaa、bdfd5792-2347-4b99-b048-6b227b11b498、bc1bc52c-37c7-43d9-9c92-5e22d6eec542、30ac7d12-73a5-4c66-952f-39b71416043e、7acbc860-ef13-419d-b131-caf1b34b6479、b9a3e8b5-361f-4e40-8baf-d323f661658c、64cb1c79-28e0-4328-8005-6e63f505cf07），其内容不可见。；材料中“战略合作伙伴 https://t.co/75nSdsZ6MN”的实际身份未说明。；材料未给出 Meta/Muse 与 OpenAI 发布之间的先后关系或直接关联。",
+        "evidence": {
+          "facts": 20,
+          "sources": 26,
+          "counterpoints": 3,
+          "unknowns": 9
+        },
+        "recipe_used": {
+          "structure_type": "contrast",
+          "hook_type": "statistic",
+          "observed_target_length": 155,
+          "effective_target_length": 140,
+          "hard_max_length": 140,
+          "density": "medium",
+          "ending_type": "conclusion",
+          "profile_ref": "corpus@2026-09-30T10:56:17.624917+00:00"
+        },
+        "steps": 9
+      },
+      "profile_recipe_available": true,
+      "corpus_reuse_check": {
+        "corpus_samples": 70,
+        "span_n": 12,
+        "candidates_checked": 9,
+        "offenders": [],
+        "passed": true,
+        "detector_self_test": {
+          "poisoned_shared_spans": 29,
+          "fires": true
+        }
+      },
+      "x_requests": {
+        "total": 3,
+        "by_method": {
+          "GET": 3
+        },
+        "queries": [
+          "AI Agent 智能体 讨论",
+          "Meta 加速进入 AI Agent 竞争，Muse 进展引发「从模型能力转向智能体时代」的讨论"
+        ]
+      }
+    }
+  ]
+}
