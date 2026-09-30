@@ -1,0 +1,1311 @@
+{
+  "phase": "5B.1",
+  "generated_at": "2026-09-30T05:27:22.450813+00:00",
+  "note": "5 次真机只读 smoke run 的观察记录（工作单第二十七 / 三十八节 L）。内容是当天真实 X 检索与真实 LLM 的产物，因此**不可复现**——它不是基准，是当时的记录。",
+  "x_requests": {
+    "total": 10,
+    "by_method": {
+      "GET": 10
+    }
+  },
+  "network": {
+    "via_proxy": "http://127.0.0.1:7897",
+    "direct": false
+  },
+  "acceptance": {
+    "criteria": "工作单第二十一节",
+    "passed": 5,
+    "total": 5,
+    "all_passed": true
+  },
+  "runs": [
+    {
+      "id": "smoke-1",
+      "goal": "今天帮我找一个最近值得在中文科技 X 圈讨论的 AI Agent 话题。",
+      "watch": "discover_trends → select_topic → research → evidence",
+      "started_at": "2026-09-30T05:18:36.142285+00:00",
+      "elapsed_seconds": 84.6,
+      "error": null,
+      "run_id": "e9554b2c-4ac2-43d9-bd07-83c1f29049da",
+      "steps": 8,
+      "action_sequence": [
+        "discover_topics",
+        "select_topic",
+        "extract_evidence",
+        "generate_angles",
+        "select_angle",
+        "generate_candidates",
+        "criticize",
+        "finish"
+      ],
+      "discover_trends": {
+        "ran": true,
+        "step": 1,
+        "candidate_count": 5,
+        "qualified_count": 2
+      },
+      "research_calls": {
+        "steps": 0,
+        "x_search_requests": 1,
+        "x_requests_total": 1,
+        "x_post_requests": 0
+      },
+      "x_search_windows": [
+        {
+          "query": "AI Agent 智能体 讨论",
+          "start_time": "2026-09-27T05:18:39Z",
+          "end_time": "2026-09-30T05:18:24Z",
+          "max_results": "25"
+        }
+      ],
+      "candidate_topics": [
+        {
+          "topic_id": "t1",
+          "title": "Meta 被指加速进入 AI Agent 竞争，从 Llama 走向 Muse",
+          "trend_score": 85.9,
+          "trend_score_raw": 85.9,
+          "qualification": "qualified",
+          "lifecycle": "researching",
+          "author_count": 15,
+          "discussion_count": 15,
+          "source_post_ids": [
+            "fd014f4e-ba7b-48b5-a530-aa321a74c9e0",
+            "706bc004-7748-4576-acb3-6f33ea803f52",
+            "77488ad9-b8e7-4a70-9d3d-8238a115ca57",
+            "cd1cd50c-2a05-4320-8ea5-30b676fedaf5",
+            "fbba87de-0359-487a-aee4-e56f97eced23",
+            "f38c8dc6-7ad6-4c17-b656-b48f75c13ff0",
+            "3f89cd8d-e846-40ed-84be-b39ac6494921",
+            "2b4175d9-a202-4e28-b7da-2e276a07833e",
+            "12e61948-222e-498f-ae34-63b2923359a5",
+            "119a5c80-7108-4490-b4f1-76dd2618c5fb",
+            "f0c10508-1d80-483f-8dcb-f543292f5844",
+            "8c3baa33-71c0-42f1-9040-801a9af95746",
+            "874a1dd6-76d4-44e7-89ab-46a8a50ccd99",
+            "d51119a3-d6e5-4ced-8835-308bb8cbb20b",
+            "83d5230e-060f-426b-ab4d-02eec7342828"
+          ],
+          "latest_seen_at": "2026-09-29T12:17:25+00:00",
+          "observed_at": "2026-09-30T05:18:39.860892+00:00",
+          "trend_reasons": [
+            "最新一条发布于 17.0 小时前，recency 0.6117（半衰期 24 小时）",
+            "15 位不同作者参与，spread 1.0000（满值 4 人）",
+            "观测互动 1500（点赞×1+转发×2+回复×2+引用×3），engagement 1.0000（饱和值 500）",
+            "窗口内首条出现在 75% 处，novelty 0.7545",
+            "引用 15 条来源、其中 15 条可核验，source_quality 1.0000",
+            "trend_score_raw = 100 × (recency×0.3 + spread×0.25 + engagement×0.2 + source_quality×0.15 + novelty×0.1) = 85.90"
+          ]
+        },
+        {
+          "topic_id": "t2",
+          "title": "OpenAI DevDay 2026 发布 GPT-6.1 Sol 与自治智能体 dots，智能体从\"回答\"走向\"替你执行\"",
+          "trend_score": 67.48,
+          "trend_score_raw": 67.48,
+          "qualification": "qualified",
+          "lifecycle": "qualified",
+          "author_count": 2,
+          "discussion_count": 2,
+          "source_post_ids": [
+            "7e7efbf3-edc8-4bbf-b20f-91bbfa5dc91c",
+            "1b91c0c3-80f4-44bc-8807-5e552a665da6"
+          ],
+          "latest_seen_at": "2026-09-29T18:51:18+00:00",
+          "observed_at": "2026-09-30T05:18:39.860892+00:00",
+          "trend_reasons": [
+            "最新一条发布于 10.5 小时前，recency 0.7394（半衰期 24 小时）",
+            "2 位不同作者参与，spread 0.5000（满值 4 人）",
+            "观测互动 17（点赞×1+转发×2+回复×2+引用×3），engagement 0.4649（饱和值 500）",
+            "窗口内首条出现在 85% 处，novelty 0.8496",
+            "引用 2 条来源、其中 2 条可核验，source_quality 1.0000",
+            "trend_score_raw = 100 × (recency×0.3 + spread×0.25 + engagement×0.2 + source_quality×0.15 + novelty×0.1) = 67.48"
+          ]
+        },
+        {
+          "topic_id": "t3",
+          "title": "A 股概念股梳理把房地产贴息、AI 智能体、超节点、AI 安全并列炒作",
+          "trend_score": 40.0,
+          "trend_score_raw": 65.45,
+          "qualification": "weak_support",
+          "lifecycle": "discarded",
+          "author_count": 1,
+          "discussion_count": 1,
+          "source_post_ids": [
+            "7f4791c1-b831-43ff-adb9-b0506af6607c"
+          ],
+          "latest_seen_at": "2026-09-30T01:21:18+00:00",
+          "observed_at": "2026-09-30T05:18:39.860892+00:00",
+          "trend_reasons": [
+            "最新一条发布于 4.0 小时前，recency 0.8920（半衰期 24 小时）",
+            "1 位不同作者参与，spread 0.2500（满值 4 人）",
+            "观测互动 11（点赞×1+转发×2+回复×2+引用×3），engagement 0.3997（饱和值 500）",
+            "窗口内首条出现在 95% 处，novelty 0.9451",
+            "引用 1 条来源、其中 1 条可核验，source_quality 1.0000",
+            "trend_score_raw = 100 × (recency×0.3 + spread×0.25 + engagement×0.2 + source_quality×0.15 + novelty×0.1) = 65.45",
+            "单一来源上限 40 生效（作者数 1 或可核验来源数 1 不足）"
+          ]
+        },
+        {
+          "topic_id": "t4",
+          "title": "AI agent 是否\"黑进\"了澳洲 Medicare：一次内部评测如何被解读为智能体觉醒",
+          "trend_score": 40.0,
+          "trend_score_raw": 52.35,
+          "qualification": "weak_support",
+          "lifecycle": "discarded",
+          "author_count": 1,
+          "discussion_count": 1,
+          "source_post_ids": [
+            "bdf3546c-5484-4281-b98b-322bf5a4cad1"
+          ],
+          "latest_seen_at": "2026-09-29T13:15:33+00:00",
+          "observed_at": "2026-09-30T05:18:39.860892+00:00",
+          "trend_reasons": [
+            "最新一条发布于 16.1 小时前，recency 0.6290（半衰期 24 小时）",
+            "1 位不同作者参与，spread 0.2500（满值 4 人）",
+            "观测互动 3（点赞×1+转发×2+回复×2+引用×3），engagement 0.2230（饱和值 500）",
+            "窗口内首条出现在 78% 处，novelty 0.7771",
+            "引用 1 条来源、其中 1 条可核验，source_quality 1.0000",
+            "trend_score_raw = 100 × (recency×0.3 + spread×0.25 + engagement×0.2 + source_quality×0.15 + novelty×0.1) = 52.35",
+            "单一来源上限 40 生效（作者数 1 或可核验来源数 1 不足）"
+          ]
+        },
+        {
+          "topic_id": "t5",
+          "title": "自治智能体时代是否已经到来：从生成内容到自主执行任务的合规与落地之争",
+          "trend_score": 40.0,
+          "trend_score_raw": 52.54,
+          "qualification": "weak_support",
+          "lifecycle": "discarded",
+          "author_count": 1,
+          "discussion_count": 1,
+          "source_post_ids": [
+            "46b7b8cd-1f42-403b-a011-f2f9395b74b3"
+          ],
+          "latest_seen_at": "2026-09-29T19:34:00+00:00",
+          "observed_at": "2026-09-30T05:18:39.860892+00:00",
+          "trend_reasons": [
+            "最新一条发布于 9.7 小时前，recency 0.7547（半衰期 24 小时）",
+            "1 位不同作者参与，spread 0.2500（满值 4 人）",
+            "观测互动 0（点赞×1+转发×2+回复×2+引用×3），engagement 0.0000（饱和值 500）",
+            "窗口内首条出现在 86% 处，novelty 0.8647",
+            "引用 1 条来源、其中 1 条可核验，source_quality 1.0000",
+            "trend_score_raw = 100 × (recency×0.3 + spread×0.25 + engagement×0.2 + source_quality×0.15 + novelty×0.1) = 52.54",
+            "单一来源上限 40 生效（作者数 1 或可核验来源数 1 不足）"
+          ]
+        }
+      ],
+      "selected_topic": "Meta 被指加速进入 AI Agent 竞争，从 Llama 走向 Muse",
+      "selected_topic_step": 2,
+      "agent_run_topic": "Meta 被指加速进入 AI Agent 竞争，从 Llama 走向 Muse",
+      "run_status": "waiting_for_review",
+      "critic_count": 1,
+      "revision_count": null,
+      "research_count": 1,
+      "evidence_count": {
+        "facts": 18,
+        "sources": 20,
+        "consensus": 4,
+        "counterpoints": 3,
+        "unknowns": 9
+      },
+      "evidence_traceability": {
+        "checked": 38,
+        "broken": []
+      },
+      "angles": [
+        {
+          "angle_id": "a1",
+          "claim": "Meta「从 Llama 走向 Muse」目前不是一个新闻事件，而是一次传播事件——15 条一模一样的转发稿把它做成了「共识」，但全网拿不出一条 Meta 官方口径。",
+          "evidence_ids": [
+            "f1",
+            "f2",
+            "f3",
+            "f4"
+          ],
+          "confidence": 0.72
+        },
+        {
+          "angle_id": "a2",
+          "claim": "OpenAI 的 Agent 战略不是「人人都有一个智能体」，而是把自主执行做成企业级特权：dots 只给 Pro/Business Premium/Enterprise，同时用约五分之一价格的 GPT-6.1 Sol 铺量，形成「模型降价、Agent 收租」的分层定价。",
+          "evidence_ids": [
+            "f8",
+            "f9",
+            "f10",
+            "f12",
+            "f13"
+          ],
+          "confidence": 0.55
+        },
+        {
+          "angle_id": "a3",
+          "claim": "把一次内部 evaluation 中查询公开统计数据说成「黑进澳洲 Medicare」，暴露的不是 Agent 的能力，而是我们评价 Agent 的坐标系还停留在「它是不是觉醒了」这种拟人化惊悚。",
+          "evidence_ids": [
+            "f15",
+            "f16",
+            "f17"
+          ],
+          "confidence": 0.68
+        },
+        {
+          "angle_id": "a4",
+          "claim": "目前所有「AI 从生成内容走向自主执行」的论证，都停在同一个趋势句和同一批演示上——材料里连「直接调用 API」之后的落地场景都在关键处截断，说明这一轮 Agent 热度来自叙事的戏剧性，而不是可复现的案例。",
+          "evidence_ids": [
+            "f5",
+            "f6",
+            "f7",
+            "f18"
+          ],
+          "confidence": 0.5
+        },
+        {
+          "angle_id": "a5",
+          "claim": "同一批材料对 GPT-6.1 Sol 的对比基准并不一致（一处说更接近 GPT-6，一处说接近 GPT-6 Astra），而「接近旗舰」这种措辞本身就是发布话术：它无法被证伪，因此也无法被当作能力证据使用。",
+          "evidence_ids": [
+            "f11",
+            "f12",
+            "f13",
+            "f14"
+          ],
+          "confidence": 0.6
+        }
+      ],
+      "finish_reason": "最近一次评审已对聚焦的 c1 给出 accept（9.0 分），c2/c3 也均 accept（8.7/8.0），候选总数已达上限 3 条、改稿额度充足但无待办的改稿要求；此时再检索、再提炼证据或再评价同一批候选都是重复劳动，只会消耗剩余预算，应把手上的候选交给护栏与人工审核。",
+      "finish_action": "finish",
+      "interrupted": true,
+      "draft_chars": 76,
+      "acceptance": {
+        "checks": {
+          "x_get_ok": true,
+          "llm_ok": true,
+          "agent_completed": true,
+          "candidate_count_gt_1": true,
+          "real_source_post_ids": true,
+          "trend_score_present": true,
+          "evidence_traceable": true,
+          "waiting_for_review": true,
+          "topic_persisted": true,
+          "all_searches_windowed": true,
+          "no_illegal_query": true,
+          "no_real_post": true
+        },
+        "passed": true
+      }
+    },
+    {
+      "id": "smoke-2",
+      "goal": "找最近值得讨论的 AI 模型发布话题。",
+      "watch": "换一个目标，Agent 能不能发现不同的主题",
+      "started_at": "2026-09-30T05:20:00.775719+00:00",
+      "elapsed_seconds": 153.9,
+      "error": null,
+      "run_id": "ac1f6d3b-e0e3-44ab-b1aa-69c217eacc65",
+      "steps": 13,
+      "action_sequence": [
+        "discover_topics",
+        "select_topic",
+        "extract_evidence",
+        "deepen_research",
+        "generate_angles",
+        "select_angle",
+        "generate_candidates",
+        "criticize",
+        "revise",
+        "criticize",
+        "revise",
+        "criticize",
+        "finish"
+      ],
+      "discover_trends": {
+        "ran": true,
+        "step": 1,
+        "candidate_count": 6,
+        "qualified_count": 1
+      },
+      "research_calls": {
+        "steps": 1,
+        "x_search_requests": 2,
+        "x_requests_total": 2,
+        "x_post_requests": 0
+      },
+      "x_search_windows": [
+        {
+          "query": "AI 模型发布 新模型 发布 讨论",
+          "start_time": "2026-09-27T05:20:01Z",
+          "end_time": "2026-09-30T05:19:46Z",
+          "max_results": "25"
+        },
+        {
+          "query": "OpenAI Astra 发布 延期 取消 安全测试",
+          "start_time": "2026-09-27T05:20:53Z",
+          "end_time": "2026-09-30T05:20:38Z",
+          "max_results": "10"
+        }
+      ],
+      "candidate_topics": [
+        {
+          "topic_id": "t1",
+          "title": "OpenAI 因内部安全测试未过关，暂停 GPT-6.1 Astra 发布",
+          "trend_score": 83.1,
+          "trend_score_raw": 83.1,
+          "qualification": "qualified",
+          "lifecycle": "researching",
+          "author_count": 6,
+          "discussion_count": 6,
+          "source_post_ids": [
+            "5402329a-dbad-40d1-89d8-361c059c1b6f",
+            "5472e4f4-f161-4253-870e-d0e99e1c13dc",
+            "478a999a-5046-4464-a733-549e593b93e5",
+            "b9ac0544-c039-4f38-bf57-e27ad116f53d",
+            "ae245967-250e-463f-9781-e85e5984cebf",
+            "c35542a2-b993-466d-a640-5fcc54fef032"
+          ],
+          "latest_seen_at": "2026-09-29T22:44:49+00:00",
+          "observed_at": "2026-09-30T05:20:01.859578+00:00",
+          "trend_reasons": [
+            "最新一条发布于 6.6 小时前，recency 0.8268（半衰期 24 小时）",
+            "6 位不同作者参与，spread 1.0000（满值 4 人）",
+            "观测互动 41（点赞×1+转发×2+回复×2+引用×3），engagement 0.6012（饱和值 500）",
+            "窗口内首条出现在 63% 处，novelty 0.6276",
+            "引用 6 条来源、其中 6 条可核验，source_quality 1.0000",
+            "trend_score_raw = 100 × (recency×0.3 + spread×0.25 + engagement×0.2 + source_quality×0.15 + novelty×0.1) = 83.10"
+          ]
+        },
+        {
+          "topic_id": "t2",
+          "title": "AI 资本进入“烧钱换规模”阶段：NVIDIA 回购、AMD 收购、Anthropic 递表",
+          "trend_score": 54.37,
+          "trend_score_raw": 54.37,
+          "qualification": "low_signal",
+          "lifecycle": "discovered",
+          "author_count": 2,
+          "discussion_count": 2,
+          "source_post_ids": [
+            "4ee89c49-20e3-4bfb-b156-a3240a6ef930",
+            "c35542a2-b993-466d-a640-5fcc54fef032"
+          ],
+          "latest_seen_at": "2026-09-29T03:46:00+00:00",
+          "observed_at": "2026-09-30T05:20:01.859578+00:00",
+          "trend_reasons": [
+            "最新一条发布于 25.6 小时前，recency 0.4779（半衰期 24 小时）",
+            "2 位不同作者参与，spread 0.5000（满值 4 人）",
+            "观测互动 6（点赞×1+转发×2+回复×2+引用×3），engagement 0.3130（饱和值 500）",
+            "窗口内首条出现在 63% 处，novelty 0.6276",
+            "引用 2 条来源、其中 2 条可核验，source_quality 1.0000",
+            "trend_score_raw = 100 × (recency×0.3 + spread×0.25 + engagement×0.2 + source_quality×0.15 + novelty×0.1) = 54.37"
+          ]
+        },
+        {
+          "topic_id": "t3",
+          "title": "利率与 AI 安全事件叠加，美股 AI 板块周一走弱",
+          "trend_score": 50.79,
+          "trend_score_raw": 50.79,
+          "qualification": "low_signal",
+          "lifecycle": "discovered",
+          "author_count": 2,
+          "discussion_count": 2,
+          "source_post_ids": [
+            "478a999a-5046-4464-a733-549e593b93e5",
+            "99063214-56c6-4539-a44a-d504530d087f"
+          ],
+          "latest_seen_at": "2026-09-29T09:51:22+00:00",
+          "observed_at": "2026-09-30T05:20:01.859578+00:00",
+          "trend_reasons": [
+            "最新一条发布于 19.5 小时前，recency 0.5698（半衰期 24 小时）",
+            "2 位不同作者参与，spread 0.5000（满值 4 人）",
+            "观测互动 0（点赞×1+转发×2+回复×2+引用×3），engagement 0.0000（饱和值 500）",
+            "窗口内首条出现在 62% 处，novelty 0.6196",
+            "引用 2 条来源、其中 2 条可核验，source_quality 1.0000",
+            "trend_score_raw = 100 × (recency×0.3 + spread×0.25 + engagement×0.2 + source_quality×0.15 + novelty×0.1) = 50.79"
+          ]
+        },
+        {
+          "topic_id": "t4",
+          "title": "Ember-1、OpenScience 等新模型与科研 Agent 密集发布",
+          "trend_score": 32.87,
+          "trend_score_raw": 32.87,
+          "qualification": "weak_support",
+          "lifecycle": "discarded",
+          "author_count": 1,
+          "discussion_count": 1,
+          "source_post_ids": [
+            "f10d52ee-37fb-4cd2-ac89-16590d439640"
+          ],
+          "latest_seen_at": "2026-09-28T01:07:28+00:00",
+          "observed_at": "2026-09-30T05:20:01.859578+00:00",
+          "trend_reasons": [
+            "最新一条发布于 52.2 小时前，recency 0.2214（半衰期 24 小时）",
+            "1 位不同作者参与，spread 0.2500（满值 4 人）",
+            "观测互动 1（点赞×1+转发×2+回复×2+引用×3），engagement 0.1115（饱和值 500）",
+            "窗口内首条出现在 27% 处，novelty 0.2749",
+            "引用 1 条来源、其中 1 条可核验，source_quality 1.0000",
+            "trend_score_raw = 100 × (recency×0.3 + spread×0.25 + engagement×0.2 + source_quality×0.15 + novelty×0.1) = 32.87",
+            "单一来源上限 40 生效（作者数 1 或可核验来源数 1 不足）"
+          ]
+        },
+        {
+          "topic_id": "t5",
+          "title": "OpenAI Codex 配额限制引发付费用户不满，订阅透明度受质疑",
+          "trend_score": 32.25,
+          "trend_score_raw": 32.25,
+          "qualification": "weak_support",
+          "lifecycle": "discarded",
+          "author_count": 1,
+          "discussion_count": 1,
+          "source_post_ids": [
+            "820e0dc2-1216-4597-9fef-e31be1b3ee84"
+          ],
+          "latest_seen_at": "2026-09-27T23:12:37+00:00",
+          "observed_at": "2026-09-30T05:20:01.859578+00:00",
+          "trend_reasons": [
+            "最新一条发布于 54.1 小时前，recency 0.2095（半衰期 24 小时）",
+            "1 位不同作者参与，spread 0.2500（满值 4 人）",
+            "观测互动 1（点赞×1+转发×2+回复×2+引用×3），engagement 0.1115（饱和值 500）",
+            "窗口内首条出现在 25% 处，novelty 0.2483",
+            "引用 1 条来源、其中 1 条可核验，source_quality 1.0000",
+            "trend_score_raw = 100 × (recency×0.3 + spread×0.25 + engagement×0.2 + source_quality×0.15 + novelty×0.1) = 32.25",
+            "单一来源上限 40 生效（作者数 1 或可核验来源数 1 不足）"
+          ]
+        },
+        {
+          "topic_id": "t6",
+          "title": "OpenAI 智能体被指取得澳大利亚 Medicare 相关权限，引发授权担忧",
+          "trend_score": 29.87,
+          "trend_score_raw": 29.87,
+          "qualification": "weak_support",
+          "lifecycle": "discarded",
+          "author_count": 1,
+          "discussion_count": 1,
+          "source_post_ids": [
+            "5f20351c-8348-4380-856e-0e5e0908a7d9"
+          ],
+          "latest_seen_at": "2026-09-27T15:19:26+00:00",
+          "observed_at": "2026-09-30T05:20:01.859578+00:00",
+          "trend_reasons": [
+            "最新一条发布于 62.0 小时前，recency 0.1668（半衰期 24 小时）",
+            "1 位不同作者参与，spread 0.2500（满值 4 人）",
+            "观测互动 1（点赞×1+转发×2+回复×2+引用×3），engagement 0.1115（饱和值 500）",
+            "窗口内首条出现在 14% 处，novelty 0.1388",
+            "引用 1 条来源、其中 1 条可核验，source_quality 1.0000",
+            "trend_score_raw = 100 × (recency×0.3 + spread×0.25 + engagement×0.2 + source_quality×0.15 + novelty×0.1) = 29.87",
+            "单一来源上限 40 生效（作者数 1 或可核验来源数 1 不足）"
+          ]
+        }
+      ],
+      "selected_topic": "OpenAI 因内部安全测试未过关，暂停 GPT-6.1 Astra 发布",
+      "selected_topic_step": 2,
+      "agent_run_topic": "OpenAI 因内部安全测试未过关，暂停 GPT-6.1 Astra 发布",
+      "run_status": "waiting_for_review",
+      "critic_count": 3,
+      "revision_count": 2,
+      "research_count": 2,
+      "evidence_count": {
+        "facts": 9,
+        "sources": 7,
+        "consensus": 3,
+        "counterpoints": 4,
+        "unknowns": 7
+      },
+      "evidence_traceability": {
+        "checked": 21,
+        "broken": []
+      },
+      "angles": [
+        {
+          "angle_id": "a1",
+          "claim": "GPT-6.1 Astra 没过的那道关卡，大概率不是内容安全测试，而是智能体的权限边界与行为审计——这决定了下一轮监管会盯运行日志，而不是盯模型输出。",
+          "evidence_ids": [
+            "f3",
+            "f5"
+          ],
+          "confidence": 0.5
+        },
+        {
+          "angle_id": "a2",
+          "claim": "「延期」还是「取消」不是措辞之争：如果确实是取消，说明问题出在架构层而不是调参层，OpenAI 的下一个旗舰很可能不再叫 Astra。",
+          "evidence_ids": [
+            "f1",
+            "f2",
+            "f3"
+          ],
+          "confidence": 0.45
+        },
+        {
+          "angle_id": "a3",
+          "claim": "市场把这条当成 AI 利空是算错了账：真正的利空不是需求不行，而是安全审查从此成了一个能单方面重置发布时间表的变量，AI 股的估值模型里得开始打折「交付不确定性」。",
+          "evidence_ids": [
+            "f2",
+            "f7",
+            "f8",
+            "f9"
+          ],
+          "confidence": 0.5
+        },
+        {
+          "angle_id": "a4",
+          "claim": "OpenAI 能成为当天 AI 主线，不是因为它更重要，而是因为它同时满足「大公司」和「细节模糊」两个传播条件；同一天真正在决定 AI 资产定价的，是投入怎么变成股东回报这件事。",
+          "evidence_ids": [
+            "f6",
+            "f8",
+            "f9"
+          ],
+          "confidence": 0.45
+        }
+      ],
+      "finish_reason": "决策步数预算已用尽（12 步），按回退顺序收尾：结束探索，把手上的候选交给护栏与人工审核",
+      "finish_action": "finish",
+      "interrupted": true,
+      "draft_chars": 137,
+      "acceptance": {
+        "checks": {
+          "x_get_ok": true,
+          "llm_ok": true,
+          "agent_completed": true,
+          "candidate_count_gt_1": true,
+          "real_source_post_ids": true,
+          "trend_score_present": true,
+          "evidence_traceable": true,
+          "waiting_for_review": true,
+          "topic_persisted": true,
+          "all_searches_windowed": true,
+          "no_illegal_query": true,
+          "no_real_post": true
+        },
+        "passed": true
+      }
+    },
+    {
+      "id": "smoke-3",
+      "goal": "研究一下 MCP（Model Context Protocol）在企业级 AI Agent 集成里的采用情况。",
+      "watch": "题目已经给定：Agent 不该机械地先做一轮 discover_topics",
+      "started_at": "2026-09-30T05:22:34.657752+00:00",
+      "elapsed_seconds": 70.2,
+      "error": null,
+      "run_id": "56618980-3c98-4bd5-93f2-3fb03665dd58",
+      "steps": 10,
+      "action_sequence": [
+        "discover_topics",
+        "discover_topics",
+        "select_topic",
+        "extract_evidence",
+        "deepen_research",
+        "generate_angles",
+        "select_angle",
+        "generate_candidates",
+        "criticize",
+        "finish"
+      ],
+      "discover_trends": {
+        "ran": true,
+        "step": 1,
+        "candidate_count": 4,
+        "qualified_count": 0
+      },
+      "research_calls": {
+        "steps": 1,
+        "x_search_requests": 3,
+        "x_requests_total": 3,
+        "x_post_requests": 0
+      },
+      "x_search_windows": [
+        {
+          "query": "MCP Model Context Protocol 企业级 AI Agent 集成 采用",
+          "start_time": "2026-09-27T05:22:36Z",
+          "end_time": "2026-09-30T05:22:21Z",
+          "max_results": "25"
+        },
+        {
+          "query": "MCP Model Context Protocol Agent 集成",
+          "start_time": "2026-09-27T05:22:40Z",
+          "end_time": "2026-09-30T05:22:25Z",
+          "max_results": "25"
+        },
+        {
+          "query": "MCP 企业 集成 落地 案例",
+          "start_time": "2026-09-27T05:23:08Z",
+          "end_time": "2026-09-30T05:22:53Z",
+          "max_results": "10"
+        }
+      ],
+      "candidate_topics": [
+        {
+          "topic_id": "t1",
+          "title": "大多数 AI Agent 所谓的“长记忆”，本质上只是把聊天记录拼进 Prompt，或者做一层粗糙的向量 RAG 检索—",
+          "trend_score": 40.0,
+          "trend_score_raw": 52.81,
+          "qualification": "weak_support",
+          "lifecycle": "discarded",
+          "author_count": 1,
+          "discussion_count": 1,
+          "source_post_ids": [
+            "6fefae1a-496c-4a69-b676-1a9a48e60335"
+          ],
+          "latest_seen_at": "2026-09-28T12:26:51+00:00",
+          "observed_at": "2026-09-30T05:22:40.991306+00:00",
+          "trend_reasons": [
+            "最新一条发布于 40.9 小时前，recency 0.3066（半衰期 24 小时）",
+            "1 位不同作者参与，spread 0.2500（满值 4 人）",
+            "观测互动 272（点赞×1+转发×2+回复×2+引用×3），engagement 0.9023（饱和值 500）",
+            "窗口内首条出现在 43% 处，novelty 0.4315",
+            "引用 1 条来源、其中 1 条可核验，source_quality 1.0000",
+            "trend_score_raw = 100 × (recency×0.3 + spread×0.25 + engagement×0.2 + source_quality×0.15 + novelty×0.1) = 52.81",
+            "单一来源上限 40 生效（作者数 1 或可核验来源数 1 不足）"
+          ]
+        },
+        {
+          "topic_id": "t2",
+          "title": "彻底告别繁琐的 Python 环境配置！本地 AI 音乐生成开源神器 YuE2-Studio 来了——它不仅能在你的本地",
+          "trend_score": 40.0,
+          "trend_score_raw": 42.1,
+          "qualification": "weak_support",
+          "lifecycle": "discarded",
+          "author_count": 1,
+          "discussion_count": 1,
+          "source_post_ids": [
+            "9449beab-5ad1-4cb7-9fa0-d5f6fcc517fc"
+          ],
+          "latest_seen_at": "2026-09-29T03:55:53+00:00",
+          "observed_at": "2026-09-30T05:22:40.991306+00:00",
+          "trend_reasons": [
+            "最新一条发布于 25.4 小时前，recency 0.4795（半衰期 24 小时）",
+            "1 位不同作者参与，spread 0.2500（满值 4 人）",
+            "观测互动 0（点赞×1+转发×2+回复×2+引用×3），engagement 0.0000（饱和值 500）",
+            "窗口内首条出现在 65% 处，novelty 0.6466",
+            "引用 1 条来源、其中 1 条可核验，source_quality 1.0000",
+            "trend_score_raw = 100 × (recency×0.3 + spread×0.25 + engagement×0.2 + source_quality×0.15 + novelty×0.1) = 42.10",
+            "单一来源上限 40 生效（作者数 1 或可核验来源数 1 不足）"
+          ]
+        },
+        {
+          "topic_id": "t3",
+          "title": "（材料只有链接，没有可归纳的正文）",
+          "trend_score": 40.0,
+          "trend_score_raw": 59.77,
+          "qualification": "weak_support",
+          "lifecycle": "discarded",
+          "author_count": 1,
+          "discussion_count": 1,
+          "source_post_ids": [
+            "03bd26ad-a2ec-41bd-b1b4-26a747aa22f7"
+          ],
+          "latest_seen_at": "2026-09-30T03:52:25+00:00",
+          "observed_at": "2026-09-30T05:22:40.991306+00:00",
+          "trend_reasons": [
+            "最新一条发布于 1.5 小时前，recency 0.9575（半衰期 24 小时）",
+            "1 位不同作者参与，spread 0.2500（满值 4 人）",
+            "观测互动 0（点赞×1+转发×2+回复×2+引用×3），engagement 0.0000（饱和值 500）",
+            "窗口内首条出现在 98% 处，novelty 0.9791",
+            "引用 1 条来源、其中 1 条可核验，source_quality 1.0000",
+            "trend_score_raw = 100 × (recency×0.3 + spread×0.25 + engagement×0.2 + source_quality×0.15 + novelty×0.1) = 59.77",
+            "单一来源上限 40 生效（作者数 1 或可核验来源数 1 不足）"
+          ]
+        },
+        {
+          "topic_id": "t4",
+          "title": "🚀 找官方 MCP Server 不用再大海捞针了！开发者必备的 MCP 生态神器清单  随着 Model Contex",
+          "trend_score": 40.0,
+          "trend_score_raw": 62.4,
+          "qualification": "weak_support",
+          "lifecycle": "researching",
+          "author_count": 1,
+          "discussion_count": 1,
+          "source_post_ids": [
+            "7465cc1a-70b5-41cb-895f-9b2f89ec2b6e"
+          ],
+          "latest_seen_at": "2026-09-30T02:56:09+00:00",
+          "observed_at": "2026-09-30T05:22:40.991306+00:00",
+          "trend_reasons": [
+            "最新一条发布于 2.4 小时前，recency 0.9319（半衰期 24 小时）",
+            "1 位不同作者参与，spread 0.2500（满值 4 人）",
+            "观测互动 2（点赞×1+转发×2+回复×2+引用×3），engagement 0.1767（饱和值 500）",
+            "窗口内首条出现在 97% 处，novelty 0.9661",
+            "引用 1 条来源、其中 1 条可核验，source_quality 1.0000",
+            "trend_score_raw = 100 × (recency×0.3 + spread×0.25 + engagement×0.2 + source_quality×0.15 + novelty×0.1) = 62.40",
+            "单一来源上限 40 生效（作者数 1 或可核验来源数 1 不足）"
+          ]
+        }
+      ],
+      "selected_topic": "🚀 找官方 MCP Server 不用再大海捞针了！开发者必备的 MCP 生态神器清单  随着 Model Contex",
+      "selected_topic_step": 3,
+      "agent_run_topic": "🚀 找官方 MCP Server 不用再大海捞针了！开发者必备的 MCP 生态神器清单  随着 Model Contex",
+      "run_status": "waiting_for_review",
+      "critic_count": 1,
+      "revision_count": null,
+      "research_count": 3,
+      "evidence_count": {
+        "facts": 5,
+        "sources": 2,
+        "consensus": 0,
+        "counterpoints": 1,
+        "unknowns": 6
+      },
+      "evidence_traceability": {
+        "checked": 16,
+        "broken": []
+      },
+      "angles": [
+        {
+          "angle_id": "a1",
+          "claim": "MCP 只完成了协议层的标准化，发现层的标准化完全缺位——真正的企业级阻力不是模型接不上工具，而是没人为「哪个 Server 可信」背书。",
+          "evidence_ids": [
+            "f1",
+            "f3",
+            "f4"
+          ],
+          "confidence": 0.62
+        },
+        {
+          "angle_id": "a2",
+          "claim": "一份「神器清单」能被开发者当成解药传播，恰恰是 MCP 生态不成熟的证据，而不是繁荣的证据——健康的生态不需要人工目录来降低发现成本。",
+          "evidence_ids": [
+            "f2",
+            "f3",
+            "f4"
+          ],
+          "confidence": 0.58
+        },
+        {
+          "angle_id": "a3",
+          "claim": "在现有可见证据里，MCP 的热度全部来自个人开发者与开源项目，「企业级 AI Agent 集成采用」是一块真空——任何给出企业采用率或行业分布的说法都是外推。",
+          "evidence_ids": [
+            "f1",
+            "f2",
+            "f3"
+          ],
+          "confidence": 0.7
+        },
+        {
+          "angle_id": "a4",
+          "claim": "「找官方 MCP Server」很可能是一个被误诊的需求：连「官方」的判定标准都说不清，开发者真正要的是可信度信号（谁在维护、多久更新、能碰哪些权限），一份更全的目录解决不了这个问题。",
+          "evidence_ids": [
+            "f3",
+            "f4"
+          ],
+          "confidence": 0.45
+        }
+      ],
+      "finish_reason": "Critic 已对三条候选全部 accept（聚焦 c1 得 8.6 分），观点 a3 已被 5 条事实/6 处未知的证据包如实支撑，检索只剩 1 次且针对企业采用率的空白两轮 deepen_research 均无法补上，改稿要求为空——继续改稿或再评价同一批候选只会消耗剩余 2 次改稿与 1 次检索预算而不提升质量，故直接交护栏与人工审核。",
+      "finish_action": "finish",
+      "interrupted": true,
+      "draft_chars": 75,
+      "acceptance": {
+        "checks": {
+          "x_get_ok": true,
+          "llm_ok": true,
+          "agent_completed": true,
+          "candidate_count_gt_1": true,
+          "real_source_post_ids": true,
+          "trend_score_present": true,
+          "evidence_traceable": true,
+          "waiting_for_review": true,
+          "topic_persisted": true,
+          "all_searches_windowed": true,
+          "no_illegal_query": true,
+          "no_real_post": true
+        },
+        "passed": true
+      }
+    },
+    {
+      "id": "smoke-4",
+      "goal": "找一个最近三天内有明显争议的 AI 话题。",
+      "watch": "counterpoints / unknowns 是否真的存在",
+      "started_at": "2026-09-30T05:23:44.863676+00:00",
+      "elapsed_seconds": 131.5,
+      "error": null,
+      "run_id": "4b8b2686-3ae0-481e-ac77-306e8d6cf886",
+      "steps": 13,
+      "action_sequence": [
+        "discover_topics",
+        "select_topic",
+        "extract_evidence",
+        "deepen_research",
+        "generate_angles",
+        "select_angle",
+        "generate_candidates",
+        "criticize",
+        "revise",
+        "criticize",
+        "revise",
+        "criticize",
+        "finish"
+      ],
+      "discover_trends": {
+        "ran": true,
+        "step": 1,
+        "candidate_count": 4,
+        "qualified_count": 1
+      },
+      "research_calls": {
+        "steps": 1,
+        "x_search_requests": 2,
+        "x_requests_total": 2,
+        "x_post_requests": 0
+      },
+      "x_search_windows": [
+        {
+          "query": "\"AI Agent\" 智能体 争议",
+          "start_time": "2026-09-27T05:23:46Z",
+          "end_time": "2026-09-30T05:23:31Z",
+          "max_results": "25"
+        },
+        {
+          "query": "大模型 推理成本 价格战 落地应用",
+          "start_time": "2026-09-27T05:24:14Z",
+          "end_time": "2026-09-30T05:23:59Z",
+          "max_results": "10"
+        }
+      ],
+      "candidate_topics": [
+        {
+          "topic_id": "t1",
+          "title": "AI 竞争重心从模型能力转向成本、速度与落地干活",
+          "trend_score": 64.52,
+          "trend_score_raw": 64.52,
+          "qualification": "qualified",
+          "lifecycle": "researching",
+          "author_count": 2,
+          "discussion_count": 2,
+          "source_post_ids": [
+            "6e68d540-a5ce-4e49-9f8e-be130f872985",
+            "ce5755fa-3cd9-41d2-aa56-e93e4e8ca51b"
+          ],
+          "latest_seen_at": "2026-09-30T02:21:28+00:00",
+          "observed_at": "2026-09-30T05:23:46.332711+00:00",
+          "trend_reasons": [
+            "最新一条发布于 3.0 小时前，recency 0.9160（半衰期 24 小时）",
+            "2 位不同作者参与，spread 0.5000（满值 4 人）",
+            "观测互动 8（点赞×1+转发×2+回复×2+引用×3），engagement 0.3534（饱和值 500）",
+            "窗口内首条出现在 25% 处，novelty 0.2474",
+            "引用 2 条来源、其中 2 条可核验，source_quality 1.0000",
+            "trend_score_raw = 100 × (recency×0.3 + spread×0.25 + engagement×0.2 + source_quality×0.15 + novelty×0.1) = 64.52"
+          ]
+        },
+        {
+          "topic_id": "t2",
+          "title": "黄仁勋回应 AI 模型蒸馏争议：称蒸馏属于正常市场竞争",
+          "trend_score": 40.0,
+          "trend_score_raw": 65.0,
+          "qualification": "weak_support",
+          "lifecycle": "discarded",
+          "author_count": 1,
+          "discussion_count": 1,
+          "source_post_ids": [
+            "6e68d540-a5ce-4e49-9f8e-be130f872985"
+          ],
+          "latest_seen_at": "2026-09-30T02:21:28+00:00",
+          "observed_at": "2026-09-30T05:23:46.332711+00:00",
+          "trend_reasons": [
+            "最新一条发布于 3.0 小时前，recency 0.9160（半衰期 24 小时）",
+            "1 位不同作者参与，spread 0.2500（满值 4 人）",
+            "观测互动 7（点赞×1+转发×2+回复×2+引用×3），engagement 0.3345（饱和值 500）",
+            "窗口内首条出现在 96% 处，novelty 0.9578",
+            "引用 1 条来源、其中 1 条可核验，source_quality 1.0000",
+            "trend_score_raw = 100 × (recency×0.3 + spread×0.25 + engagement×0.2 + source_quality×0.15 + novelty×0.1) = 65.00",
+            "单一来源上限 40 生效（作者数 1 或可核验来源数 1 不足）"
+          ]
+        },
+        {
+          "topic_id": "t3",
+          "title": "OpenAI Codex 配额限制引发付费用户不满，官方追加重置",
+          "trend_score": 32.23,
+          "trend_score_raw": 32.23,
+          "qualification": "weak_support",
+          "lifecycle": "discarded",
+          "author_count": 1,
+          "discussion_count": 1,
+          "source_post_ids": [
+            "ce5755fa-3cd9-41d2-aa56-e93e4e8ca51b"
+          ],
+          "latest_seen_at": "2026-09-27T23:12:37+00:00",
+          "observed_at": "2026-09-30T05:23:46.332711+00:00",
+          "trend_reasons": [
+            "最新一条发布于 54.2 小时前，recency 0.2091（半衰期 24 小时）",
+            "1 位不同作者参与，spread 0.2500（满值 4 人）",
+            "观测互动 1（点赞×1+转发×2+回复×2+引用×3），engagement 0.1115（饱和值 500）",
+            "窗口内首条出现在 25% 处，novelty 0.2474",
+            "引用 1 条来源、其中 1 条可核验，source_quality 1.0000",
+            "trend_score_raw = 100 × (recency×0.3 + spread×0.25 + engagement×0.2 + source_quality×0.15 + novelty×0.1) = 32.23",
+            "单一来源上限 40 生效（作者数 1 或可核验来源数 1 不足）"
+          ]
+        },
+        {
+          "topic_id": "t4",
+          "title": "部分特斯拉车主弃用 FSD，转向开源方案 Comma",
+          "trend_score": 32.23,
+          "trend_score_raw": 32.23,
+          "qualification": "weak_support",
+          "lifecycle": "discarded",
+          "author_count": 1,
+          "discussion_count": 1,
+          "source_post_ids": [
+            "ce5755fa-3cd9-41d2-aa56-e93e4e8ca51b"
+          ],
+          "latest_seen_at": "2026-09-27T23:12:37+00:00",
+          "observed_at": "2026-09-30T05:23:46.332711+00:00",
+          "trend_reasons": [
+            "最新一条发布于 54.2 小时前，recency 0.2091（半衰期 24 小时）",
+            "1 位不同作者参与，spread 0.2500（满值 4 人）",
+            "观测互动 1（点赞×1+转发×2+回复×2+引用×3），engagement 0.1115（饱和值 500）",
+            "窗口内首条出现在 25% 处，novelty 0.2474",
+            "引用 1 条来源、其中 1 条可核验，source_quality 1.0000",
+            "trend_score_raw = 100 × (recency×0.3 + spread×0.25 + engagement×0.2 + source_quality×0.15 + novelty×0.1) = 32.23",
+            "单一来源上限 40 生效（作者数 1 或可核验来源数 1 不足）"
+          ]
+        }
+      ],
+      "selected_topic": "AI 竞争重心从模型能力转向成本、速度与落地干活",
+      "selected_topic_step": 2,
+      "agent_run_topic": "AI 竞争重心从模型能力转向成本、速度与落地干活",
+      "run_status": "waiting_for_review",
+      "critic_count": 3,
+      "revision_count": 2,
+      "research_count": 2,
+      "evidence_count": {
+        "facts": 7,
+        "sources": 2,
+        "consensus": 2,
+        "counterpoints": 2,
+        "unknowns": 7
+      },
+      "evidence_traceability": {
+        "checked": 18,
+        "broken": []
+      },
+      "angles": [
+        {
+          "angle_id": "a1",
+          "claim": "AI 竞争转向成本与速度，不是因为行业找到了更聪明的路，而是因为头部模型能力已经拉不开代差——成本战是能力停滞的遮羞布，不是效率进步的勋章。",
+          "evidence_ids": [
+            "f1",
+            "f4",
+            "f7"
+          ],
+          "confidence": 0.55
+        },
+        {
+          "angle_id": "a2",
+          "claim": "AI 商业化的第一道裂缝不在价格高低，而在订阅透明度：OpenAI 被付费用户逼着追加重置 Codex 配额，说明最先反水的不是薅羊毛的免费用户，而是掏钱最狠的重度用户。",
+          "evidence_ids": [
+            "f5",
+            "f4",
+            "f7"
+          ],
+          "confidence": 0.6
+        },
+        {
+          "angle_id": "a3",
+          "claim": "黄仁勋把 AI 模型'蒸馏'定性为市场竞争，本质是官方承认'更便宜'已经压过'更原创'——接下来模型血统不再是卖点，成本结构才是。",
+          "evidence_ids": [
+            "f3",
+            "f1"
+          ],
+          "confidence": 0.5
+        },
+        {
+          "angle_id": "a4",
+          "claim": "在'能不能干活'这个新标准下，封闭方案的高溢价最先被击穿：特斯拉车主弃 FSD 改用开源 Comma 说明，替代一旦发生，用户不会因为参数表更好看而回头。",
+          "evidence_ids": [
+            "f6",
+            "f1",
+            "f4"
+          ],
+          "confidence": 0.5
+        }
+      ],
+      "finish_reason": "决策步数预算已用尽（12 步），按回退顺序收尾：结束探索，把手上的候选交给护栏与人工审核",
+      "finish_action": "finish",
+      "interrupted": true,
+      "draft_chars": 90,
+      "acceptance": {
+        "checks": {
+          "x_get_ok": true,
+          "llm_ok": true,
+          "agent_completed": true,
+          "candidate_count_gt_1": true,
+          "real_source_post_ids": true,
+          "trend_score_present": true,
+          "evidence_traceable": true,
+          "waiting_for_review": true,
+          "topic_persisted": true,
+          "all_searches_windowed": true,
+          "no_illegal_query": true,
+          "no_real_post": true
+        },
+        "passed": true
+      }
+    },
+    {
+      "id": "smoke-5",
+      "goal": "今天帮我找一个最近值得在中文科技 X 圈讨论的 AI Agent 话题。",
+      "watch": "重复 Smoke 1：同一热点是完全一样，还是候选发生合理变化",
+      "started_at": "2026-09-30T05:25:56.322179+00:00",
+      "elapsed_seconds": 86.1,
+      "error": null,
+      "run_id": "1e169dd9-120b-46fd-9141-d462ab8fd8bf",
+      "steps": 9,
+      "action_sequence": [
+        "discover_topics",
+        "select_topic",
+        "extract_evidence",
+        "deepen_research",
+        "generate_angles",
+        "select_angle",
+        "generate_candidates",
+        "criticize",
+        "finish"
+      ],
+      "discover_trends": {
+        "ran": true,
+        "step": 1,
+        "candidate_count": 5,
+        "qualified_count": 3
+      },
+      "research_calls": {
+        "steps": 1,
+        "x_search_requests": 2,
+        "x_requests_total": 2,
+        "x_post_requests": 0
+      },
+      "x_search_windows": [
+        {
+          "query": "AI Agent 智能体 讨论",
+          "start_time": "2026-09-27T05:25:57Z",
+          "end_time": "2026-09-30T05:25:42Z",
+          "max_results": "25"
+        },
+        {
+          "query": "Meta Muse 智能体 模型 发布",
+          "start_time": "2026-09-27T05:26:40Z",
+          "end_time": "2026-09-30T05:26:25Z",
+          "max_results": "10"
+        }
+      ],
+      "candidate_topics": [
+        {
+          "topic_id": "t1",
+          "title": "Meta 被指加速进入 AI Agent 竞争，Muse 引发“从模型能力到智能体”的讨论",
+          "trend_score": 85.81,
+          "trend_score_raw": 85.81,
+          "qualification": "qualified",
+          "lifecycle": "researching",
+          "author_count": 15,
+          "discussion_count": 15,
+          "source_post_ids": [
+            "1d76056d-9e39-4f17-a4bc-7f40d2238bd5",
+            "01bff583-d4a6-4910-973f-2d621043bcf4",
+            "d3c3837e-4803-468f-b14d-53a9c1f0ddaa",
+            "bb9ffe8e-fcdd-43bb-94db-140ac059269c",
+            "8e4ce69d-3ff8-465e-b717-d97647523f6d",
+            "5c3bf34d-f364-46cd-90d9-f93bf8db529b",
+            "944c4087-5324-42a2-89a0-df48d2a51da8",
+            "4fc40204-17c9-4433-899b-4ae828759ca1",
+            "8bb7bb07-ed21-41fc-956d-20e531005f88",
+            "8a4633f5-a836-41b5-b71d-dfc5ebf452ab",
+            "882828b7-2f78-42ee-b30e-e43aca63c279",
+            "4cc54327-640a-4546-b110-6e569cfe0431",
+            "76f8c01d-03ba-44bf-8f1c-5d8e834d7311",
+            "c8167c1f-ef46-4859-abe3-a9643cb20ab4",
+            "4fc2cf5f-1de4-45d8-b126-a75419f1ba7d"
+          ],
+          "latest_seen_at": "2026-09-29T12:17:25+00:00",
+          "observed_at": "2026-09-30T05:25:57.392498+00:00",
+          "trend_reasons": [
+            "最新一条发布于 17.1 小时前，recency 0.6095（半衰期 24 小时）",
+            "15 位不同作者参与，spread 1.0000（满值 4 人）",
+            "观测互动 1500（点赞×1+转发×2+回复×2+引用×3），engagement 1.0000（饱和值 500）",
+            "窗口内首条出现在 75% 处，novelty 0.7528",
+            "引用 15 条来源、其中 15 条可核验，source_quality 1.0000",
+            "trend_score_raw = 100 × (recency×0.3 + spread×0.25 + engagement×0.2 + source_quality×0.15 + novelty×0.1) = 85.81"
+          ]
+        },
+        {
+          "topic_id": "t2",
+          "title": "OpenAI 发布 GPT-6.1 Sol：智能体编码与计算机使用接近 GPT-6 Astra，价格约为其五分之一",
+          "trend_score": 67.38,
+          "trend_score_raw": 67.38,
+          "qualification": "qualified",
+          "lifecycle": "qualified",
+          "author_count": 2,
+          "discussion_count": 2,
+          "source_post_ids": [
+            "c983ebcf-4726-4cd7-8620-209690c509d6",
+            "6f223b61-e5f0-490c-9af6-575709f30b90"
+          ],
+          "latest_seen_at": "2026-09-29T18:51:18+00:00",
+          "observed_at": "2026-09-30T05:25:57.392498+00:00",
+          "trend_reasons": [
+            "最新一条发布于 10.6 小时前，recency 0.7368（半衰期 24 小时）",
+            "2 位不同作者参与，spread 0.5000（满值 4 人）",
+            "观测互动 17（点赞×1+转发×2+回复×2+引用×3），engagement 0.4649（饱和值 500）",
+            "窗口内首条出现在 85% 处，novelty 0.8480",
+            "引用 2 条来源、其中 2 条可核验，source_quality 1.0000",
+            "trend_score_raw = 100 × (recency×0.3 + spread×0.25 + engagement×0.2 + source_quality×0.15 + novelty×0.1) = 67.38"
+          ]
+        },
+        {
+          "topic_id": "t3",
+          "title": "OpenAI 智能体被指“黑进”澳洲 Medicare，自治智能体的权限边界与监管讨论升温",
+          "trend_score": 62.28,
+          "trend_score_raw": 62.28,
+          "qualification": "qualified",
+          "lifecycle": "qualified",
+          "author_count": 2,
+          "discussion_count": 2,
+          "source_post_ids": [
+            "59c3bfe9-6421-423c-b1eb-070aed3bc7d6",
+            "5568eb13-6b27-41bc-92c2-c29dfa009cde"
+          ],
+          "latest_seen_at": "2026-09-29T19:34:00+00:00",
+          "observed_at": "2026-09-30T05:25:57.392498+00:00",
+          "trend_reasons": [
+            "最新一条发布于 9.9 小时前，recency 0.7521（半衰期 24 小时）",
+            "2 位不同作者参与，spread 0.5000（满值 4 人）",
+            "观测互动 3（点赞×1+转发×2+回复×2+引用×3），engagement 0.2230（饱和值 500）",
+            "窗口内首条出现在 78% 处，novelty 0.7754",
+            "引用 2 条来源、其中 2 条可核验，source_quality 1.0000",
+            "trend_score_raw = 100 × (recency×0.3 + spread×0.25 + engagement×0.2 + source_quality×0.15 + novelty×0.1) = 62.28"
+          ]
+        },
+        {
+          "topic_id": "t4",
+          "title": "A股 AI 概念股梳理把“AI 智能体”与超节点、AI 安全、房地产贴息并列为炒作线索",
+          "trend_score": 40.0,
+          "trend_score_raw": 65.35,
+          "qualification": "weak_support",
+          "lifecycle": "discarded",
+          "author_count": 1,
+          "discussion_count": 1,
+          "source_post_ids": [
+            "dc15cbb1-a855-4aa6-9de0-014553808c7c"
+          ],
+          "latest_seen_at": "2026-09-30T01:21:18+00:00",
+          "observed_at": "2026-09-30T05:25:57.392498+00:00",
+          "trend_reasons": [
+            "最新一条发布于 4.1 小时前，recency 0.8889（半衰期 24 小时）",
+            "1 位不同作者参与，spread 0.2500（满值 4 人）",
+            "观测互动 11（点赞×1+转发×2+回复×2+引用×3），engagement 0.3997（饱和值 500）",
+            "窗口内首条出现在 94% 处，novelty 0.9434",
+            "引用 1 条来源、其中 1 条可核验，source_quality 1.0000",
+            "trend_score_raw = 100 × (recency×0.3 + spread×0.25 + engagement×0.2 + source_quality×0.15 + novelty×0.1) = 65.35",
+            "单一来源上限 40 生效（作者数 1 或可核验来源数 1 不足）"
+          ]
+        },
+        {
+          "topic_id": "t5",
+          "title": "OpenAI DevDay 预告产品 dots：每个智能体拥有自己的云端计算机，可自主跨应用执行任务",
+          "trend_score": 40.0,
+          "trend_score_raw": 61.0,
+          "qualification": "weak_support",
+          "lifecycle": "discarded",
+          "author_count": 1,
+          "discussion_count": 1,
+          "source_post_ids": [
+            "c983ebcf-4726-4cd7-8620-209690c509d6"
+          ],
+          "latest_seen_at": "2026-09-29T18:51:18+00:00",
+          "observed_at": "2026-09-30T05:25:57.392498+00:00",
+          "trend_reasons": [
+            "最新一条发布于 10.6 小时前，recency 0.7368（半衰期 24 小时）",
+            "1 位不同作者参与，spread 0.2500（满值 4 人）",
+            "观测互动 16（点赞×1+转发×2+回复×2+引用×3），engagement 0.4557（饱和值 500）",
+            "窗口内首条出现在 85% 处，novelty 0.8531",
+            "引用 1 条来源、其中 1 条可核验，source_quality 1.0000",
+            "trend_score_raw = 100 × (recency×0.3 + spread×0.25 + engagement×0.2 + source_quality×0.15 + novelty×0.1) = 61.00",
+            "单一来源上限 40 生效（作者数 1 或可核验来源数 1 不足）"
+          ]
+        }
+      ],
+      "selected_topic": "Meta 被指加速进入 AI Agent 竞争，Muse 引发“从模型能力到智能体”的讨论",
+      "selected_topic_step": 2,
+      "agent_run_topic": "Meta 被指加速进入 AI Agent 竞争，Muse 引发“从模型能力到智能体”的讨论",
+      "run_status": "waiting_for_review",
+      "critic_count": 1,
+      "revision_count": null,
+      "research_count": 2,
+      "evidence_count": {
+        "facts": 16,
+        "sources": 25,
+        "consensus": 3,
+        "counterpoints": 2,
+        "unknowns": 9
+      },
+      "evidence_traceability": {
+        "checked": 32,
+        "broken": []
+      },
+      "angles": [
+        {
+          "angle_id": "a1",
+          "claim": "中文科技圈正在热议的\"Meta 加速进入 AI Agent 竞争\"，本质上是一条被 15 个信息源逐字复制的 RT 文案造成的回声室效应，而不是 Meta 的一个可核实动作。",
+          "evidence_ids": [
+            "f1",
+            "f2",
+            "f4"
+          ],
+          "confidence": 0.62
+        },
+        {
+          "angle_id": "a2",
+          "claim": "Muse 之所以能引爆\"从 Llama 到 Muse 的智能体时代\"，恰恰因为它至今什么都没被说明——一个信息空洞反而成了最好用的趋势容器。",
+          "evidence_ids": [
+            "f2",
+            "f3",
+            "f4"
+          ],
+          "confidence": 0.55
+        },
+        {
+          "angle_id": "a3",
+          "claim": "\"AI 竞争从模型能力进入智能体时代\"是一个被后验压缩出来的分期，材料里的实际证据只支持\"讨论热度上升\"，不支持\"范式已经转移\"。",
+          "evidence_ids": [
+            "f3",
+            "f5",
+            "f6",
+            "f7"
+          ],
+          "confidence": 0.5
+        },
+        {
+          "angle_id": "a4",
+          "claim": "\"OpenAI 的 AI agent 黑进澳洲 Medicare\"这类标题的传播力，来自把一次内部 evaluation 里的公开数据查询，翻译成了\"入侵\"叙事——智能体恐惧是被标题工业化生产出来的，不是被事件生产出来的。",
+          "evidence_ids": [
+            "f13",
+            "f14"
+          ],
+          "confidence": 0.7
+        },
+        {
+          "angle_id": "a5",
+          "claim": "GPT-6.1 Sol 用\"约五分之一价格换取接近 GPT-6 的表现\"，加上 dots 只对 Pro/Business/Enterprise 开放，说明智能体时代的第一个真实后果是访问分层，而不是能力平权。",
+          "evidence_ids": [
+            "f8",
+            "f10",
+            "f11",
+            "f12"
+          ],
+          "confidence": 0.45
+        }
+      ],
+      "finish_reason": "最近一轮评审已对三条候选给出 accept（c1 8.0 / c2 8.7 / c3 8.0，聚焦 c2），按规则 Critic 已 accept 就不应再改稿或重复评审；候选总数已达上限 3 条、观点 a3 已选定、证据包与 16 条事实齐备，剩下的检索与改稿预算再用也不会提升质量，直接把手上候选交给护栏与人工审核。",
+      "finish_action": "finish",
+      "interrupted": true,
+      "draft_chars": 79,
+      "acceptance": {
+        "checks": {
+          "x_get_ok": true,
+          "llm_ok": true,
+          "agent_completed": true,
+          "candidate_count_gt_1": true,
+          "real_source_post_ids": true,
+          "trend_score_present": true,
+          "evidence_traceable": true,
+          "waiting_for_review": true,
+          "topic_persisted": true,
+          "all_searches_windowed": true,
+          "no_illegal_query": true,
+          "no_real_post": true
+        },
+        "passed": true
+      }
+    }
+  ]
+}

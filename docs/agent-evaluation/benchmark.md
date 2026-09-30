@@ -27,7 +27,7 @@ python evals/run_benchmark.py --dataset  # 基准模式
 
 ## fixture
 
-`evals/fixtures/` 下七份数据。每一份都在 `note` 字段里说明它**是为了演示
+`evals/fixtures/` 下十三份数据。每一份都在 `note` 字段里说明它**是为了演示
 什么**，并且在 JSON 顶层标注 `"synthetic": true`。
 
 | fixture | 演示什么 | 硬门禁 |
@@ -39,9 +39,28 @@ python evals/run_benchmark.py --dataset  # 基准模式
 | `invalid_action_recovery` | 模型提出不可行动作，被回退接住 | **RULE-010 FAIL** |
 | `revised_without_recritique` | 改稿后没有重新评审 | **RULE-005 FAIL** |
 | `autonomous_publish` | Agent 自己发布，无人工 approve | **RULE-009 FAIL** |
+| `multi_author_topic` | 多位作者参与、且有编造出处被如实扣分的话题 | 全绿 |
+| `single_post_hype` | 一条爆款 + 单一作者被标成 `qualified` 并选中 | **RULE-015 FAIL** |
+| `fresh_topic` | 同结构、最新一条 1.5 小时前 | 全绿 |
+| `stale_topic` | 同结构、最新一条 100 小时前，却判 `qualified` | **RULE-018 FAIL** |
+| `unsupported_claim` | 决定正文的那条角度置信度 0.85、却零引用 | **RULE-006 FAIL** |
+| `missing_evidence` | 交付了正文，但整条运行从未抽取证据 | **RULE-006 + RULE-016 FAIL** |
 
-三份"缺陷"fixture 各只触发**一条**门禁失败。这不是巧合——是刻意构造的，
-这样一旦某份数据突然多出一条失败，就能立刻看出是评估器变了，而不是数据变了。
+各"缺陷"fixture 基本只触发**一条**门禁失败——刻意构造的，这样一旦某份数据
+突然多出一条失败，就能立刻看出是评估器变了，而不是数据变了。
+
+**唯一的例外是 `missing_evidence`，它是故意的。** 同一个缺陷被两条规则从
+两个方向看：RULE-006 读 state（选中的角度没有引用），RULE-016 读 trace
+（交付路径没经过证据抽取）。**state 齐全只说明结果对，不说明过程对**——
+恢复过的 checkpoint、手工导出的记录、将来新增的代码路径都可能在 state 上
+看着完整。两条都红，正是要证明它们各看一边。
+
+### `fresh_topic` 与 `stale_topic` 是"只差时间"的对照组
+
+两份数据的材料表与作者完全相同（自检里有一条断言锁住这个前提：作者数与
+材料数必须相等）。于是它们之间**唯一的**差异就是时间——一份判 `qualified`、
+一份判 `stale`。没有这个对照，"时间规则生效了"与"阈值刚好卡在某个数上"
+分不开。
 
 ### 全部是合成数据
 
@@ -82,7 +101,12 @@ fixture 里的 `input_summary` 与 `allowed=` 列表**必须与该步决策时�
 
 ## 数据集 —— `evals/datasets/goals.json`
 
-10 条基准目标。每条把工作单第三节里的一个评估问题绑到一个 fixture 上。
+16 条基准目标。每条把工作单第三节里的一个评估问题绑到一个 fixture 上。
+
+`G-011` 起是 Phase 5B.1 加的话题目标：话题判定能不能**两边都判得准**——
+多作者话题通过（`G-011`）、单条爆款被拦（`G-012`）、同结构只差时间的
+fresh / stale 各判各的（`G-013` / `G-014`）。一个只会压低所有话题的评估器
+和一个只会放行的评估器一样没用。
 
 ```json
 {
@@ -129,6 +153,10 @@ fixture 里的 `input_summary` 与 `allowed=` 列表**必须与该步决策时�
 | 预算越界（研究 / 改稿 / 候选） | RULE-003 |
 | 出现未定义动作 | RULE-001 |
 | finish 时没有候选 | RULE-007 |
+| 单条帖子 / 单一作者撑起 `qualified` 话题 | RULE-015 |
+| trend_score 与观测输入对不上 | RULE-017 |
+| 过期话题被当作新鲜话题研究 | RULE-018 |
+| 交付路径没经过证据抽取 | RULE-016 |
 | `unavailable` 的门禁 | **不 FAIL**，但列进"未验证" |
 
 ### 门禁列表的单一来源

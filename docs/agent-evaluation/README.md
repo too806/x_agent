@@ -13,20 +13,25 @@
 
 ```bash
 # 1. 跑全部 fixture，看每条运行的分数卡
-python evals/run_benchmark.py
+python -m evals.run_benchmark
 
-# 2. 按基线期望逐条判定（10 条基准目标）
-python evals/run_benchmark.py --dataset
+# 2. 按基线期望逐条判定（16 条基准目标）
+python -m evals.run_benchmark --dataset
 
 # 3. 自检：确认评估器本身还在工作
-python evals/run_benchmark.py --selftest
+python -m evals.selftest
 
 # 4. 存一份结果，改完代码后再跑一次，比较差异
-python evals/run_benchmark.py --dataset --out before.json
+python -m evals.run_benchmark --dataset --out before.json
 #   ... 改代码 ...
-python evals/run_benchmark.py --dataset --out after.json
-python evals/compare.py before.json after.json
+python -m evals.run_benchmark --dataset --out after.json
+python -m evals.compare before.json after.json
 ```
+
+> 用 `-m` 而不是 `python evals/run_benchmark.py`。本机 conda 环境的
+> site-packages 里有一个指向 **master 检出**的 `.pth`，按路径执行脚本时
+> `import evals` 会解析到那一份——于是你跑的是另一个分支的评估器，
+> 结果看起来完全正常。`-m` 让解释器从当前工作目录解析包，堵掉这条歧义。
 
 不需要 PostgreSQL，不需要 X，不需要模型 API。整个 lab 是纯函数加上一组
 JSON 文件，在任何机器上跑出来的结果逐位相同。
@@ -101,10 +106,10 @@ evals/
   report.py            终端渲染
   values.py            MetricValue / UNAVAILABLE / rate / mean
   structural/          第一层：结构指标
-  behavior/            第二层：行为规则 RULE-001..014
+  behavior/            第二层：行为规则 RULE-001..018
   content/             第四层：内容质量（确定性指标）
   fixtures/            离线基准数据（全部标注为 synthetic）
-  datasets/goals.json  10 条基准目标
+  datasets/goals.json  16 条基准目标
 ```
 
 `docs/agent-evaluation/` 下有四份文档：
