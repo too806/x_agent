@@ -30,6 +30,7 @@
 import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
+from typing import Any, Mapping
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -87,11 +88,23 @@ from app.schemas import (
     ReviewQueuePage,
     ReviewRecord,
     RunListPage,
+    RunStyleSummary,
     RunSummary,
     TopicCount,
     TrendPoint,
     publish_record_from_row,
 )
+from app.style.labels import (
+    density_label,
+    ending_label,
+    evidence_label,
+    hook_label,
+    label,
+    stance_label,
+    structure_label,
+    tone_label,
+)
+from app.style.signals import ai_style_signals
 
 logger = logging.getLogger(__name__)
 
@@ -180,6 +193,67 @@ def _preview(text: str | None, limit: int = PREVIEW_CHARS) -> str | None:
 def _page(page: int, page_size: int, total: int) -> Page:
     pages = (total + page_size - 1) // page_size if page_size else 0
     return Page(page=page, page_size=page_size, total=total, pages=pages)
+
+
+def style_summary(state: Mapping[str, Any]) -> RunStyleSummary | None:
+    """从 checkpoint 的 `style_recipe` 拼出 Run Detail 的写作结构块。
+
+    ## 为什么没有 recipe 就返回 None
+
+    `resolve_recipe` 在**没有 Profile 时也会给一个中性 recipe**（这是刻意的：
+    Writer 那里永远有个明确的东西在约束它，而不是一片空白）。所以"state 里
+    没有 style_recipe"这个分支只剩两种可能：
+
+    1. 这不是 Agent 运行（V1 topic 链）——它的 prompt 里根本没有 `{{STYLE}}`；
+    2. 这个 Run 跑在 Phase 5B.2 之前，checkpoint 里从来没有这个键。
+
+    两种情况下界面都应当什么也不显示，而不是画一个"结构：不指定结构"的块——
+    那会让人以为 Agent 主动选了中性结构，而实际上它那会儿还没有这个能力。
+
+    （调用点另外还按 `goal` 门控一次，见 `run_detail`。）
+
+    ## 为什么在这里重算 AI 味信号
+
+    信号是正文的纯函数，重算逐位相同。存的话就多一个会漂移的来源，
+    而且风格参数一改，存下来的旧信号会与新口径对不上却毫无提示。
+
+    ## 量的是哪一份正文：`final_content or draft_content`
+
+    `final_content` **只在人工审核之后才有**（`nodes/human_review.py` 在
+    approve / edit 时才写它）。若只认它，那么**停在待审队列里的每一个 Run**
+    都会显示"没有交付正文，因此没有可计算的痕迹"——而待审的 Run 恰恰是
+    最需要看这个块的地方。所以在人还没决定时退到 `draft_content`：
+    那一刻 Agent 交付出来、正被人评判的东西就是它。
+    """
+    recipe = state.get("style_recipe")
+    if recipe is None:
+        return None
+
+    content = state.get("final_content") or state.get("draft_content")
+    return RunStyleSummary(
+        structure_type=label(recipe.structure_type),
+        structure_label=structure_label(recipe.structure_type),
+        hook_type=label(recipe.hook_type),
+        hook_label=hook_label(recipe.hook_type),
+        observed_target_length=recipe.observed_target_length,
+        effective_target_length=recipe.effective_target_length,
+        hard_max_length=recipe.hard_max_length,
+        density=label(recipe.density),
+        density_label=density_label(recipe.density),
+        stance_strength=label(recipe.stance_strength),
+        stance_label=stance_label(recipe.stance_strength),
+        evidence_requirement=label(recipe.evidence_requirement),
+        evidence_label=evidence_label(recipe.evidence_requirement),
+        tone=label(recipe.tone),
+        tone_label=tone_label(recipe.tone),
+        ending_type=label(recipe.ending_type),
+        ending_label=ending_label(recipe.ending_type),
+        reasons=list(recipe.reasons),
+        profile_ref=recipe.profile_ref,
+        # 没有交付正文就没有可测的对象。这里给 None 而不是空信号：
+        # 空信号会被读成"测过了，一个痕迹都没有"，那是另一个结论。
+        ai_signals=ai_style_signals(content) if content else None,
+    )
 
 
 class AdminService:
@@ -427,6 +501,11 @@ class AdminService:
             # 停在 human_review 的 Run 照样算：Agent 循环那时已经跑完，
             # step_count / critic_tally / 决策轨迹都已经是终值。
             quality=quality_metrics(state) if state.get("goal") else None,
+            # 与 quality 同一处门控、同一个理由：topic 链路的 Run 没有 recipe，
+            # 冒出一个空的"写作结构"块会让人以为 Agent 主动选了"不指定结构"。
+            # （`style_summary` 自己也会在无 recipe 时返回 None，这里是双保险：
+            # 将来若给 topic 链路也接上 recipe，这个门控是明确该重新考虑的一处。）
+            style=style_summary(state) if state.get("goal") else None,
             draft=(
                 DraftRecord(
                     draft_id=str(draft.id),

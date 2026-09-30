@@ -15,12 +15,32 @@ from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
 
-# State 里存的是 pydantic 模型。msgpack 默认只反序列化已注册的类型，未登记的类型
-# 现在只是告警、未来版本会直接拒绝反序列化，所以显式登记。
+# State 里存的是 pydantic 模型。msgpack 只反序列化**已登记**的类型，所以显式登记。
 #
-# **这个清单必须覆盖 RunState 里的每一个类型。** 漏掉一个的后果不是"少个字段"，
-# 而是恢复那个 Run 时整个 state 反序列化失败——而且只在真正走到那一步的运行上炸，
-# 单元测试很可能碰不到。所以新增 Agent state 字段时，先来这里补名字。
+# **登记规则（Phase 5B.2 实测澄清，与早先的注释不同）：**
+#
+# - 只登记**作为 state 顶层值**出现的类型。嵌在已登记模型的**类型化字段**里的
+#   **模型**会被 `model_dump()` 内联，**不需要**登记——登记了就是永远用不到的死条目。
+#   例：`CriticResult.style_fit` 是嵌套的 `StyleFit`，`StyleFit` **不登记**。
+# - **枚举不适用上一条**：`model_dump()` 不会把它们拍成字符串，它们照样以
+#   EXT 的形式出现在 payload 里。所以嵌套的枚举**要登记**（这也是 Phase 5B.1
+#   登记 TopicLifecycle / TopicQualification 的原因——它们同样是嵌套的）。
+# - 落在 `Any` 类型字段里的模型是独立的 EXT，**需要**登记。
+#
+# **为什么"没登记也能跑对"是一件危险的事**（Phase 5B.2 实测）：未登记的枚举
+# 走 `_check_allowed` → 返回 False → 还原成**普通字符串**，日志里留一条 warning；
+# 随后 pydantic 在类型化字段上**又把字符串校验回枚举**，于是最终对象是对的。
+# 回归测试因此全绿，只有日志在响。这份"正确"完全寄生于 pydantic 的再校验：
+# 哪天字段改成 `Any`、或模型换成 `model_construct`，同一段代码会静默拿到字符串，
+# 而 `recipe.structure_type is StructureType.CONTRAST` 这类比较会**恒为 False**。
+# 所以登记它们，并让 tests/test_style_writer_integration.py 里的往返断言
+# 钉住"还原后仍是枚举"这个结果。
+#
+# **漏登记的后果不是"少个字段"，而是静默降级**：`_check_allowed` 返回 False 后
+# 返回的是**原始 payload**——顶层模型退化成 `dict`、`list[Enum]` 退化成字符串列表，
+# 只在日志里留一条 warning。下游按属性读，读出来就是空值，而且**没有任何报错**。
+# 所以"补一个 isinstance 断言"比"补一个名字"更重要：
+# 见 tests/test_agent_loop.py::test_agent_run_state_is_resumable_from_checkpoint。
 SERDE = JsonPlusSerializer(
     allowed_msgpack_modules=[
         ("app.schemas", "ResearchResult"),
@@ -53,6 +73,21 @@ SERDE = JsonPlusSerializer(
         ("app.agent.schemas", "CriticResult"),
         ("app.agent.schemas", "CriticReport"),
         ("app.agent.schemas", "DecisionTraceEntry"),
+        # Phase 5B.2：StyleRecipe 以**顶层值**进 RunState（state["style_recipe"]），
+        # 所以必须登记。
+        ("app.style.schemas", "StyleRecipe"),
+        # 它内部引用的枚举——**嵌套的枚举照样要登记**（见上面的登记规则）。
+        # 不登记不会立刻报错（pydantic 会把被拦下的字符串再校验回枚举），
+        # 但每次读 checkpoint 都会刷七条 warning，而且正确性全靠那一步再校验。
+        ("app.style.taxonomy", "StructureType"),
+        ("app.style.taxonomy", "HookType"),
+        ("app.style.schemas", "DensityLevel"),
+        ("app.style.schemas", "StanceStrength"),
+        ("app.style.schemas", "EvidenceRequirement"),
+        ("app.style.schemas", "Tone"),
+        ("app.style.schemas", "EndingType"),
+        # 注意：`CriticResult.style_fit` 里的 `StyleFit` **不在**这里——它是嵌套的
+        # **模型**，会被 model_dump() 内联，登记了就是用不到的死条目。
     ]
 )
 

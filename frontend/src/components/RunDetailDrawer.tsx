@@ -24,7 +24,12 @@ import {
   duration,
   text,
 } from '../utils/format'
-import type { AdminRunDetail, PublishRecord } from '../types/api'
+import type {
+  AdminRunDetail,
+  AiStyleSignals,
+  PublishRecord,
+  RunStyleSummary,
+} from '../types/api'
 
 /**
  * Run 详情抽屉。
@@ -44,8 +49,9 @@ import type { AdminRunDetail, PublishRecord } from '../types/api'
  *   2. 生命周期   —— 六段走到哪了，每段留下了什么
  *   3. Agent 决策轨迹 —— 这个 Agent 为什么这么走（§11，整个控制台的核心）
  *   4. 运行质量   —— 这一轮决策循环健不健康（只有 Agent 模式的 Run 有）
- *   5. 研究素材 / 内容 / 规则检查 / 发布 —— 具体材料
- *   6. 运行信息   —— 精确时间戳，对账用
+ *   5. 写作结构   —— 这一轮打算怎么表达（Phase 5B.2，同样只有 Agent 模式有）
+ *   6. 研究素材 / 内容 / 规则检查 / 发布 —— 具体材料
+ *   7. 运行信息   —— 精确时间戳，对账用
  *
  * 反过来的顺序（先铺材料、结论沉在最下面）正是"渲染 API 的页面"和"给人用的
  * 控制台"之间的差别：人来这里通常是为了回答一个具体问题，而不是为了通读一遍。
@@ -121,6 +127,169 @@ function AgentQualitySection({ detail }: { detail: AdminRunDetail }) {
         {quality.finish_reason || '这一步没有留下理由'}
       </Field>
     </DetailSection>
+  )
+}
+
+/**
+ * 这次运行采用的写作结构（Phase 5B.2）。
+ *
+ * 与 `AgentQualitySection` 同一个门槛：不是 Agent 的 Run（后端 `style` 为
+ * null）这一段不出现，页面与从前逐像素一致。后端的 null 有两种来源——
+ * 这个 Run 是 V1 topic 链路，或者它跑在 Phase 5B.2 之前——**两种情况界面
+ * 都不该猜**：显示一个"结构：不指定"的块，会让人以为 Agent 主动选了中性
+ * 结构，而它那会儿根本没有这个能力。
+ *
+ * 放在"运行质量"之后、材料之前：它和运行质量一样，回答的是"这一轮 Agent
+ * 做了什么样的决定"，而不是"它拿到了什么材料"。
+ *
+ * **这里永远不会出现样本原文。** recipe 是生成约束，本身不含任何一条真实
+ * 帖子的句子；这不是靠界面克制，是数据里就没有这个字段。
+ */
+/**
+ * 目标长度：**语料观察**与**平台执行值**分开显示。
+ *
+ * 被平台上限压过时必须把两句都写出来。只显示 `effective_target_length`
+ * 的话，界面上的 140 看起来像一条关于语料的结论（"这种写法就是写短句"），
+ * 而语料说的是 180——人拿这个数去判断"我们学到的东西对不对"，就会往
+ * 一个语料从未支持的方向下结论。没被压过时不显示那半句：恒显示会让
+ * 一次没有冲突的运行也背上一句解释。
+ */
+function LengthLine({ style }: { style: RunStyleSummary }) {
+  if (style.effective_target_length === null) return <>{EMPTY}</>
+  const capped =
+    style.observed_target_length !== null &&
+    style.hard_max_length !== null &&
+    style.hard_max_length < style.observed_target_length
+  if (!capped) return <>约 {style.effective_target_length} 字</>
+  return (
+    <>
+      不超过 {style.effective_target_length} 字
+      <div className="meta">
+        语料里典型长度是 {style.observed_target_length} 字，受发布硬上限{' '}
+        {style.hard_max_length} 字约束，本次执行值取前者与后者中较小的一个。
+        <strong>这不是语料的结论。</strong>
+      </div>
+    </>
+  )
+}
+
+function StyleSection({ detail }: { detail: AdminRunDetail }) {
+  const style = detail.style
+  if (!style) return null
+
+  return (
+    <DetailSection title="本次运行采用的写作结构">
+      <FieldGrid>
+        <Field label="结构">{style.structure_label}</Field>
+        <Field label="开头">{style.hook_label}</Field>
+        {/* 目标长度可能没定（recipe 允许 null），给 — 而不是 0：
+            0 字是一个可执行的目标，与"没定"是完全不同的两件事。 */}
+        <Field label="目标长度">
+          <LengthLine style={style} />
+        </Field>
+        <Field label="结尾">{style.ending_label}</Field>
+      </FieldGrid>
+
+      <details className="disclosure">
+        <summary>技术细节（其余约束、选择依据与正文痕迹）</summary>
+        <div className="disclosure__body stack stack--tight">
+          <FieldGrid>
+            {/* 取值与标签并排给出：标签回答"这是什么意思"，取值让人能拿它
+                去核对 prompt 与日志里出现的字符串。 */}
+            <Field label="结构（取值）">
+              <span className="mono">{style.structure_type}</span>
+            </Field>
+            <Field label="开头（取值）">
+              <span className="mono">{style.hook_type}</span>
+            </Field>
+            <Field label="信息密度">{style.density_label}</Field>
+            <Field label="立场强度">{style.stance_label}</Field>
+            <Field label="证据要求">{style.evidence_label}</Field>
+            <Field label="语气">{style.tone_label}</Field>
+          </FieldGrid>
+
+          {/* 三个长度并排给出，让人一眼看出哪个是语料说的、哪个是执行值。
+              只留执行值的话，那个数会被当成语料的结论。 */}
+          <FieldGrid>
+            <Field label="语料目标长度">
+              {style.observed_target_length === null
+                ? EMPTY
+                : `${style.observed_target_length} 字`}
+            </Field>
+            <Field label="本次执行目标长度">
+              {style.effective_target_length === null
+                ? EMPTY
+                : `${style.effective_target_length} 字`}
+            </Field>
+            <Field label="发布硬上限">
+              {style.hard_max_length === null ? EMPTY : `${style.hard_max_length} 字`}
+            </Field>
+          </FieldGrid>
+
+          <div className="meta">
+            <div className="meta__label">选择依据</div>
+            {style.reasons.length === 0 ? (
+              // 空 reasons 是"没留下依据"，不是"依据为空"。直说。
+              <div>这次没有留下选择依据。</div>
+            ) : (
+              <ul className="stack stack--tight">
+                {style.reasons.map((reason, index) => (
+                  <li key={index}>{reason}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <div className="meta">
+            <div className="meta__label">依据的语料统计</div>
+            <div className="mono">{style.profile_ref || '（没有记录来源）'}</div>
+          </div>
+
+          <div className="meta">
+            <div className="meta__label">正文的套话痕迹（确定性计数）</div>
+            <AiSignalsLine signals={style.ai_signals} />
+          </div>
+        </div>
+      </details>
+    </DetailSection>
+  )
+}
+
+/**
+ * 交付正文的确定性 AI 味计数。
+ *
+ * **这是计数，不是判定。** 措辞上必须一直说"出现了几次"，不能说成评分或
+ * 概率：这几个词表判不了"这是 AI 写的"，把它渲染成一个分数就等于宣称它能。
+ * 全零时说"未发现"，与"没测"（signals 为 null）分开说。
+ */
+function AiSignalsLine({ signals }: { signals: AiStyleSignals | null }) {
+  if (!signals) {
+    return <div>没有交付正文，因此没有可计算的痕迹。</div>
+  }
+
+  const counts: [string, number][] = [
+    ['模板化开头', signals.template_opener_count],
+    ['空洞连接词', signals.empty_connective_count],
+    ['虚假权威措辞', signals.false_authority_count],
+    ['套话', signals.generic_phrase_count],
+    ['模糊限定词', signals.hedge_count],
+    ['重复开头', signals.repeated_opener_count],
+  ]
+  const hits = counts.filter(([, count]) => count > 0)
+
+  if (hits.length === 0) {
+    return <div>{signals.char_count} 字，未发现以上痕迹。</div>
+  }
+
+  return (
+    <div>
+      {signals.char_count} 字：{hits.map(([name, count]) => `${name} ×${count}`).join('、')}
+      {signals.generic_phrases.length > 0 ? (
+        // 命中的套话原文印出来，人才能反驳"这个也算套话？"——
+        // 一个不能核对的信号，和一个不能核对的分数一样没用。
+        <span className="cell-muted">（套话：{signals.generic_phrases.join('、')}）</span>
+      ) : null}
+    </div>
   )
 }
 
@@ -227,6 +396,8 @@ export function DetailBody({ detail, onSettled }: { detail: AdminRunDetail; onSe
       <AgentTraceSection detail={detail} />
 
       <AgentQualitySection detail={detail} />
+
+      <StyleSection detail={detail} />
 
       <DetailSection
         title="研究素材"

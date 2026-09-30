@@ -48,8 +48,11 @@ def build_tools(deps, budget: AgentBudget) -> Mapping[AgentAction, Tool]:
         AgentAction.GENERATE_ANGLES: make_angles_tool(deps.llm_service),
         AgentAction.SELECT_ANGLE: make_select_angle_tool(),
         AgentAction.GENERATE_CANDIDATES: make_candidates_tool(
-            deps.llm_service, deps.persona, budget
+            deps.llm_service, deps.persona, budget, deps.session_factory
         ),
         AgentAction.CRITICIZE: make_critic_tool(deps.llm_service, deps.persona),
+        # revise 也拿 recipe，但它**从 state 读**而不是再查一次库：
+        # recipe 是候选工具写进 state 的运行期决策，改稿要收敛到**同一个**
+        # 结构，重新推导一次反而可能因为语料变动而给出不同的骨架。
         AgentAction.REVISE: make_revise_tool(deps.llm_service, deps.persona),
     }

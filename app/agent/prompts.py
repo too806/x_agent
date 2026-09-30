@@ -24,6 +24,19 @@ from app.agent.schemas import (
 )
 from app.agent.schemas import DecisionTraceEntry
 from app.config import settings
+from app.style.labels import (
+    density_label as _density_label,
+    ending_label as _ending_label,
+    evidence_label as _evidence_label,
+    hook_label as _hook_label,
+    stance_label as _stance_label,
+    structure_label as _structure_label,
+    tone_label as _tone_label,
+)
+
+# 标签表本身在 `app/style/labels.py`——Run Detail 要展示同一组取值，
+# 抄一份就会漂，漂了还不报错。这里保留 `_xxx_label` 的私有别名，是为了让
+# `format_style_recipe` 的正文一行都不用改。
 
 
 def load_prompt(name: str) -> str:
@@ -60,6 +73,65 @@ def format_persona(persona: Persona) -> str:
         f"- 风格：{'；'.join(persona.style)}\n"
         f"- 避免：{'；'.join(persona.avoid)}"
     )
+
+
+def format_style_recipe(recipe: Any | None) -> str:
+    """StyleRecipe 的文本块（Phase 5B.2）。
+
+    **永远返回一段文本，绝不返回空串或 None**。两个理由：
+
+    1. `render()` 只替换传进去的键，**不会因为缺键报错**——调用方若因为
+       "这次没有 recipe"就跳过这个参数，字面量 `{{STYLE}}` 会原样进入发给
+       模型的 prompt。所以调用方**必须**每次都传 `STYLE=format_style_recipe(...)`，
+       而这个函数在无 recipe 时返回一段交代清楚的说明文字。
+    2. 无 recipe 时返回"本次未指定写作结构"而不是空串：模型看到一片空白会
+       自己补一套隐含的结构约束，而那是**不可见**的——它既不在 trace 里，
+       也不在 Run Detail 里，事后无法解释稿子为什么长成那样。
+
+    ## 这里印的是约束，不是样本
+
+    recipe 里没有任何一条真实帖子的句子（工作单第二十二节的硬要求）。
+    它只描述"该写成什么样"，不提供"照着抄的范本"。
+    """
+    if recipe is None:
+        return (
+            "（本次未指定写作结构。按上面的写作规则与既有风格自行组织，"
+            "不要套用固定的段落模板。）"
+        )
+
+    lines = [
+        f"- 结构：{_structure_label(recipe.structure_type)}",
+        f"- 开头：{_hook_label(recipe.hook_type)}",
+    ]
+    # 长度是这个 prompt 里**唯一**有两个来源的参数：语料观察 + 平台上限。
+    # 两者的关系必须在给模型的文本里写清楚，否则模型只看到一个 140，
+    # 会把它当成语料的结论去执行——"这些人平时写 140 字"，而事实是
+    # "语料说 180，我们只能发 140"。前者会让它继续往短里压缩内容，
+    # 后者才让它知道该保留多少信息量。
+    length = recipe.effective_target_length
+    if length:
+        if recipe.is_length_capped:
+            lines.append(
+                f"- 目标长度：**不超过 {length} 字**。"
+                f"（语料里典型长度是 {recipe.observed_target_length} 字，"
+                f"受发布长度硬上限约束，本次实际写到 {length} 字左右即可；"
+                f"**这不是语料认为该写多短**，所以不要为了凑短而丢掉事实。）"
+            )
+        else:
+            lines.append(f"- 目标长度：约 {length} 字")
+    lines.append(f"- 信息密度：{_density_label(recipe.density)}")
+    lines.append(f"- 立场强度：{_stance_label(recipe.stance_strength)}")
+    lines.append(f"- 证据要求：{_evidence_label(recipe.evidence_requirement)}")
+    lines.append(f"- 语气：{_tone_label(recipe.tone)}")
+    lines.append(f"- 结尾：{_ending_label(recipe.ending_type)}")
+
+    body = "\n".join(lines)
+    if recipe.reasons:
+        # 把依据一并给模型：知道"为什么是这个结构"比只看到结构名更能约束写法，
+        # 也让人在事后能从 prompt 里看出这个选择从哪来。
+        rationale = "\n".join(f"  - {reason}" for reason in recipe.reasons)
+        return f"{body}\n选择依据：\n{rationale}"
+    return body
 
 
 def format_sources(sources: list[tuple[str, str]]) -> str:

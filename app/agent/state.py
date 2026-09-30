@@ -26,6 +26,7 @@ from app.agent.schemas import (
 )
 from app.agent.schemas import merge_trace
 from app.schemas import ResearchResult
+from app.style.schemas import StyleRecipe
 
 
 class RunState(TypedDict, total=False):
@@ -83,6 +84,12 @@ class RunState(TypedDict, total=False):
     angles: list[Angle]
     selected_angle: Angle
     candidates: list[Candidate]
+    #: Phase 5B.2：本次运行采用的写作结构约束（Writer 与 Critic 共用同一个）。
+    #: 由候选工具在渲染 prompt 前确定性地备好（**不是**一个 AgentAction，
+    #: 见 app/style/recipe.py 的说明），Critic 据此判 style_fit / structure_fit。
+    #: 只活在 checkpoint 里，**不落库**：它是"这次运行选了什么结构"的运行期决策，
+    #: 不是语料资产（见 alembic c3d8a45e7f21 的说明）。
+    style_recipe: StyleRecipe
     critic_result: CriticResult
     critic_results: list[CriticResult]
     revision_count: int

@@ -18,14 +18,29 @@ from app.agent.prompts import (
     format_candidates,
     format_evidence,
     format_persona,
+    format_style_recipe,
     load_prompt,
     render,
 )
-from app.agent.schemas import CriticReport, CriticResult
+from app.agent.schemas import Candidate, CriticReport, CriticResult
 from app.agent.tools.base import ToolResult, complete_json, sources
 from app.services.llm import LLMService
+from app.style.signals import ai_style_signals, format_signals
 
 logger = logging.getLogger(__name__)
+
+
+def format_ai_signals(candidates: list[Candidate]) -> str:
+    """每条候选的确定性 AI 味信号，一行一条。
+
+    每条都印（哪怕是"未发现"）：模型要知道"这一条**没有**那些痕迹"，
+    才能把它与"这里没给数据"区分开。漏掉一条会让模型以为那条没被检查过。
+    """
+    if not candidates:
+        return "（无候选）"
+    return "\n".join(
+        f"[{c.candidate_id}] {format_signals(ai_style_signals(c.content))}" for c in candidates
+    )
 
 
 def _bind_to_candidates(report: CriticReport, candidate_ids: list[str]) -> list[CriticResult]:
@@ -107,6 +122,12 @@ def make_critic_tool(llm_service: LLMService, persona: Persona):
             PERSONA=format_persona(persona),
             MAX_LENGTH=persona.max_length,
             CANDIDATES=format_candidates(candidates),
+            # 确定性 AI 味信号：由程序从正文算出，**按需重算、不入库、不进 state**。
+            # 它只作为参考事实给模型，绝不混进 generic_ai_style 那个分数。
+            AI_SIGNALS=format_ai_signals(candidates),
+            # 与 Writer 拿到的是**同一个** recipe（都在 state 里），
+            # 否则 Critic 会拿另一个目标去判 style_fit。
+            STYLE=format_style_recipe(state.get("style_recipe")),
             SOURCE_COUNT=len(sources(state)),
         )
         report: CriticReport = await complete_json(llm_service, prompt, CriticReport)

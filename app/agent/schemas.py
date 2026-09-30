@@ -16,6 +16,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from app.style.schemas import StyleFit
+
 
 class AgentAction(str, Enum):
     """Planner 能选的下一步。
@@ -304,6 +306,22 @@ class CriticResult(BaseModel):
     hook_strength: float = Field(0.0, ge=0.0, le=10.0)
     persona_fit: float = Field(0.0, ge=0.0, le=10.0)
     evidence_binding: float = Field(0.0, ge=0.0, le=10.0)
+
+    # --- Phase 5B.2：与目标 StyleRecipe 的一致性（工作单第二十三节）---
+    # 判的是"是否符合本次的写作结构约束"，**不是**"像不像某个具体账号"
+    # （工作单第二十三、三十二节的硬约束）。
+    #
+    # 嵌套 `StyleFit` **不需要**登记进 SERDE：它嵌在一个已登记模型的类型化
+    # 字段里，会被 model_dump() 内联（见 app/db/checkpointer.py 的登记规则）。
+    #
+    # 默认 None 而不是 `StyleFit()`：没给 recipe 的运行（以及本次改动之前的
+    # 历史 checkpoint）就没有这一项可判，而"没评"与"评分为 0"必须分得开——
+    # 那正是 StyleFit 内部字段用 `float | None` 的理由。
+    style_fit: StyleFit | None = None
+    #: 与 `style_fit` 分开的一栏：结构是否符合 recipe.structure_type。
+    #: 不并进 `style_fit` 是为了让"骨架不对"与"语气不对"在报告里能分开看——
+    #: 前者通常要重写，后者改几句就行。
+    structure_fit: float | None = Field(None, ge=0.0, le=10.0)
 
 
 class DecisionTraceEntry(BaseModel):

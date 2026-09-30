@@ -26,6 +26,7 @@ from app.agent.prompts import (
     format_critics,
     format_evidence,
     format_persona,
+    format_style_recipe,
     load_prompt,
     render,
 )
@@ -72,6 +73,9 @@ def make_revise_tool(llm_service: LLMService, persona: Persona):
             CLAIM=getattr(angle, "claim", ""),
             EVIDENCE=format_evidence(state.get("evidence_pack")),
             PERSONA=format_persona(persona),
+            # 改稿要收敛到同一个结构，否则改着改着骨架就换了。
+            # 从 state 读，不重算：见 tools/__init__.py 的说明。
+            STYLE=format_style_recipe(state.get("style_recipe")),
             MAX_LENGTH=persona.max_length,
             CANDIDATE=target.content,
             LABEL=target.label,

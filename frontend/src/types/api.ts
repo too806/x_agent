@@ -258,6 +258,69 @@ export interface AgentQualityMetrics {
   finish_reason: string
 }
 
+/**
+ * 交付正文的确定性 AI 味信号（Phase 5B.2）。
+ *
+ * 它是**几个能被复算的计数**，不是"AI 概率"。界面上的措辞必须是
+ * "这类痕迹出现了几次"，绝不能渲染成分数或判定。
+ */
+export interface AiStyleSignals {
+  char_count: number
+  template_opener_count: number
+  empty_connective_count: number
+  false_authority_count: number
+  generic_phrase_count: number
+  hedge_count: number
+  repeated_opener_count: number
+  /** 命中的套话原文，供人核对"这个也算套话？" */
+  generic_phrases: string[]
+}
+
+/**
+ * 这次运行采用的写作结构（Phase 5B.2）。
+ *
+ * **取值和中文标签都带着**：只给标签，界面没法核对原始取值；只给取值，
+ * 前端得自己维护一份标签表，与后端 prompt 用的那份迟早会漂。
+ * 标签来自后端 `app/style/labels.py`，与 Writer / Critic 看到的是同一份。
+ *
+ * 这里**没有样本原文**——recipe 是生成约束，从来没有正文。
+ */
+export interface RunStyleSummary {
+  structure_type: string
+  structure_label: string
+  hook_type: string
+  hook_label: string
+  /**
+   * 长度是三个数，对应三件不同的事，**不要把它们混起来读**：
+   *
+   * - `observed_target_length` —— 语料里典型的一条多长（语料观察）
+   * - `effective_target_length` —— 这次实际让 Writer 写多长（执行值）
+   * - `hard_max_length` —— 发布路径的硬上限（平台约束）
+   *
+   * 三者都为 null 表示这一版 recipe 没定长度。只显示执行值时，界面上的
+   * 一个 140 会被读成"学到的写法就是写短句"，而语料说的其实是 180。
+   */
+  observed_target_length: number | null
+  effective_target_length: number | null
+  hard_max_length: number | null
+  density: string
+  density_label: string
+  stance_strength: string
+  stance_label: string
+  evidence_requirement: string
+  evidence_label: string
+  tone: string
+  tone_label: string
+  ending_type: string
+  ending_label: string
+  /** 每个选择的可核对依据。 */
+  reasons: string[]
+  /** 这一版 recipe 依据的 Profile，形如 `corpus@2026-09-30T11:00:00+00:00`。 */
+  profile_ref: string
+  /** 交付正文的信号。没有交付正文时为 null（不是"全是 0"）。 */
+  ai_signals: AiStyleSignals | null
+}
+
 export interface AdminRunDetail {
   run_id: string
   /** Agent 选定的主题。null = 还没选出来（不是"没有"这个字段的意思）。 */
@@ -283,6 +346,8 @@ export interface AdminRunDetail {
   decision_trace: DecisionTraceEntry[]
   /** 只有 Agent 模式的 Run 才有；其余为 null。 */
   quality: AgentQualityMetrics | null
+  /** 同上，只有 Agent 模式的 Run 才有 recipe 可展示；其余为 null。 */
+  style: RunStyleSummary | null
   draft: DraftRecord | null
   review: ReviewRecord | null
   publish: PublishRecord | null
