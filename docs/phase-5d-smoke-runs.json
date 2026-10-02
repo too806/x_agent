@@ -1,0 +1,233 @@
+{
+  "phase": "5D",
+  "note": "每次 smoke 一份记录，累积保存在 runs 里。",
+  "runs": [
+    {
+      "phase": "5D",
+      "generated_at": "2026-10-02T14:51:43.560571+00:00",
+      "note": "工作单第三十六节五条 smoke 的记录。Smoke 1 读真机库（只读），Smoke 2 / 3 在合成记录上跑生成路径，Smoke 4 / 5 用手写提案反证两道闸门。本脚本不写数据库、不写 checkpoint、不写裁决、不发布任何内容；对 X 只有一次 best-effort 只读 GET。",
+      "smokes": {
+        "2_offline_gate_open": {
+          "available": true,
+          "data": "合成",
+          "post_count": 10,
+          "window": "24-72h",
+          "valid_comparison_count": 3,
+          "readiness": {
+            "learning_ready": true,
+            "reason": "ready",
+            "sample_count": 10,
+            "automatic_modification": false
+          },
+          "note": "样本充足时闸门放行；automatic_modification 仍为 False。"
+        },
+        "3_proposal_is_generated": {
+          "available": true,
+          "data": "合成",
+          "proposal_count": 1,
+          "proposals": [
+            {
+              "id": "proposal:hook_type@24-72h",
+              "target": "style_recipe.hook_type",
+              "current_value": "statement",
+              "proposed_value": "question",
+              "rationale": "在 24-72h 观察窗口下，按开头方式分组，question（n=5）的点赞（注意力）中位数为 20，statement（n=5）为 8。在本样本中观察到「question」一侧更高。这个方向在 3 类活动计数上的观察是一致的（不一致的方向不会写成提案）。这是观察到的差异，不构成因果结论，也不能说明哪一种写法更好；它只说明在下一步里值得尝试把「开头方式」取 question（当前为 statement）再观察一次，看这个方向是否还会出现。",
+              "evidence_ids": [
+                "learning:hook-type:question:statement:24-72h:attention",
+                "learning:hook-type:question:statement:24-72h:conversation",
+                "learning:hook-type:question:statement:24-72h:amplification"
+              ],
+              "sample_count": 10,
+              "observation_window": "24-72h",
+              "comparison_group": "hook_type: question vs statement @ 24-72h · attention",
+              "confidence": null,
+              "limitations": [
+                "这是一次观察性比较，没有对照组、没有实验设计，不构成任何因果结论。",
+                "点赞、回复、转发、引用是四类不同的行为，本提案不把它们合成单一分数，也不把其中任何一个当作内容质量的度量。",
+                "本提案只建议**尝试**，不表示已经证明这样做更好，也不表示系统会自动采用它。",
+                "本阶段不对「信息密度 / 结尾方式 / 语气」提案：本仓库没有它们的确定性观察维度，缺这一项不被假装成没有差异。"
+              ],
+              "status": "proposed",
+              "current_recipe_version": "sr1-e1b5fb3d2060",
+              "proposed_recipe_version": "sr1-20a4222550a5",
+              "outlier_count": 0,
+              "automatic_application": false,
+              "validation": {
+                "valid": true,
+                "reasons": [],
+                "passed_checks": [
+                  "has_evidence",
+                  "evidence_is_a_comparison",
+                  "sample_sufficient",
+                  "window_consistent",
+                  "target_allowed",
+                  "not_security_related",
+                  "not_causal",
+                  "not_absolute",
+                  "not_a_recommendation",
+                  "confidence_absent",
+                  "automatic_application_false"
+                ]
+              }
+            }
+          ],
+          "note": "同维度的多条比较归成**一条**提案；样本量取帖子并集而不是相加。验证：生成路径产出的提案全部 valid。"
+        },
+        "4_causal_wording_rejected": {
+          "available": true,
+          "data": "合成（手写）",
+          "template_valid": true,
+          "causal_reasons": [
+            "理由里出现因果措辞 ['因为', '所以']；本层只说观察到的差异。"
+          ],
+          "absolute_reasons": [
+            "理由里出现绝对化措辞 ['一定', '必然']；观察不能写成断言。"
+          ],
+          "instructional_reasons": [
+            "理由里出现指令性措辞 ['你应该']；提案是「可以尝试什么」，不是「应该做什么」。"
+          ],
+          "causal_markers": [
+            "一定",
+            "必然",
+            "必定",
+            "保证",
+            "确保",
+            "绝对",
+            "肯定",
+            "guarantee",
+            "guaranteed",
+            "definitely",
+            "certainly"
+          ],
+          "note": "底稿合法，只改措辞 → 三种都被拒。生成路径产不出它们，所以必须手写才能证明这道闸门不是摆设。"
+        },
+        "5_production_targets_rejected": {
+          "available": true,
+          "data": "合成（手写）",
+          "rejected": [
+            {
+              "target": "guardrail.max_scope_exceeds_evidence",
+              "valid": false,
+              "reasons": [
+                "目标 'guardrail.max_scope_exceeds_evidence' 不在允许提案的范围内。允许的目标只有：style_recipe.hook_type、style_recipe.structure_type、style_recipe.target_length、viewpoint.counterpoint_awareness、viewpoint.stance。",
+                "目标 'guardrail.max_scope_exceeds_evidence' 命中安全或生产边界标记 ['guardrail']：Trend 权重、预算、Critic 阈值、发布逻辑、Guardrail、人工审核与 CAS 都不接受提案，这一条永远不成立。"
+              ]
+            },
+            {
+              "target": "publish.schedule",
+              "valid": false,
+              "reasons": [
+                "目标 'publish.schedule' 不在允许提案的范围内。允许的目标只有：style_recipe.hook_type、style_recipe.structure_type、style_recipe.target_length、viewpoint.counterpoint_awareness、viewpoint.stance。",
+                "目标 'publish.schedule' 命中安全或生产边界标记 ['publish']：Trend 权重、预算、Critic 阈值、发布逻辑、Guardrail、人工审核与 CAS 都不接受提案，这一条永远不成立。"
+              ]
+            },
+            {
+              "target": "publish.auto_publish",
+              "valid": false,
+              "reasons": [
+                "目标 'publish.auto_publish' 不在允许提案的范围内。允许的目标只有：style_recipe.hook_type、style_recipe.structure_type、style_recipe.target_length、viewpoint.counterpoint_awareness、viewpoint.stance。",
+                "目标 'publish.auto_publish' 命中安全或生产边界标记 ['publish']：Trend 权重、预算、Critic 阈值、发布逻辑、Guardrail、人工审核与 CAS 都不接受提案，这一条永远不成立。"
+              ]
+            },
+            {
+              "target": "budget.daily_limit",
+              "valid": false,
+              "reasons": [
+                "目标 'budget.daily_limit' 不在允许提案的范围内。允许的目标只有：style_recipe.hook_type、style_recipe.structure_type、style_recipe.target_length、viewpoint.counterpoint_awareness、viewpoint.stance。",
+                "目标 'budget.daily_limit' 命中安全或生产边界标记 ['budget']：Trend 权重、预算、Critic 阈值、发布逻辑、Guardrail、人工审核与 CAS 都不接受提案，这一条永远不成立。"
+              ]
+            },
+            {
+              "target": "critic.threshold",
+              "valid": false,
+              "reasons": [
+                "目标 'critic.threshold' 不在允许提案的范围内。允许的目标只有：style_recipe.hook_type、style_recipe.structure_type、style_recipe.target_length、viewpoint.counterpoint_awareness、viewpoint.stance。",
+                "目标 'critic.threshold' 命中安全或生产边界标记 ['critic', 'threshold']：Trend 权重、预算、Critic 阈值、发布逻辑、Guardrail、人工审核与 CAS 都不接受提案，这一条永远不成立。"
+              ]
+            },
+            {
+              "target": "trend.weight_recency",
+              "valid": false,
+              "reasons": [
+                "目标 'trend.weight_recency' 不在允许提案的范围内。允许的目标只有：style_recipe.hook_type、style_recipe.structure_type、style_recipe.target_length、viewpoint.counterpoint_awareness、viewpoint.stance。",
+                "目标 'trend.weight_recency' 命中安全或生产边界标记 ['trend']：Trend 权重、预算、Critic 阈值、发布逻辑、Guardrail、人工审核与 CAS 都不接受提案，这一条永远不成立。"
+              ]
+            }
+          ],
+          "allowed_target_still_valid": true,
+          "note": "六个生产目标全部被拒且点名边界；作为对照，允许的目标仍然成立。"
+        },
+        "1_real_data_gate_closed": {
+          "available": true,
+          "data": "真机库（只读）",
+          "post_count": 1,
+          "snapshot_count": 2,
+          "window": "0-1h",
+          "learning_ready": false,
+          "reason": "insufficient_sample",
+          "sample_count": 1,
+          "cohort_count": 6,
+          "valid_comparison_count": 0,
+          "proposal_count_from_report": 0,
+          "proposal_count_from_service": 0,
+          "proposals_overview": {
+            "available": true,
+            "learning_ready": false,
+            "reason": "learning_ready is false, so zero proposals are produced. The readiness gate is a hard requirement rather than a ranking: insufficient data yields no suggestion at all instead of a few plausible-looking ones.",
+            "proposal_count": 0,
+            "reviewable_count": 0,
+            "decided_count": 0
+          },
+          "review_refused_when_gate_closed": {
+            "probe_id": "proposal:hook_type@24-72h",
+            "refused": true,
+            "reason": "not_found",
+            "detail": "proposal 'proposal:hook_type@24-72h' is not produced by the current observation and cannot be reviewed"
+          },
+          "note": "真实数据不足以支撑任何比较，所以正确的输出是零条提案加一句原因。工作单第二十八、三十七节：零条是一个结论，不是一次失败。"
+        },
+        "x_readonly_get": {
+          "available": true,
+          "data": "真实 X（只读 GET）",
+          "requested_ids": [
+            "2105998097302028593"
+          ],
+          "returned": 1,
+          "not_returned": [],
+          "counts": [
+            {
+              "x_post_id": "2105998097302028593",
+              "likes": 0,
+              "replies": 0,
+              "reposts": 0,
+              "quotes": 0
+            }
+          ],
+          "note": "这些数字**没有**写进数据库；本脚本不产生新的观察行。"
+        }
+      },
+      "failed": {},
+      "decision_rows": {
+        "before": 0,
+        "after": 0,
+        "written_by_this_smoke": 0
+      },
+      "x_requests": {
+        "total": 1,
+        "by_method": {
+          "GET": 1
+        },
+        "post_tweets": 0,
+        "requests": [
+          {
+            "method": "GET",
+            "path": "/2/tweets",
+            "ids": "2105998097302028593"
+          }
+        ]
+      },
+      "automatic_modification": false,
+      "automatic_application": false
+    }
+  ]
+}
