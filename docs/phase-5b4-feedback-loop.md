@@ -688,7 +688,47 @@ Feedback Loop 决定的是**"我过去做的事后来怎么样"**，而它在本
 
 ## R. 收口记录
 
-见本节末（提交后补）。
+本节只记录"把已经写好的 5B.4 落进历史"这件事，**不新增任何业务能力**。
+
+**分支与 worktree（工作单第四十三节）**：
+
+```
+worktree : C:\xuexi\py\2026_agent\X_Agent-phase-5b4
+branch   : feat/phase-5b4-feedback-loop
+基线     : a6f67b7（Phase 5B.3 的 finalize 提交）
+特性提交 : 11f5492  feat: add feedback loop foundation (Phase 5B.4)
+master   : a6f67b7  未动
+```
+
+**44 条改动**（25 改 + 19 增），全部属于本阶段；没有一条是别的会话留下的。
+
+**收口时的实际状态**（不是按计划假设的状态）：5B.4 的代码此前以工作区改动的形式
+躺在 worktree 上，**没有提交过**。收口做的是三件事：把 44 条改动一次性提交、
+补齐本文档（含逐条回答 §44 的 23 问）、把 smoke 的真实运行记录
+（`docs/phase-5b4-smoke-runs.json`）纳入版本。
+
+**import 落点自查**（必须做，否则"全绿"可能是假的）：本机 editable 安装的 `.pth`
+指向 master 检出，在 worktree 里 `import app` 可能静默拿到 master 的代码。
+开工与收口各验一次：
+
+```bash
+$ python -c "import app, evals; print(app.__file__, evals.__file__)"
+C:\xuexi\py\2026_agent\X_Agent-phase-5b4\app\__init__.py
+C:\xuexi\py\2026_agent\X_Agent-phase-5b4\evals\__init__.py
+```
+
+两次都在 worktree 内，测试跑的是本阶段的代码。
+
+**与 5B.3 的基线对照**（P 节那张表的来源）：`pytest` 555 → 644（+89），
+`evals.selftest` 14 → 15（+1，RULE-024 的 fail 构造）、
+`run_benchmark` 21 → 22（+1，`G-022`）、`evals.feedback.selftest` 0 → 12、
+前端 61 → 75（+14）。`evals.style.selftest`（22）与
+`evals.viewpoint.selftest`（17）**一条没动、一条没少**——这是"没有回归"的证据，
+不是"没跑"。
+
+**明确没有做的收口动作**：没有合并回 `master`、没有 push、没有删除 worktree、
+没有打 tag。工作单第四十三节只要求"在独立分支与 worktree 上做、`master` 不动"，
+这三点都满足。
 
 ---
 
