@@ -5,6 +5,9 @@
 一次没生效的回退，都不会报错，只会让结果悄悄偏离。所以逐个钉死。
 """
 
+import json
+from types import SimpleNamespace
+
 from app.agent import search_query
 from app.agent.nodes.finalize import pick_final_candidate
 from app.agent.persona import load_persona
@@ -12,10 +15,12 @@ from app.agent.schemas import (
     Angle,
     Candidate,
     CandidateTopic,
+    ClaimScope,
     CriticResult,
     EvidenceFact,
     EvidencePack,
 )
+from app.agent.tools.angles import make_angles_tool, make_select_angle_tool
 from app.agent.tools.critic import _bind_to_candidates, _choose_focus, make_critic_tool
 from app.agent.tools.evidence import _keep_traceable
 from app.agent.tools.research import _choose_topic, _deepen_options
@@ -400,3 +405,278 @@ async def test_critic_tally_accumulates_across_rounds():
     # 但 critic_results 只剩最后一轮——这正是不用它的原因
     assert len(second["critic_results"]) == 3
     assert {r.decision for r in second["critic_results"]} == {"accept"}
+
+
+# --------------------------------------------------------------------------
+# Phase 5B.3：观点由工具赋分、由工具编号
+# --------------------------------------------------------------------------
+
+FACT_ONE = "OpenAI 把 API 价格下调了四成"
+FACT_TWO = "Anthropic 同时下调了批量推理价格"
+FACT_THREE = "两家在同一周内调整了企业版定价"
+
+
+def evidence_state(**extra) -> dict:
+    """一份"三条事实、三条来源"的 state，够算出有区分度的观感分数。
+
+    `research_item_ids` 与 `research_results` 一一对应（`zip` 是打分层的
+    既定不变量），作者名用假的字符串即可——打分只读 `author_username`。
+    """
+    state = {
+        "run_id": "run-1",
+        "goal": "目标",
+        "selected_topic": "选题",
+        "evidence_pack": EvidencePack(
+            facts=[
+                EvidenceFact(fact_id="f1", fact=FACT_ONE, source_ids=["s1"]),
+                EvidenceFact(fact_id="f2", fact=FACT_TWO, source_ids=["s2"]),
+                EvidenceFact(fact_id="f3", fact=FACT_THREE, source_ids=["s3"]),
+            ],
+            consensus=["厂商在争夺企业客户"],
+            counterpoints=["降价可能只是季度促销"],
+            unknowns=["是否长期"],
+            source_ids=["s1", "s2", "s3"],
+        ),
+        "research_item_ids": ["s1", "s2", "s3"],
+        "research_results": [
+            SimpleNamespace(author_username="alice", content="正文一"),
+            SimpleNamespace(author_username="bob", content="正文二"),
+            SimpleNamespace(author_username="carol", content="正文三"),
+        ],
+    }
+    state.update(extra)
+    return state
+
+
+def angles_llm(angles, **extra) -> ScriptedLLMService:
+    """一个只回答 angles 的假 LLM。"""
+    return ScriptedLLMService(responses={"angles": json.dumps({"angles": angles}, ensure_ascii=False), **extra})
+
+
+def draft_json(**overrides) -> dict:
+    draft = {
+        "claim": "定价权正在从厂商转向买方",
+        "reasoning": "两家在同一周做了同一件事",
+        "evidence_ids": ["f1", "f2", "f3"],
+        "counterpoints": ["也许只是季度促销"],
+        "counterpoint_evidence_ids": ["f1"],
+        "claim_scope": "segment",
+    }
+    draft.update(overrides)
+    return draft
+
+
+async def test_generate_angles_assigns_scores_and_ids_itself():
+    """分数字段一个都不采信模型；id 在确定性排序**之后**才赋。
+
+    名次对不上分数的编号比没有编号更误导：`format_state` 里 id 与分数会同屏
+    出现，a1 必须是分最高的那个。
+    """
+    llm = angles_llm(
+        [
+            draft_json(claim="弱判断", evidence_ids=["f1"]),
+            draft_json(claim="强判断：定价权正在转向买方"),
+        ]
+    )
+    delta = (
+        await make_angles_tool(llm)(evidence_state(), AgentDecision(action="generate_angles", reason="x"))
+    ).delta
+
+    angles = delta["angles"]
+    assert [a.angle_id for a in angles] == ["a1", "a2"]
+    assert angles[0].claim == "强判断：定价权正在转向买方"
+    assert angles[0].viewpoint_score > angles[1].viewpoint_score
+    assert angles[0].confidence > angles[1].confidence
+    # 分数是 Python 算的，草稿里根本没有这一项——模型给不出它
+    assert angles[0].assessment is not None
+    assert angles[0].assessment.bound_facts == 3
+    assert angles[0].viewpoint_score == round(
+        100.0 * (
+            0.30 * angles[0].assessment.evidence_support
+            + 0.15 * angles[0].assessment.source_diversity
+            + 0.20 * angles[0].assessment.specificity
+            + 0.20 * angles[0].assessment.newness_contribution
+            + 0.15 * angles[0].assessment.counterpoint_awareness
+        ),
+        2,
+    )
+
+
+async def test_generate_angles_carries_the_draft_text_through():
+    """推理层、反方、假设、影响、申报——这些是文本，原样搬进 Angle。
+
+    漏掉任何一项都不会报错，只会让 Writer 拿到一个"只有一句话"的观点。
+    """
+    llm = angles_llm([draft_json(restates_known_material=True, novelty_note="换了个角度")])
+    delta = (
+        await make_angles_tool(llm)(evidence_state(), AgentDecision(action="generate_angles", reason="x"))
+    ).delta
+
+    angle = delta["angles"][0]
+    assert angle.reasoning == "两家在同一周做了同一件事"
+    assert angle.counterpoints == ["也许只是季度促销"]
+    assert angle.counterpoint_evidence_ids == ["f1"]
+    assert angle.claim_scope is ClaimScope.SEGMENT
+    assert angle.novelty_note == "换了个角度"
+    # 自述"只是复述"必须一路带到 Angle 上：`select_angle` 会用同一份打分函数
+    # 复算，丢了这项会让复算出的 novelty 比生成时高，state 里就出现两份不一致的分。
+    assert angle.restates_known_material is True
+    assert angle.assessment.novelty == 0.0
+
+
+async def test_angles_without_reachable_evidence_are_dropped_not_kept_as_opinions():
+    """引不到 fact 的草稿整条丢弃。
+
+    留着一个"没有依据但说得漂亮"的观点参与排序，就是给它一次拿高分的机会。
+    """
+    llm = angles_llm(
+        [
+            draft_json(claim="有依据的判断"),
+            draft_json(claim="没有依据的判断", evidence_ids=["f99"]),
+            draft_json(claim="空引用的判断", evidence_ids=[]),
+        ]
+    )
+    result = await make_angles_tool(llm)(
+        evidence_state(), AgentDecision(action="generate_angles", reason="x")
+    )
+
+    assert [a.claim for a in result.delta["angles"]] == ["有依据的判断"]
+    # 丢了几条要写进 summary：静默丢弃与"模型只写了一条"看起来一模一样
+    assert "丢弃 2 个" in result.summary
+
+
+async def test_counterpoint_ids_that_cannot_be_verified_are_dropped_but_the_sentence_stays():
+    """反方引不到真实事实时只丢**引用**，那句反驳留着。
+
+    观点仍然"提到过"这个反方，只是它不可核验，因此拿不到绑定分——
+    按绑定分算，正是工作单第八节要的"找过反方"与"只是写了一句"的区别。
+    """
+    llm = angles_llm(
+        [draft_json(counterpoint_evidence_ids=["f1", "f99", "f98"])]
+    )
+    delta = (
+        await make_angles_tool(llm)(evidence_state(), AgentDecision(action="generate_angles", reason="x"))
+    ).delta
+
+    angle = delta["angles"][0]
+    assert angle.counterpoint_evidence_ids == ["f1"]
+    assert angle.counterpoints == ["也许只是季度促销"]
+    assert angle.assessment.declared_counterpoints == 1
+    assert angle.assessment.bound_counterpoints == 1
+
+
+async def test_regenerating_angles_clears_the_previous_selection():
+    """重生成必须把 `selected_angle` 一起清掉。
+
+    否则它继续指向一个**不在新 `angles` 里**的对象，而 Writer 照着它写稿：
+    没有报错，只是这一轮的观点与正文对不上。Phase 5A 起这条路径不可达
+    （budget 在有候选之后挡住 generate_angles），但研究回路会把它变成可达。
+    """
+    llm = angles_llm([draft_json(), draft_json(claim="另一个判断", evidence_ids=["f2"])])
+    stale = Angle(angle_id="a9", claim="上一轮选的观点")
+    state = evidence_state(angles=[stale], selected_angle=stale)
+
+    delta = (
+        await make_angles_tool(llm)(state, AgentDecision(action="generate_angles", reason="x"))
+    ).delta
+
+    assert delta["selected_angle"] is None
+    assert {a.angle_id for a in delta["angles"]} == {"a1", "a2"}
+
+
+# --- select_angle ----------------------------------------------------------
+
+
+async def select(state, target: str = ""):
+    """跑一次 select_angle。"""
+    return await make_select_angle_tool()(
+        state, AgentDecision(action="select_angle", reason="x", target=target)
+    )
+
+
+async def test_select_angle_takes_the_top_scorer_by_id_or_by_claim():
+    llm = angles_llm(
+        [
+            draft_json(claim="弱判断", evidence_ids=["f1"]),
+            draft_json(claim="强判断：定价权正在转向买方"),
+        ]
+    )
+    state = evidence_state()
+    state.update(
+        (
+            await make_angles_tool(llm)(state, AgentDecision(action="generate_angles", reason="x"))
+        ).delta
+    )
+
+    by_id = (await select(state, "a1")).delta["selected_angle"]
+    assert by_id.angle_id == "a1"
+    assert by_id.claim == "强判断：定价权正在转向买方"
+
+    # claim 原文也认——Planner 在 prompt 里两个都看得到
+    by_claim = (await select(state, "强判断：定价权正在转向买方")).delta["selected_angle"]
+    assert by_claim.angle_id == "a1"
+
+
+async def test_select_angle_ignores_a_target_that_loses_by_more_than_the_margin():
+    """工作单第二十节：排序已经明确时不让模型推翻，但要把差了多少分说出来。"""
+    llm = angles_llm(
+        [
+            draft_json(claim="弱判断", evidence_ids=["f1"]),
+            draft_json(claim="强判断：定价权正在转向买方"),
+        ]
+    )
+    state = evidence_state()
+    state.update(
+        (
+            await make_angles_tool(llm)(state, AgentDecision(action="generate_angles", reason="x"))
+        ).delta
+    )
+
+    result = await select(state, "弱判断")
+    assert result.delta["selected_angle"].angle_id == "a1"
+    assert "超过容差" in result.summary
+
+
+async def test_select_angle_honours_a_target_inside_the_tie_band():
+    """并列区间里"哪个第一"本来就没分出高下，此时决策说了算。"""
+    llm = angles_llm(
+        [
+            draft_json(claim="判断甲", evidence_ids=["f1", "f2"]),
+            draft_json(claim="判断乙", evidence_ids=["f1", "f2"]),
+        ]
+    )
+    state = evidence_state()
+    state.update(
+        (
+            await make_angles_tool(llm)(state, AgentDecision(action="generate_angles", reason="x"))
+        ).delta
+    )
+
+    result = await select(state, "判断甲")
+    assert result.delta["selected_angle"].claim == "判断甲"
+    assert "容差" in result.summary
+
+
+async def test_select_angle_recomputes_instead_of_trusting_stored_numbers():
+    """存下来的分数只是给报告看的；**排序的依据必须是当下这份输入算出来的**。
+
+    老 checkpoint 里的 Angle 没有 assessment，`confidence` 还可能是模型当时
+    自己给的数。相信它，等于让一份无法复算的历史数字决定今天选哪个观点。
+    """
+    state = evidence_state(
+        angles=[
+            Angle(angle_id="a1", claim="被高估的判断", confidence=0.99, evidence_ids=["f1"]),
+            Angle(angle_id="a2", claim="被低估的判断", confidence=0.01, evidence_ids=["f1", "f2", "f3"]),
+        ]
+    )
+    chosen = (await select(state, "")).delta["selected_angle"]
+    assert chosen.angle_id == "a2"
+    # 写回的是重算值，不是那座 0.99 的旧牌坊
+    assert chosen.confidence < 0.99
+    assert chosen.viewpoint_score is not None
+
+
+async def test_select_angle_with_no_angles_is_a_no_op():
+    result = await select(evidence_state(angles=[]), "a1")
+    assert result.delta == {}
+

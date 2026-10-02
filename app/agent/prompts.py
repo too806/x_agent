@@ -14,6 +14,10 @@ Planner 的 target 要引 topic / angle_id / candidate_id。模型只能引用�
 from pathlib import Path
 from typing import Any, Mapping
 
+from app.agent.labels import (
+    claim_scope_label as _claim_scope_label,
+    viewpoint_stance_label as _viewpoint_stance_label,
+)
 from app.agent.persona import Persona
 from app.agent.schemas import (
     AgentAction,
@@ -23,6 +27,7 @@ from app.agent.schemas import (
     EvidencePack,
 )
 from app.agent.schemas import DecisionTraceEntry
+from app.agent.viewpoint import TIE_MARGIN
 from app.config import settings
 from app.style.labels import (
     density_label as _density_label,
@@ -132,6 +137,141 @@ def format_style_recipe(recipe: Any | None) -> str:
         rationale = "\n".join(f"  - {reason}" for reason in recipe.reasons)
         return f"{body}\n选择依据：\n{rationale}"
     return body
+
+
+def format_viewpoint(angle: Any | None) -> str:
+    """一个观点的文本块，给 Writer 与 Critic 共用（Phase 5B.3）。
+
+    **永远返回一段文本，绝不返回空串或 None**——理由与 `format_style_recipe`
+    完全相同：`render()` 不会因为缺键报错，调用方漏传这个参数，字面量
+    `{{VIEWPOINT}}` 会原样进入发给模型的 prompt。
+
+    **Writer 与 Critic 必须看到同一份渲染**。分开写两份的话，Critic 会拿一个
+    与 Writer 不同的目标去判"有没有写对"，而两边都自认为正确——
+    Phase 5B.2 的 `{{STYLE}}` 已经踩过一次这个坑。
+
+    ## 这里没有分数
+
+    `viewpoint_score` / `confidence` 一律不印：分数决定"选哪一个"，
+    不决定"怎么写"。把它们印进 prompt，模型会去迎合分数——而分数衡量的是
+    证据结构，不是措辞，迎合的结果是正文去重复事实以显得"支撑充分"。
+    证据结构与范围的**参考信号**另走 `format_scope_signals`，只给 Critic。
+    """
+    if angle is None:
+        return "（本次未选定观点。按上面的目标自行判断该说什么——但不要编造事实。）"
+
+    lines = [f"**判断**：{angle.claim}"]
+
+    reasoning = getattr(angle, "reasoning", "") or ""
+    if reasoning:
+        lines.append(f"**推理**：{reasoning}")
+
+    why = getattr(angle, "why_it_matters", "") or ""
+    if why:
+        lines.append(f"**为什么重要**：{why}")
+
+    evidence_ids = getattr(angle, "evidence_ids", None) or []
+    if evidence_ids:
+        lines.append(
+            f"**依据**：{('、'.join(evidence_ids))}"
+            "（只依据这些事实；引用别的编号即为编造）"
+        )
+    else:
+        lines.append("**依据**：（没有绑定事实——正文不得把这个判断说成有据可依）")
+
+    counterpoints = getattr(angle, "counterpoints", None) or []
+    if counterpoints:
+        bound = set(getattr(angle, "counterpoint_evidence_ids", None) or [])
+        rendered = "；".join(
+            f"{point}（依据：{('、'.join(sorted(bound))) or '未绑定事实'}）"
+            for point in counterpoints
+        )
+        lines.append(f"**反方**：{rendered}")
+    else:
+        lines.append("**反方**：（没有回应任何相反说法——正文不要写成没有争议）")
+
+    assumptions = getattr(angle, "assumptions", None) or []
+    if assumptions:
+        lines.append(f"**依赖的假设**：{'；'.join(assumptions)}")
+
+    implications = getattr(angle, "implications", None) or []
+    if implications:
+        lines.append(f"**由此推出的影响**：{'；'.join(implications)}")
+
+    risk = getattr(angle, "risk", "") or ""
+    if risk:
+        lines.append(f"**可能错在**：{risk}")
+
+    scope = getattr(angle, "claim_scope", None)
+    stance = getattr(angle, "stance", None)
+    boundary = []
+    if scope is not None:
+        boundary.append(f"适用范围：{_claim_scope_label(scope)}")
+    if stance is not None:
+        boundary.append(f"立场强度：{_viewpoint_stance_label(stance)}")
+    if boundary:
+        lines.append(f"**边界**：{'；'.join(boundary)}")
+
+    return "\n".join(lines)
+
+
+def format_scope_signals(angle: Any | None) -> str:
+    """观点的确定性参考信号，**只给 Critic**（Phase 5B.3）。
+
+    与 `format_signals`（AI 味信号）同一条纪律：**只作为参考事实呈现，
+    绝不混进模型自己的打分，也不做门禁**。Critic 看到"证据范围是 case、
+    申报范围是 industry"是**有助于**它判断 overclaim 的；把这个差值做成
+    一个扣分项，则会得到一个无法复核的暗分——而且模型会学会绕过它。
+
+    判不出来的项写"未评估"，不写 0。
+    """
+    if angle is None:
+        return "（本次未选定观点，没有可参考的范围信号。）"
+
+    assessment = getattr(angle, "assessment", None)
+    if assessment is None:
+        return (
+            "（这个观点来自 Phase 5B.3 之前的运行，没有确定性评估明细；"
+            "下面的判断只能基于正文本身。）"
+        )
+
+    lines: list[str] = []
+    evidence_scope = getattr(angle, "evidence_scope", None)
+    declared_scope = getattr(angle, "claim_scope", None)
+    if evidence_scope is not None:
+        lines.append(
+            f"- 证据能支撑的范围：{_claim_scope_label(evidence_scope)}"
+            f"（{assessment.bound_facts} 条事实、{assessment.bound_sources} 条来源、"
+            f"{assessment.bound_authors} 位作者）"
+        )
+    lines.append(
+        "- 观点申报的范围："
+        + (_claim_scope_label(declared_scope) if declared_scope is not None else "未申报")
+    )
+    markers = list(assessment.breadth_markers or [])
+    lines.append(
+        "- 正文里的全称量词："
+        + ("、".join(markers) if markers else "无")
+    )
+    if getattr(angle, "scope_exceeds_evidence", None):
+        lines.append(
+            "- **范围超出证据**：主张的范围比证据能支撑的更宽。这属于 overclaim，"
+            "按 P0/P1 处理。"
+        )
+    lines.append(
+        f"- 反方回应：声明 {assessment.declared_counterpoints} 条、"
+        f"其中 {assessment.bound_counterpoints} 条绑定到事实"
+    )
+    if assessment.restates_fact:
+        lines.append("- **判定为事实复述**：正文与某条事实有 12 字以上重合。")
+    if assessment.originality_claim:
+        lines.append(
+            "- **无法核验的原创性表述**：正文用了「全网/首创」一类措辞。"
+            "本系统没有全网语义检索能力，这类表述不予采信。"
+        )
+    if markers:
+        lines.append("（命中词逐字回传是为了便于核对误报，不是自动判负。）")
+    return "\n".join(lines)
 
 
 def format_sources(sources: list[tuple[str, str]]) -> str:
@@ -248,6 +388,54 @@ def _topics(topics: list[CandidateTopic]) -> str:
     )
 
 
+def _angles(angles: list[Any], selected: Any | None) -> str:
+    """把观点逐个印出来，带上它的证据结构与缺口。
+
+    Phase 5B.1/5B.2 的调度能做得好，靠的是 Planner 的 `reason` 是**缺口驱动**的
+    （"当前最高分观点只有 0 条反方证据"），而不是"继续研究"。只印一个
+    "已生成 3 个"的名称列表，Planner 就无从知道缺什么——工作单第二十三节
+    要求研究的方向有理由，而理由只能来自它看得见的东西。
+
+    分数在这里印，理由是：这一步问的正是"选哪一个 / 要不要再研究"，
+    分数是那个决定的依据。它与 `format_viewpoint` 的"不印分数"不矛盾——
+    那边问的是"怎么写"。
+    """
+    selected_id = getattr(selected, "angle_id", None)
+    ordered = sorted(
+        angles, key=lambda a: -(getattr(a, "viewpoint_score", None) or 0.0)
+    )
+    scores = [getattr(a, "viewpoint_score", None) for a in ordered]
+    ambiguous = (
+        len(scores) > 1
+        and scores[0] is not None
+        and scores[1] is not None
+        and (scores[0] - scores[1]) <= TIE_MARGIN
+    )
+
+    lines: list[str] = []
+    for item in ordered:
+        score = getattr(item, "viewpoint_score", None)
+        assessment = getattr(item, "assessment", None)
+        stance = getattr(item, "stance", None)
+        mark = "（当前选定）" if item.angle_id == selected_id else ""
+        if score is None or assessment is None:
+            lines.append(f"  - {item.angle_id}{mark}：{item.claim}（未评估）")
+            continue
+        lines.append(
+            f"  - {item.angle_id}{mark}：{score:.1f} 分，"
+            f"{getattr(stance, 'value', '未定')}，"
+            f"证据 {assessment.bound_facts}/{assessment.total_facts} 条、"
+            f"来源 {assessment.bound_sources} 条、"
+            f"反方 {assessment.bound_counterpoints} 条已绑定：{item.claim}"
+        )
+    if ambiguous:
+        lines.append(
+            f"  - 注意：前两名分差不超过 {TIE_MARGIN:g} 分（并列）。"
+            f"若检索预算还有，优先补足那个观点缺的反方证据，而不是硬选一个。"
+        )
+    return "\n".join(lines)
+
+
 def format_state(state: Mapping[str, Any]) -> str:
     """把 state 渲染成 Planner 能读的进展摘要。
 
@@ -271,8 +459,13 @@ def format_state(state: Mapping[str, Any]) -> str:
         f"- 研究材料：{len(state.get('research_item_ids') or [])} 条",
         f"- 证据：{len(facts)} 条事实，{len(unknowns)} 处未知"
         + (f"，未知例如：{unknowns[0]}" if unknowns else ""),
-        f"- 观点：已生成 {len(angles)} 个，"
-        + (f"当前选定 {angle.angle_id}：{angle.claim}" if angle is not None else "尚未选定"),
+        f"- 观点：已生成 {len(angles)} 个"
+        + (f"，当前选定 {angle.angle_id}：{angle.claim}" if angle is not None else "，尚未选定")
+        + (
+            ""
+            if not angles
+            else "\n" + _angles(angles, angle)
+        ),
     ]
 
     if candidates:

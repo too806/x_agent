@@ -27,6 +27,7 @@ from app.agent.trends import (
     TopicScanItem,
     score_topic,
 )
+from app.agent.viewpoint import evidence_index, score_viewpoints
 from evals.analysis import (
     METHOD_MARKER,
     METHOD_NONE,
@@ -1054,15 +1055,26 @@ def _as_aware(value: Any) -> datetime | None:
 
 
 def _differs(left: Any, right: Any) -> bool:
-    """两个值是否算"不一样"。浮点用 1e-6 容差，其余直接比。
+    """两个值是否算"不一样"。浮点用 1e-6 容差，序列逐项比，其余直接比。
 
     容差是必要的：分数经过 JSON 往返（`0.1 + 0.2` 那一类），
     用一个绝对相等的判断会把"可复现"误报成"不可复现"。
+
+    序列要逐项比而不能直接 `!=`：存下来的那一份经过了 pydantic（`list`），
+    复算的那一份是打分函数的原样返回值（`tuple`）。`["时代"] != ("时代",)`
+    在 Python 里成立，于是"内容一个字不差"会被判成不可复现——一条永远响的
+    检测器和一条永远不响的一样没用。
     """
     if isinstance(left, bool) or isinstance(right, bool):
         return left is not right
     if isinstance(left, (int, float)) and isinstance(right, (int, float)):
         return abs(float(left) - float(right)) > 1e-6
+    if isinstance(left, (list, tuple)) or isinstance(right, (list, tuple)):
+        if not isinstance(left, (list, tuple)) or not isinstance(right, (list, tuple)):
+            return True
+        return len(left) != len(right) or any(
+            _differs(a, b) for a, b in zip(left, right)
+        )
     return left != right
 
 
@@ -1371,6 +1383,420 @@ def rule_019_style_recipe_is_a_constraint_not_a_corpus(
     )
 
 
+# --------------------------------------------------------------------------
+# RULE-020 … RULE-023：Phase 5B.3 的 Viewpoint Intelligence
+# --------------------------------------------------------------------------
+#
+# 四条规则共用一个"本次运行有没有经过 5B.3 评估的选定观点"的判断，理由与
+# RULE-019 对 `style_recipe` 缺席的处置一致：**路径没跑过**与**路径跑坏了**
+# 必须分得开，否则新尺子会把全部历史数据一次性染红。
+#
+# 分界线是那个 Angle 上的 `assessment`：它是打分器留下的唯一痕迹，
+# 由 `app/agent/tools/angles.py` 在写 Angle 时一并写入，不是导出时才补的。
+# `assessment is None` ⇒ 这次的观点是 Phase 5B.3 之前的形状（`confidence`
+# 由模型自己给），新规则**不适用** ⇒ pass，而不是 fail。
+
+
+def _selected_scored_viewpoint(state: Any) -> Any | None:
+    """本次运行选定的、且经过 5B.3 评估的观点。判不了就是 None。
+
+    只看 `selected_angle`：这三条规则问的都是"**决定了正文怎么写**的那个判断"
+    是否守规矩（工作单第二十六节）。`state.angles` 是候选池，里面的观点没有
+    交付任何东西——拿它们判红会让一次正确的运行因为一个被丢掉的候选而失败。
+    """
+    angle = state.selected_angle
+    if angle is None or angle.assessment is None:
+        return None
+    return angle
+
+
+def _prose_of(state: Any) -> list[str]:
+    """本次运行实际写出来的正文：全部候选 + 草稿 + 最终稿。
+
+    三条来源一起看，因为它们在不同阶段各自可能是唯一存在的那个：
+    改稿路径上 `draft_content` 会被覆盖，`final_content` 只在发布之后才有。
+    """
+    texts = [getattr(c, "content", "") for c in (state.candidates or [])]
+    texts.append(state.draft_content or "")
+    texts.append(state.final_content or "")
+    return [text for text in texts if isinstance(text, str) and text.strip()]
+
+
+def rule_020_viewpoint_has_reasoning(analysis: RunAnalysis) -> RuleResult:
+    """查什么：选定观点的**推理层**与**自我反驳**必须存在。
+
+    a) `reasoning` 非空——把事实推到 thesis 的那一步；
+    b) `assumptions` 与 `risk` 至少有一个非空——"我依赖了什么"或"我可能错在哪"。
+
+    为什么值得查：工作单第六节要求 fact / inference / viewpoint 三层分离。
+    没有推理层的观点，就是一个从事实到结论的**无法检查的跳跃**——而它在正文里
+    与一个有推理的观点长得一模一样：读者看到的是结论，看不到那个跳跃。
+    (b) 是同一条要求的另一面：一个从不说明自己依赖什么、可能错在哪的判断，
+    等于宣称自己没有前提，那正是"把判断伪装成事实"。
+
+    与 RULE-006 的分工：**证据**那一条（`evidence_ids` 非空且能解析）由
+    RULE-006(c) 查，这里不重复。两条规则管的是不同的东西——006 问"引的是不是
+    真的"，020 问"从事实走到结论的那一步有没有写出来"。一条引用了三条真实事实、
+    却直接从事实跳到"所以整个行业都要重做"的观点，在 006 眼里完全合格。
+
+    判不出来时：本次运行没有选定的、经过 5B.3 评估的观点 ⇒ pass（不适用）。
+    这条故意不返回 unavailable：规则问的是那个观点**有没有**这两个字段，
+    而"没有观点"不是"判不了"，是"这条规则没有对象"。
+    """
+    angle = _selected_scored_viewpoint(analysis.record.state)
+    if angle is None:
+        return _pass(
+            "RULE-020", "判断必须写出推理层与自我反驳", "gate",
+            "本次运行没有选定观点（或它未经 Phase 5B.3 评估），此项不适用",
+        )
+
+    problems: list[str] = []
+    if not (angle.reasoning or "").strip():
+        problems.append(
+            f"选定的 {angle.angle_id}「{angle.claim}」没有推理层（reasoning 为空）——"
+            f"从被引用的事实走到这条判断的那一步没有被写出来"
+        )
+    if not (angle.assumptions or []) and not (angle.risk or "").strip():
+        problems.append(
+            f"选定的 {angle.angle_id} 既没有 assumptions 也没有 risk——"
+            f"这条判断没有说明自己依赖什么、可能错在哪"
+        )
+
+    if problems:
+        return _fail(
+            "RULE-020", "判断必须写出推理层与自我反驳", "gate",
+            "；".join(problems[:5]),
+            *problems,
+        )
+    return _pass(
+        "RULE-020", "判断必须写出推理层与自我反驳", "gate",
+        f"选定的 {angle.angle_id} 有 {len(angle.reasoning)} 字的推理层，"
+        f"{len(angle.assumptions or [])} 条假设、{len(angle.risk or '')} 字风险说明",
+    )
+
+
+def rule_021_claim_scope_exceeds_evidence(analysis: RunAnalysis) -> RuleResult:
+    """查什么：选定观点**申报的范围**不得超出它的证据能支撑的范围。
+
+    判据是那个确定性标志 `scope_exceeds_evidence`（由
+    `app/agent/viewpoint.py` 从"绑定事实覆盖了几条来源、几位作者"推出，
+    并对照模型申报的 `claim_scope` 与正文里的全称量词）。这一条只负责
+    "标志为真时判失败"，**不自己重算**：重算是 RULE-023 的事，两边各算一次
+    只会得到两个可能不一致的答案。
+
+    为什么值得查：工作单第二十八、二十九节的原话是"证据 scope < claim scope
+    就是 overclaim"，而它的典型形态是**两个产品降价 → '整个 AI 行业进入价格战
+    时代'**。这种判断读起来比谨慎的判断更有价值，所以它天然地更容易被写出来；
+    唯一能拦住它的是"范围能不能被证据数出来"这件事，而不是措辞好不好。
+
+    判不出来时：没有选定观点 ⇒ pass（不适用）；有选定观点但没有范围判定
+    ⇒ unavailable——"带上了一个 5B.3 的观点却没带范围结论"说明导出被截断过，
+    这时说 pass 等于替它担保。
+    """
+    angle = _selected_scored_viewpoint(analysis.record.state)
+    if angle is None:
+        return _pass(
+            "RULE-021", "判断的范围不得超过证据的范围", "gate",
+            "本次运行没有选定观点（或它未经 Phase 5B.3 评估），此项不适用",
+        )
+    if angle.scope_exceeds_evidence is None:
+        return _unknown(
+            "RULE-021", "判断的范围不得超过证据的范围", "gate",
+            f"选定的 {angle.angle_id} 没有带范围比对的结论（scope_exceeds_evidence），"
+            f"这份数据判不了",
+        )
+
+    if angle.scope_exceeds_evidence:
+        declared = angle.claim_scope.value if angle.claim_scope else "未申报"
+        evidence = angle.evidence_scope.value if angle.evidence_scope else "未知"
+        markers = "、".join(angle.assessment.breadth_markers) if angle.assessment else ""
+        detail = (
+            f"选定的 {angle.angle_id}「{angle.claim}」申报范围 {declared}，"
+            f"而绑定证据只能支撑到 {evidence}"
+        )
+        if markers:
+            detail += f"（正文出现全称量词：{markers}）"
+        return _fail(
+            "RULE-021", "判断的范围不得超过证据的范围", "gate", detail, detail
+        )
+    return _pass(
+        "RULE-021", "判断的范围不得超过证据的范围", "gate",
+        f"选定的 {angle.angle_id} 申报范围 "
+        f"{angle.claim_scope.value if angle.claim_scope else '未申报'} "
+        f"没有超出证据支撑的 "
+        f"{angle.evidence_scope.value if angle.evidence_scope else '未知'}",
+    )
+
+
+#: 正文里"断言没有争议"的措辞。命中即判为把一个**已知的**争议抹掉。
+#:
+#: 只收明确断言无争议的固定说法：这一条是 gate，误报的代价是让人去关掉它，
+#: 所以不收"没有 / 不存在"这类单独出现在别的语境里的词。
+DENIAL_PHRASES: tuple[str, ...] = (
+    "没有争议",
+    "毫无争议",
+    "不存在争议",
+    "无人质疑",
+    "没有不同意见",
+)
+
+
+def rule_022_counterpoints_are_not_erased(analysis: RunAnalysis) -> RuleResult:
+    """查什么：证据包里**已经写明有反方**时，选定的观点不得当它不存在。
+
+    两条路径都判失败：
+
+    a) 观点既没有声明反方、也没有绑定反方（一个字都没提）；
+    b) 正文里出现"没有争议 / 无人质疑"这类断言。
+
+    (b) 与 (a) 是 **或**不是 **与**：一句形式上的反方配上"这件事其实没有争议"
+    仍然是抹掉，而要求两者同时成立，等于告诉作者"只要补一句就能绕过"。
+
+    为什么值得查：工作单第八节把"主动寻找反证"列为本阶段最重要的能力之一。
+    这一条是那句要求的**下限**——它不管反方找得好不好（那是打分器与 Critic 的
+    事），只管有没有把证据里已经存在的反对意见**装作不存在**。装不装得像，
+    从分数上是看不出来的：抹掉反方会让 confidence 掉一档，而一档在报告里
+    只是一行数字，远不如"证据包里有 2 条反方，正文说没有争议"显眼。
+
+    判不出来时：没有选定观点 ⇒ pass（不适用）。
+    """
+    state = analysis.record.state
+    angle = _selected_scored_viewpoint(state)
+    if angle is None:
+        return _pass(
+            "RULE-022", "已知的反方不得被抹掉", "gate",
+            "本次运行没有选定观点（或它未经 Phase 5B.3 评估），此项不适用",
+        )
+
+    pack = state.evidence_pack
+    known = list(getattr(pack, "counterpoints", None) or [])
+    if not known:
+        return _pass(
+            "RULE-022", "已知的反方不得被抹掉", "gate",
+            "本次运行的证据包里没有反方说法，这条没有对象",
+        )
+
+    assessment = angle.assessment
+    declared = assessment.declared_counterpoints if assessment else len(
+        angle.counterpoints or []
+    )
+    bound = assessment.bound_counterpoints if assessment else 0
+
+    problems: list[str] = []
+    if declared == 0 and bound == 0:
+        problems.append(
+            f"证据包里写明有 {len(known)} 条反方说法，选定的 {angle.angle_id}"
+            f"「{angle.claim}」既没有声明一条、也没有绑定一条"
+        )
+    for text in _prose_of(state):
+        for phrase in DENIAL_PHRASES:
+            if phrase in text:
+                problems.append(
+                    f"证据包里有 {len(known)} 条反方说法，正文却说「{phrase}」"
+                )
+                break
+        else:
+            continue
+        break
+
+    if problems:
+        return _fail(
+            "RULE-022", "已知的反方不得被抹掉", "gate",
+            "；".join(problems[:5]),
+            *problems,
+        )
+    return _pass(
+        "RULE-022", "已知的反方不得被抹掉", "gate",
+        f"证据包里的 {len(known)} 条反方说法里，选定的观点声明了 {declared} 条、"
+        f"绑定了 {bound} 条",
+    )
+
+
+#: RULE-023 复算时逐项比对的字段。**分成两组是照着 `tools/angles.py`
+#: 的写入路径来的**：这一组直接存在 `Angle` 上，下一组存在 `Angle.assessment` 上。
+#:
+#: 两组并集必须等于 `ViewpointScore` 除 `claim` / `reasons` 之外的全部字段——
+#: 由 `evals/selftest.py::check_every_scored_field_is_reproduced` 强制。
+#: 少一项就是给那一项留了一条"可以悄悄变"的路。
+_VIEWPOINT_ANGLE_FIELDS: tuple[str, ...] = (
+    "confidence",
+    "viewpoint_score",
+    "stance",
+    "stance_declared",
+    "max_stance",
+    "claim_scope",
+    "evidence_scope",
+    "scope_exceeds_evidence",
+    "scope_declared_missing",
+)
+
+_VIEWPOINT_ASSESSMENT_FIELDS: tuple[str, ...] = (
+    "evidence_support",
+    "evidence_support_raw",
+    "source_diversity",
+    "counterpoint_awareness",
+    "unknown_pressure",
+    "specificity",
+    "novelty",
+    "newness_contribution",
+    "confidence_raw",
+    "viewpoint_score_raw",
+    "bound_facts",
+    "total_facts",
+    "bound_sources",
+    "bound_authors",
+    "missing_author_sources",
+    "declared_counterpoints",
+    "bound_counterpoints",
+    "total_materials",
+    "unreferenced_materials",
+    "breadth_markers",
+    "originality_claim",
+    "restates_fact",
+    "duplicate_group",
+)
+
+
+class _Material:
+    """`viewpoint_inputs` 里一条材料的只读替身。
+
+    只带 `evidence_index` 真的会读的两个字段（作者、正文），故意不带别的：
+    一个"什么都有"的替身会让"原始输入其实缺了某一项"这件事看不出来。
+    """
+
+    __slots__ = ("author_username", "content")
+
+    def __init__(self, author: str, content: str) -> None:
+        self.author_username = author
+        self.content = content
+
+
+def rule_023_viewpoint_score_is_reproducible(analysis: RunAnalysis) -> RuleResult:
+    """查什么：每个观点上的分，能不能用**本次运行的原始输入**原样算出来。
+
+    拿 `state.viewpoint_inputs`（材料：id / 作者 / 正文）、`state.evidence_pack`
+    与 `state.angles` 调生产的 `viewpoint.score_viewpoints`，然后逐项比对
+    （见上面两组字段），并且把同一组输入打两次分——两次必须完全一致。
+
+    为什么值得查：工作单第十一节要求"不要让 LLM 单独决定最终 confidence，
+    优先用确定性聚合"，第十二节把反例写死了——"LLM：这个观点 9.4 分
+    但无法复算"。这句话本身没法被检查；**只有复算能**：一个凭空写下的 9.4
+    找不到任何一组输入能把它算出来。
+
+    刻意用**生产**的打分函数复算（同 RULE-017）：这条规则要否定的不是
+    "公式不对"，而是"这个数不是这个公式算的"。换一套自己的公式去核对，
+    等于同时改了尺子与被量的东西。
+
+    代价是显式的：**改了 `viewpoint.py` 的权重或口径，fixture 会红**。
+    这不是误报——fixture 记录的是当时那个口径下的分数，口径变了它就该红，
+    由人重新生成一次并看见 diff。生成器在 `scripts/make_viewpoint_fixtures.py`。
+
+    判不出来时：没有任何观点 ⇒ unavailable；观点存在但没带 `assessment`
+    （Phase 5B.3 之前的运行）⇒ unavailable；带了 assessment 却没有
+    `viewpoint_inputs` ⇒ **unavailable**。三种都说不了话，而"没带原始输入"
+    恰恰是它最需要说话的时候——返回 pass 会让这条规则在大多数数据上
+    变成装饰品（RULE-017 的注释里已经写下过这条）。
+    """
+    state = analysis.record.state
+    angles = list(state.angles) or ([state.selected_angle] if state.selected_angle else [])
+    if not angles:
+        return _unknown(
+            "RULE-023", "viewpoint_score 必须能从原始输入复算", "gate",
+            "本次运行没有形成任何观点，这条判不了",
+        )
+
+    scored_indexes = [i for i, a in enumerate(angles) if a.assessment is not None]
+    scored = [angles[i] for i in scored_indexes]
+    if not scored:
+        return _unknown(
+            "RULE-023", "viewpoint_score 必须能从原始输入复算", "gate",
+            f"{len(angles)} 个观点都没有 Phase 5B.3 的评估明细（assessment），"
+            f"那时的分数是模型给的，复算无从谈起",
+        )
+
+    raw = state.viewpoint_inputs
+    if not raw:
+        return _unknown(
+            "RULE-023", "viewpoint_score 必须能从原始输入复算", "gate",
+            f"{len(scored)} 个观点带了评估明细，却没有带打分的原始输入"
+            f"（state.viewpoint_inputs）——材料清单缺失时分数无法复算",
+        )
+
+    item_ids: list[str] = []
+    materials: list[_Material] = []
+    for entry in raw:
+        if not isinstance(entry, dict) or not entry.get("item_id"):
+            continue
+        item_ids.append(str(entry["item_id"]))
+        materials.append(
+            _Material(str(entry.get("author", "")), str(entry.get("content", "")))
+        )
+    if not item_ids:
+        return _unknown(
+            "RULE-023", "viewpoint_score 必须能从原始输入复算", "gate",
+            "state.viewpoint_inputs 里没有一条带 item_id 的材料，这份数据判不了",
+        )
+
+    pack = state.evidence_pack
+    total_facts = len({f.fact_id for f in (pack.facts if pack else [])})
+    index = evidence_index(pack, item_ids, materials)
+    recomputed = score_viewpoints(angles, index, total_facts=total_facts)
+    again = score_viewpoints(angles, index, total_facts=total_facts)
+    if recomputed != again:
+        return _fail(
+            "RULE-023", "viewpoint_score 必须能从原始输入复算", "gate",
+            "同一组输入两次打分结果不同——打分不是纯函数",
+        )
+
+    problems: list[str] = []
+    details: list[str] = []
+    # 只判**带评估明细**的那些观点。没带的那批（Phase 5B.3 之前的运行）身上
+    # 存的是另一个口径算出来的数，拿新尺子去量它们只会把"历史数据"判成
+    # "分数不可复算"——上面已经为"整批都没带"给出了 unavailable，这里保持同一
+    # 条口径。跳过的条数写进结论里，不静默。
+    skipped = len(angles) - len(scored)
+    for position in scored_indexes:
+        angle, fresh = angles[position], recomputed[position]
+        label = angle.angle_id or angle.claim
+        for field in _VIEWPOINT_ANGLE_FIELDS:
+            stored = getattr(angle, field)
+            if _differs(stored, getattr(fresh, field)):
+                problems.append(
+                    f"{label}「{angle.claim}」的 {field} 记录为 {stored}，"
+                    f"用同一组输入复算得到 {getattr(fresh, field)}"
+                )
+        assessment = angle.assessment
+        if assessment is None:
+            continue
+        for field in _VIEWPOINT_ASSESSMENT_FIELDS:
+            stored = getattr(assessment, field)
+            if _differs(stored, getattr(fresh, field)):
+                problems.append(
+                    f"{label}「{angle.claim}」的 assessment.{field} 记录为 {stored}，"
+                    f"复算得到 {getattr(fresh, field)}"
+                )
+        details.append(
+            f"{label}：viewpoint_score {angle.viewpoint_score:.2f} = 复算 "
+            f"{fresh.viewpoint_score:.2f}，confidence {fresh.confidence:.4f}"
+            f"（绑定 {fresh.bound_facts} 条事实 / {fresh.bound_sources} 条来源 / "
+            f"{fresh.bound_authors} 位作者）"
+        )
+
+    skipped_note = f"（另有 {skipped} 个观点没有评估明细，不属于本口径，未参与比对）" if skipped else ""
+    if problems:
+        return _fail(
+            "RULE-023", "viewpoint_score 必须能从原始输入复算", "gate",
+            "；".join(problems[:5]) + ("…" if len(problems) > 5 else "") + skipped_note,
+            *problems,
+        )
+    return _pass(
+        "RULE-023", "viewpoint_score 必须能从原始输入复算", "gate",
+        f"{len(scored)} 个观点的分与评估明细都能从原始输入原样复算出来，"
+        f"且两次一致{skipped_note}",
+        *details,
+    )
+
+
 #: 全部规则，按编号顺序。报告按这个顺序渲染。
 RULES: tuple[Callable[[RunAnalysis], RuleResult], ...] = (
     rule_001_actions_are_defined,
@@ -1392,6 +1818,10 @@ RULES: tuple[Callable[[RunAnalysis], RuleResult], ...] = (
     rule_017_trend_score_is_reproducible,
     rule_018_stale_topics_are_not_marked_fresh,
     rule_019_style_recipe_is_a_constraint_not_a_corpus,
+    rule_020_viewpoint_has_reasoning,
+    rule_021_claim_scope_exceeds_evidence,
+    rule_022_counterpoints_are_not_erased,
+    rule_023_viewpoint_score_is_reproducible,
 )
 
 
@@ -1414,6 +1844,10 @@ GATE_RULE_IDS: tuple[str, ...] = (
     "RULE-017",
     "RULE-018",
     "RULE-019",
+    "RULE-020",
+    "RULE-021",
+    "RULE-022",
+    "RULE-023",
 )
 
 

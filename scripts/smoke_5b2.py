@@ -308,7 +308,7 @@ def _recipe_summary(recipe) -> dict | None:
 async def corpus_reuse_check(session_factory, rounds: dict[str, dict]) -> dict:
     """§九：交付候选**不得搬运真实语料的原文**。
 
-    与 `evals/style/selftest.py` 共用同一个检测器（`evals/style/spans.py`），
+    与 `evals/style/selftest.py` 共用同一个检测器（`app/style/spans.py`），
     只是换了一份语料：那边是 8 条**合成**样本，这里是库里**真实**采到的样本。
     两份语料走同一套判据，否则"离线基准通过"与"真实链路通过"会变成两个
     不同的命题，而它们本该是同一件事。

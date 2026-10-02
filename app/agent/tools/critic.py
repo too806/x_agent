@@ -18,7 +18,9 @@ from app.agent.prompts import (
     format_candidates,
     format_evidence,
     format_persona,
+    format_scope_signals,
     format_style_recipe,
+    format_viewpoint,
     load_prompt,
     render,
 )
@@ -117,7 +119,11 @@ def make_critic_tool(llm_service: LLMService, persona: Persona):
             load_prompt("critic"),
             GOAL=state.get("goal") or state.get("topic") or "",
             TOPIC=state.get("selected_topic") or "",
-            CLAIM=getattr(angle, "claim", ""),
+            # 与 Writer 拿到的是**同一个**渲染（同一个函数、同一个 angle），
+            # 否则 Critic 会拿另一个目标去判 viewpoint_consistency。
+            VIEWPOINT=format_viewpoint(angle),
+            # 确定性的范围信号，只是参考事实，绝不混进 overclaim_risk 那个分数。
+            SCOPE_SIGNALS=format_scope_signals(angle),
             EVIDENCE=format_evidence(state.get("evidence_pack")),
             PERSONA=format_persona(persona),
             MAX_LENGTH=persona.max_length,

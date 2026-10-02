@@ -114,6 +114,15 @@ class AgentRunState(BaseModel):
     evidence_pack: EvidencePack | None = None
     angles: list[Angle] = Field(default_factory=list)
     selected_angle: Angle | None = None
+    #: 观点打分的**原始输入**：本次取回的材料，每条带 `item_id` / `author` /
+    #: `content`（Phase 5B.3）。
+    #:
+    #: 必须单独带一份，不能指望从 `research_item_ids` 推出来：那里面只有 id，
+    #: 而 `viewpoint.evidence_index` 要的是**作者名**（来源多样性按作者去重）
+    #: 与正文（纯链接材料不参与未知压力的分母）。生产从 `research_results` 拿，
+    #: 那是 ORM 行，导出时会丢掉——同 `trend_inputs` 当年的处境。
+    #: 缺它 ⇒ RULE-023 判 unavailable，而不是 pass（见 rules.py 的说明）。
+    viewpoint_inputs: list[dict[str, Any]] = Field(default_factory=list)
 
     # --- 写作 ---
     # Phase 5B.2：本次运行采用的写作结构约束。声明它评估才能断言

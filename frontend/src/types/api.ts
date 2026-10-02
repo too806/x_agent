@@ -321,6 +321,104 @@ export interface RunStyleSummary {
   ai_signals: AiStyleSignals | null
 }
 
+/** 一条支持（或反驳）某判断的事实，**已经解析回原文**。
+ *
+ * 后端一并给 `fact_id` 与原文，而不是只给 id 列表：审核员要回答的是
+ * "这个帖子为什么这样说"，而一串 `f1、f2` 回答不了，他得再去翻证据包——
+ * 那个动作在界面上并不存在。
+ */
+export interface ViewpointEvidenceItem {
+  fact_id: string
+  text: string
+}
+
+/** 落选的候选判断。**只给判断与它的分**，不给完整评估明细。 */
+export interface ViewpointCandidateBrief {
+  claim: string
+  viewpoint_score: number | null
+  stance: string
+  stance_label: string
+}
+
+/** 这次运行形成的核心判断（Phase 5B.3，工作单第三十五节）。
+ *
+ * 首屏只显示五件事：**核心判断 / 证据 / 反方 / 风险 / 置信度**。
+ * `assessment` / `other_candidates` / scope 那几项折进技术细节——它们是给人
+ * 复核用的，没有它们"置信度 0.83"就是一个无法追问的数。
+ *
+ * 三个 stance 不要混：`stance` 是**判断**有多笃定（这里），
+ * `style.stance_strength` 是**表达**有多硬，Critic 的那个是**文本**里有没有
+ * 明确立场。字段名不同、标签来源不同，界面上是两句话。
+ */
+export interface RunViewpointSummary {
+  claim: string
+  why_it_matters: string
+  /** 从事实走到判断的那一步。空 = 没写出来（会被 RULE-020 拦下）。 */
+  reasoning: string
+
+  evidence: ViewpointEvidenceItem[]
+  /** 声明了却引不到真实事实的反方**也在里面**——"说过但没证据"本身要被看见。 */
+  counterpoints: string[]
+  counterpoint_evidence: ViewpointEvidenceItem[]
+
+  assumptions: string[]
+  implications: string[]
+  risk: string
+
+  confidence: number
+  /** 0–100，排序用。**与 confidence 回答的不是同一个问题**：
+   * confidence 答"站不站得住"，它答"值不值得拿出来说"。不要并排成一个数。 */
+  viewpoint_score: number | null
+
+  stance: string
+  stance_label: string
+  /** 模型原本申报的立场。与 stance 不同才说明被证据压过。 */
+  stance_declared: string | null
+  /** 证据推出的上界。它单独显示，才能看出"主动保守"还是"证据只允许到这里"。 */
+  max_stance: string
+  max_stance_label: string
+
+  claim_scope: string | null
+  claim_scope_label: string
+  evidence_scope: string | null
+  evidence_scope_label: string
+  /** 申报范围超出证据范围。**是参考信号，不是扣分**——要写成一句话。 */
+  scope_exceeds_evidence: boolean | null
+  /** 模型压根没申报适用范围（与"申报了一个恰好合规的范围"是两件事）。 */
+  scope_declared_missing: boolean | null
+
+  assessment: ViewpointAssessment | null
+  other_candidates: ViewpointCandidateBrief[]
+}
+
+/** 确定性评估明细。Phase 5B.3 之前的运行是 null（那时的置信度是模型给的）。 */
+export interface ViewpointAssessment {
+  evidence_support: number | null
+  evidence_support_raw: number | null
+  source_diversity: number | null
+  counterpoint_awareness: number | null
+  unknown_pressure: number | null
+  specificity: number | null
+  novelty: number | null
+  newness_contribution: number | null
+  confidence_raw: number | null
+  viewpoint_score_raw: number | null
+  bound_facts: number
+  total_facts: number
+  bound_sources: number
+  bound_authors: number
+  missing_author_sources: number
+  declared_counterpoints: number
+  bound_counterpoints: number
+  total_materials: number
+  unreferenced_materials: number
+  breadth_markers: string[]
+  originality_claim: boolean | null
+  restates_fact: boolean | null
+  duplicate_group: string
+  reasons: string[]
+}
+
 export interface AdminRunDetail {
   run_id: string
   /** Agent 选定的主题。null = 还没选出来（不是"没有"这个字段的意思）。 */
@@ -348,6 +446,9 @@ export interface AdminRunDetail {
   quality: AgentQualityMetrics | null
   /** 同上，只有 Agent 模式的 Run 才有 recipe 可展示；其余为 null。 */
   style: RunStyleSummary | null
+  /** 同上，只有 Agent 模式的 Run 才会形成判断；其余为 null。
+   * 三处与 `quality` 同一门控——非 Agent 运行不该冒出空白的"核心判断"块。 */
+  viewpoint: RunViewpointSummary | null
   draft: DraftRecord | null
   review: ReviewRecord | null
   publish: PublishRecord | null

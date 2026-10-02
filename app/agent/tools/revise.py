@@ -27,6 +27,7 @@ from app.agent.prompts import (
     format_evidence,
     format_persona,
     format_style_recipe,
+    format_viewpoint,
     load_prompt,
     render,
 )
@@ -70,7 +71,8 @@ def make_revise_tool(llm_service: LLMService, persona: Persona):
             load_prompt("revise"),
             GOAL=state.get("goal") or state.get("topic") or "",
             TOPIC=state.get("selected_topic") or "",
-            CLAIM=getattr(angle, "claim", ""),
+            # 与 Writer / Critic 同一份渲染：改稿也要知道"不能改掉的是哪个判断"。
+            VIEWPOINT=format_viewpoint(angle),
             EVIDENCE=format_evidence(state.get("evidence_pack")),
             PERSONA=format_persona(persona),
             # 改稿要收敛到同一个结构，否则改着改着骨架就换了。

@@ -21,6 +21,7 @@ from app.agent.prompts import (
     format_evidence,
     format_persona,
     format_style_recipe,
+    format_viewpoint,
     load_prompt,
     render,
 )
@@ -87,8 +88,11 @@ def make_candidates_tool(
             GOAL=state.get("goal") or state.get("topic") or "",
             TOPIC=state.get("selected_topic") or "",
             EVIDENCE=format_evidence(state.get("evidence_pack")),
-            CLAIM=getattr(angle, "claim", ""),
-            WHY_IT_MATTERS=getattr(angle, "why_it_matters", ""),
+            # VIEWPOINT **必须**每次都传，理由同 STYLE：render 不会因为缺键报错，
+            # 漏传会让字面量 {{VIEWPOINT}} 原样进入 prompt。
+            # 用同一个渲染函数也是刻意的——Critic 那边读的是同一份文本，
+            # 两边看到的目标不同时，Critic 会拿另一个目标去判"有没有写对"。
+            VIEWPOINT=format_viewpoint(angle),
             PERSONA=format_persona(persona),
             # STYLE **必须**每次都传：render 只替换传进去的键，不会因为缺键报错，
             # 漏传会让字面量 {{STYLE}} 原样进入发给模型的 prompt。
@@ -97,6 +101,12 @@ def make_candidates_tool(
             COUNT=wanted,
         )
         parsed: CandidateList = await complete_json(llm_service, prompt, CandidateList)
+
+        # viewpoint_ref 由这里赋，不采信模型给的值（同 candidate_id 的理由）：
+        # 它是"这条正文是照哪个观点写的"的唯一凭证，Critic 靠它判断
+        # "正文是否忠实于它该表达的观点"（工作单第二十六节）。让模型自己填，
+        # 等于让被检查的一方填写检查依据。
+        viewpoint_ref = getattr(angle, "angle_id", "") or ""
 
         fresh: list[Candidate] = []
         for candidate in parsed.candidates[:wanted]:
@@ -107,6 +117,7 @@ def make_candidates_tool(
                     update={
                         "candidate_id": f"c{len(existing) + len(fresh) + 1}",
                         "revision": 0,
+                        "viewpoint_ref": viewpoint_ref,
                     }
                 )
             )

@@ -3,6 +3,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, TypeAdapter, field_validator, model_validator
 
+from app.agent.schemas import ViewpointAssessment
 from app.style.schemas import AiStyleSignals
 
 
@@ -528,6 +529,110 @@ class RunStyleSummary(BaseModel):
     ai_signals: AiStyleSignals | None = None
 
 
+class ViewpointEvidenceItem(BaseModel):
+    """一条支持（或反驳）某判断的事实，**已解析回原文**。
+
+    `fact_id` 与 `text` 都给：id 是与 trace / 评估对账用的句柄，原文是人读的。
+    只给 id 等于让人去别处查表；只给原文等于失去"这条到底引的是哪一条"的核对能力。
+    """
+
+    fact_id: str
+    text: str
+
+
+class RunViewpointSummary(BaseModel):
+    """这次运行形成的核心判断（Phase 5B.3，工作单第三十五节）。
+
+    数据来自 checkpoint 里的 `selected_angle`。与 `style` 同一处门控：非 Agent
+    运行（`goal` 为空）没有观点，外层的 `viewpoint` 就是 None。
+
+    ## 首屏只给五件事：判断 / 证据 / 反方 / 风险 / 置信度
+
+    工作单第三十五节点名了这五项，并明确要求技术细节**折叠**。所以这里字段
+    分两类：上面五个是给人做审核判断用的，`assessment` / `candidates` /
+    scope 信号是给复核用的——界面把它们折进 `<details>`，但后端一并给全，
+    因为没有这些，"置信度 0.83"就是一个无法追问的数。
+
+    ## 为什么 `evidence` 是原文而不是 id 列表
+
+    人工审核员要回答的是"这个帖子为什么这样说"。一串 `f1、f2` 回答不了这个
+    问题，他得再去翻证据包——而那个动作在界面上并不存在。所以在后端解析回
+    原文（同一个 state 的 evidence pack 里取），前端只负责显示。
+
+    ## 为什么 stance 同时给取值和标签
+
+    与 `RunStyleSummary` 同一条理由：同源于 `app/agent/labels.py`，
+    界面不自己维护第二份映射表。
+
+    ## 三个 stance 必须分清
+
+    `stance` 是**判断**的强度（工作单第十节），不是 `style.stance_strength`
+    （表达有多硬），也不是 Critic 的 `stance_strength`（文本有没有明确立场）。
+    字段名不同、标签来源不同，界面上要显示成两句话。
+    """
+
+    claim: str
+    why_it_matters: str = ""
+    #: 从事实走到这条判断的那一步（工作单第六节）。空 = 没写出来。
+    reasoning: str = ""
+
+    #: 支持这个判断的事实，原文已解析回来。
+    evidence: list[ViewpointEvidenceItem] = []
+    #: 声明了却引不到真实事实的反方**也在里面**（`bound=False`），
+    #: 因为"说过但没证据"这件事本身就该被看见。分开标注，不混进证据里。
+    counterpoints: list[str] = []
+    counterpoint_evidence: list[ViewpointEvidenceItem] = []
+
+    assumptions: list[str] = []
+    implications: list[str] = []
+    risk: str = ""
+
+    confidence: float
+    #: 0–100，排序用。**与 confidence 是两个问题**：confidence 答"站不站得住"，
+    #: 它答"值不值得拿出来说"。界面上不要把它们并排成一个数。
+    viewpoint_score: float | None = None
+
+    stance: str = ""
+    stance_label: str = ""
+    #: 模型**原本申报**的立场。与 `stance` 不同才值得显示（说明被证据压过）。
+    stance_declared: str | None = None
+    #: 证据推出的上界（工作单第九节）。它单独显示，才能看出"这条判断是模型
+    #: 主动保守，还是证据只允许到这里"。
+    max_stance: str = ""
+    max_stance_label: str = ""
+
+    claim_scope: str | None = None
+    claim_scope_label: str = ""
+    evidence_scope: str | None = None
+    evidence_scope_label: str = ""
+    #: 申报范围超出证据范围（或正文出现全称量词而证据是局部的）。
+    #: **是参考信号，不是扣分**——界面上要说成"这条判断主张的范围比证据大"，
+    #: 而不是一个红色的分数。
+    scope_exceeds_evidence: bool | None = None
+    #: 模型压根没申报适用范围。与"申报了一个恰好合规的范围"是两件事。
+    scope_declared_missing: bool | None = None
+
+    #: 分项与理由（Python 算的，LLM 不参与）。折进技术细节。
+    assessment: ViewpointAssessment | None = None
+    #: 同一批里落选的候选判断，只给判断本身与分数——审核员偶尔需要知道
+    #: "Agent 还考虑过什么"，但那是次要信息，不该占首屏。
+    other_candidates: list["ViewpointCandidateBrief"] = []
+
+
+class ViewpointCandidateBrief(BaseModel):
+    """落选的候选判断。**只给判断与它的分**，不给完整评估明细。
+
+    理由：完整明细只对**被选中**的那一条有意义（它决定了正文怎么写）。
+    把三条的明细都摊出来，首屏就变成了一个技术面板——而工作单第三十六节
+    明确要求不做分析实验室界面。
+    """
+
+    claim: str
+    viewpoint_score: float | None = None
+    stance: str = ""
+    stance_label: str = ""
+
+
 class AdminRunDetail(BaseModel):
     """Run 的完整生命周期视图。
 
@@ -565,6 +670,10 @@ class AdminRunDetail(BaseModel):
     # 同上，只有 Agent 运行才有 recipe 可展示。**必须与 quality 同一处门控**，
     # 否则 V1 topic 链的 Run 会冒出一个空白的"写作结构"块。
     style: RunStyleSummary | None = None
+    # 同上：只有 Agent 运行才形成观点。**必须与 quality / style 同一处门控**，
+    # 否则 V1 topic 链的 Run 会冒出一个空白的"核心判断"块。两侧都要加——
+    # 它是 response_model，schema 里没有的字段会被静默丢弃。
+    viewpoint: RunViewpointSummary | None = None
     draft: DraftRecord | None = None
     review: ReviewRecord | None = None
     publish: PublishRecord | None = None

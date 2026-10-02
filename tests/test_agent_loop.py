@@ -19,7 +19,14 @@ from app.agent.budget import AgentBudget
 from app.agent.metrics import quality_metrics
 from app.agent.nodes.finalize import make_finalize_node
 from app.models import AgentRun, Draft, ResearchItem, Review
-from app.agent.schemas import Candidate, CandidateTopic, EvidencePack
+from app.agent.schemas import (
+    Candidate,
+    CandidateTopic,
+    ClaimScope,
+    EvidencePack,
+    ViewpointAssessment,
+    ViewpointStance,
+)
 from app.style.schemas import StyleRecipe
 from app.repositories import create_agent_run, list_decisions, set_run_topic
 from app.services.x_service import XService
@@ -662,6 +669,18 @@ async def test_agent_run_state_is_resumable_from_checkpoint(session_factory):
         assert snapshot.values["candidate_topics"][0].topic_id == "t1"
         assert snapshot.values["selected_angle"].angle_id == "a1"
         assert snapshot.values["critic_result"].candidate_id == "c1"
+        # Phase 5B.3：`Angle` 上新增的**嵌套枚举**同样要登记进 SERDE，而漏登记的
+        # 失败模式与下面 `style_recipe` 那条一模一样、同样安静：msgpack 拒绝未登记的
+        # 类型、返回原始 payload，pydantic 随后在类型化字段上又把字符串校验回枚举——
+        # 于是 `== "a1"` 这类断言全绿，只有日志里在响。断言 `isinstance` 才是唯一
+        # 抓得住它的做法（值相等在两种形态下都成立）。
+        #
+        # 这里还多一层：`stance` 与 `max_stance` 之间会做**序关系**比较，而降级成
+        # 字符串之后 "cautious" > "moderate" 恰好按字典序相反——那不是报错，是算错。
+        angle = snapshot.values["selected_angle"]
+        assert isinstance(angle.stance, ViewpointStance)
+        assert isinstance(angle.claim_scope, ClaimScope)
+        assert isinstance(angle.assessment, ViewpointAssessment)
         # Phase 5B.2：style_recipe 是**以顶层值**进 state 的（不是嵌在别的模型里），
         # 所以它必须在 SERDE 里显式登记。漏登记的失败模式**不报错**：msgpack 的
         # EXT 钩子拒绝它、返回原始 payload，顶层模型安静地退化成 dict——上面那些

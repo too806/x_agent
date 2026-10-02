@@ -1,7 +1,7 @@
 {
   "name": "agent-evaluation-lab-baseline",
-  "version": "1.1.0",
-  "note": "16 条基准目标（10 条 Phase 5A.1 + 6 条 Phase 5B.1）。每条把工作单里的一个评估问题，绑到一个 fixture 上——**不调用真实 X，也不调用 LLM**，所以整套基准可以在任意机器上逐位复现。",
+  "version": "1.2.0",
+  "note": "21 条基准目标（10 条 Phase 5A.1 + 6 条 Phase 5B.1 + 5 条 Phase 5B.3）。每条把工作单里的一个评估问题，绑到一个 fixture 上——**不调用真实 X，也不调用 LLM**，所以整套基准可以在任意机器上逐位复现。",
   "how_to_read": [
     "goal 是「这条基准想回答什么」，question 是它在评估问题清单里的出处，fixture 是回答它的那份数据。",
     "expect 只断言**回归门禁的结论**（§14 定义的那些），不断言任何指标数值。",
@@ -187,6 +187,63 @@
         ],
         "observations": [
           "RULE-014"
+        ]
+      }
+    },
+    {
+      "id": "G-017",
+      "goal": "证据够（四条事实 / 五条来源 / 五位作者）、有推理层、有自我反驳、反方绑到了事实、申报范围没有越过证据——这样一条判断能不能整体通过",
+      "question": "Agent 能不能形成一个明确、有边界、可追溯的判断（工作单第四十三节）",
+      "fixture": "viewpoint_supported",
+      "expect": {
+        "passed": true
+      }
+    },
+    {
+      "id": "G-018",
+      "goal": "同一个判断，分数一项没变，只是把推理层与自我反驳抽掉（reasoning / assumptions / risk 全空）——从事实到结论的那一步没有被写出来，能不能被拦下",
+      "question": "core thesis 有没有推理链与自我反驳（工作单第六、七节）",
+      "fixture": "viewpoint_no_reasoning",
+      "expect": {
+        "passed": false,
+        "gate_failures": [
+          "RULE-020"
+        ]
+      }
+    },
+    {
+      "id": "G-019",
+      "goal": "同样的证据、同样的正文，只把 claim_scope 从 industry 抬到 society——申报的范围超出证据能支撑的范围，能不能被拦下，而且不因此多拿一点分",
+      "question": "claim scope 会不会超过 evidence scope（工作单第二十八、二十九节）",
+      "fixture": "viewpoint_overclaim",
+      "expect": {
+        "passed": false,
+        "gate_failures": [
+          "RULE-021"
+        ]
+      }
+    },
+    {
+      "id": "G-020",
+      "goal": "证据包里明明写着一条反方说法，观点既不声明也不绑定它，正文还补了一句「这件事其实没有争议」——把已知的争议抹掉，两条路径任意一条能不能被拦下",
+      "question": "反方有没有被主动处理，还是被装作不存在（工作单第八节）",
+      "fixture": "viewpoint_counterpoint_erased",
+      "expect": {
+        "passed": false,
+        "gate_failures": [
+          "RULE-022"
+        ]
+      }
+    },
+    {
+      "id": "G-021",
+      "goal": "把选定观点的 viewpoint_score 抬高 7 分（其余字段全部保持复算得到的样子）——一个看起来很像分数、却找不到任何一组输入能算出来的值，能不能被拦下",
+      "question": "viewpoint_score 是不是确定性的、可复算的（工作单第十一、十二节）",
+      "fixture": "viewpoint_score_drifted",
+      "expect": {
+        "passed": false,
+        "gate_failures": [
+          "RULE-023"
         ]
       }
     }

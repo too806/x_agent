@@ -297,20 +297,48 @@ def evidence_payload(*extra_facts):
     return build
 
 
-def angles_payload(count: int = 3):
+def angles_payload(count: int = 3, *, rich_first: bool = True):
+    """观点草稿——Phase 5B.3 的契约，**没有任何分数字段**。
+
+    `evidence_ids` 只能从 prompt 里读（fact_id 是工具在运行时赋的），这同时验证了
+    工具**确实把 fact_id 印进了 prompt**：假 LLM 若找不到 id，会交回空引用，
+    `generate_angles` 会把整条草稿丢掉，测试立刻失败。
+
+    两处刻意的设计：
+
+    1. 三句话必须**真的不同**。5B.3 会用 n-gram 检测同批观点的互相重复，
+       三条只差一个字的"观点"会被全判成同一个观点（novelty 全归零），
+       于是"三条候选"退化成一条被数了三遍。
+    2. 第一条多绑一条事实。它于是是分数最高的那个，"选中的是 a1"才有唯一
+       正确答案，而不是"碰巧字典序站在这一边"。
+    """
+
+    claims = (
+        "定价权正在从卖方转向买方",
+        "默认的计费方式正在被改写",
+        "真正被改变的是采购决策",
+    )
+
     def build(prompt: str) -> str:
         fids = fact_ids_in(prompt)
         return json.dumps(
             {
                 "angles": [
                     {
-                        "claim": f"观点 {i}：这件事的真正意义被低估了",
+                        "claim": claims[i % len(claims)],
+                        "reasoning": "两家在同一周做了同一件事，且都指向企业客户。",
                         "why_it_matters": "它改变了默认做法",
-                        "evidence_ids": fids[:1],
-                        "risk": "可能过度解读",
-                        "confidence": round(0.8 - i * 0.1, 2),
+                        "evidence_ids": fids[:2] if (i == 0 and rich_first) else fids[:1],
+                        "risk": "可能把一次促销读成一次转向",
+                        "counterpoints": ["也可能只是季度促销"],
+                        "counterpoint_evidence_ids": fids[:1],
+                        "assumptions": ["两家调整的不是同一类套餐"],
+                        "implications": ["采购方会重新谈价"],
+                        "claim_scope": "segment" if i == 0 else "case",
+                        "stance": "cautious",
+                        "novelty_note": "把两家的动作连成一条线来看",
                     }
-                    for i in range(1, count + 1)
+                    for i in range(count)
                 ]
             },
             ensure_ascii=False,

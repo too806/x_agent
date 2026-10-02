@@ -75,6 +75,28 @@ def test_a_pipe_is_degraded_to_a_space_not_dropped():
     assert "替换" in note
 
 
+def test_a_wildcard_is_not_usable():
+    """`*` 是通配符运算符，出现在一个词内部就是语法错误。
+
+    5B.3 真机 smoke 4 实测到的失败路径：目标里带 Markdown 强调
+    （`**双方吵起来**`），候选选题被判定不可检索，检索词兜底到目标原文，
+    X 回 `400 ... Wildcard '*' character cannot appear in a term`。
+
+    目标文本是人写的，人会在里面写 Markdown。这条路径不是"模型偶尔抽风"。
+    """
+    assert not search_query.usable("A* B")
+    assert not search_query.usable("**双方吵起来**")
+    assert not search_query.usable("帮我找一个最近的中文 AI Agent 话题：*重点*")
+
+
+def test_a_wildcard_is_degraded_to_a_space():
+    """与 `|` 同一种处置。降级后剩下的仍是原句里的词，搜的是同一件事。"""
+    query, note = search_query.choose([("目标", "**双方吵起来**的 AI Agent 话题")])
+    assert query == "双方吵起来 的 AI Agent 话题"
+    assert "*" not in query
+    assert "替换" in note
+
+
 def test_full_width_punctuation_is_fine():
     """中文全角括号只是普通字符。把它们也拦掉，等于把中文目标全判成不可搜。"""
     assert search_query.usable("研究一下 MCP（Model Context Protocol）的采用情况。")

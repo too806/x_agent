@@ -66,7 +66,20 @@ SERDE = JsonPlusSerializer(
         ("app.agent.schemas", "EvidenceFact"),
         ("app.agent.schemas", "EvidencePack"),
         ("app.agent.schemas", "Angle"),
-        ("app.agent.schemas", "AngleList"),
+        # 注意：Phase 5A 的 `AngleList` **已从这里移除**，理由与 `TopicCandidateList`
+        # 完全一样（见上）：它只是 generate_angles 的解析目标，从来没作为 state
+        # 顶层值出现过（进 state 的是 `angles: list[Angle]`）。5B.3 把解析目标改名为
+        # `AngleDraftList`，于是"`AngleList` 这个名字还存在吗"有了确定答案——
+        # 留着一条登记，只是把"少登记一个"换成"登记一个指向别处的名字"。
+        # Phase 5B.3：`Angle` 上新增的嵌套枚举。**嵌套枚举照样要登记**——
+        # `model_dump()` 不展平枚举，它们仍然以 EXT 形态进出，不登记就会降级成
+        # 字符串，而 `stance <= max_stance` 这类比较在字符串上会**算错**而不是报错
+        # （"cautious" > "moderate" 按字典序恰好相反）。
+        ("app.agent.schemas", "ViewpointStance"),
+        ("app.agent.schemas", "ClaimScope"),
+        # 注意：`AngleDraft` / `AngleDraftList` / `ViewpointAssessment` / `ViewpointFit`
+        # 都不在这里。前两个只是 LLM 解析目标（同 `AngleList` 的命运）；后两个是
+        # 嵌套**模型**，会被 model_dump() 内联（同 `StyleFit` 的命运）。
         ("app.agent.schemas", "Candidate"),
         ("app.agent.schemas", "CandidateList"),
         ("app.agent.schemas", "CandidateDraft"),

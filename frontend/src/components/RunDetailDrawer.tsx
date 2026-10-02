@@ -15,6 +15,14 @@ import { TraceTimeline } from './ui/TraceTimeline'
 import { IconExternal } from './ui/icons'
 import { buildLifecycle } from '../utils/lifecycle'
 import { traceSummary } from '../utils/trace'
+import {
+  capNote,
+  confidenceBreakdown,
+  confidenceLabel,
+  scopeSentence,
+  scoreLabel,
+  stanceSentence,
+} from '../utils/viewpoint'
 import { isUnresolved } from '../types/api'
 import {
   EMPTY,
@@ -29,6 +37,7 @@ import type {
   AiStyleSignals,
   PublishRecord,
   RunStyleSummary,
+  RunViewpointSummary,
 } from '../types/api'
 
 /**
@@ -49,9 +58,13 @@ import type {
  *   2. 生命周期   —— 六段走到哪了，每段留下了什么
  *   3. Agent 决策轨迹 —— 这个 Agent 为什么这么走（§11，整个控制台的核心）
  *   4. 运行质量   —— 这一轮决策循环健不健康（只有 Agent 模式的 Run 有）
- *   5. 写作结构   —— 这一轮打算怎么表达（Phase 5B.2，同样只有 Agent 模式有）
- *   6. 研究素材 / 内容 / 规则检查 / 发布 —— 具体材料
- *   7. 运行信息   —— 精确时间戳，对账用
+ *   5. 核心判断   —— 这一轮主张什么、凭什么、反方在哪（Phase 5B.3，同上）
+ *   6. 写作结构   —— 这一轮打算怎么表达（Phase 5B.2，同上）
+ *   7. 研究素材 / 内容 / 规则检查 / 发布 —— 具体材料
+ *   8. 运行信息   —— 精确时间戳，对账用
+ *
+ * 5 在 6 前面：**判断决定说什么，写法只决定怎么说**。反过来摆，读者会
+ * 把观点读成措辞的产物。
  *
  * 反过来的顺序（先铺材料、结论沉在最下面）正是"渲染 API 的页面"和"给人用的
  * 控制台"之间的差别：人来这里通常是为了回答一个具体问题，而不是为了通读一遍。
@@ -294,6 +307,265 @@ function AiSignalsLine({ signals }: { signals: AiStyleSignals | null }) {
 }
 
 /**
+ * 这次运行形成的核心判断（Phase 5B.3，工作单第三十五节）。
+ *
+ * 与 `AgentQualitySection` / `StyleSection` 同一个门槛：不是 Agent 的 Run
+ * （后端 `viewpoint` 为 null）这一段不出现，页面与从前逐像素一致。
+ *
+ * **首屏只有五件事**：核心判断 / 证据 / 反方 / 风险 / 置信度。分数、推理层、
+ * 评估明细、其它候选、范围信号全部折进 `<details>`——工作单第三十六节明确
+ * 要求不做分析实验室界面，而这个块的用途是**让人做审核判断**，不是让人读一份
+ * 评估报告。但折叠区必须给全：没有它们，"置信度 0.83"就是一个无法追问的数。
+ *
+ * 排在最前面，在写作结构之前：**判断决定说什么，写作结构只决定怎么说**
+ * （工作单第二十五节）。反过来摆，读者会以为立场是写法派生的。
+ */
+function ViewpointSection({ detail }: { detail: AdminRunDetail }) {
+  const viewpoint: RunViewpointSummary | null = detail.viewpoint
+  if (!viewpoint) return null
+
+  const assessment = viewpoint.assessment
+  const score = scoreLabel(viewpoint.viewpoint_score)
+
+  return (
+    <DetailSection title="核心判断" hint={viewpoint.stance_label || undefined}>
+      <div>
+        <div className="meta__label">这条稿子主张的判断</div>
+        {/* 与"最终正文"同样的权威样式：这是这一轮真正被交付出去的那个判断，
+            不是候选、不是草稿。 */}
+        <div className="body-block body-block--authoritative">{viewpoint.claim}</div>
+        {viewpoint.why_it_matters ? (
+          <div className="meta">{viewpoint.why_it_matters}</div>
+        ) : null}
+      </div>
+
+      <FieldGrid>
+        <Field label="置信度">
+          {/* 措辞纪律：这是 0–1 的加权结果，**不是**"有 83% 的概率是对的"。
+              故意不写成百分比，也故意不写成"评分"。 */}
+          <span className="mono">{confidenceLabel(viewpoint.confidence)}</span>
+          <div className="meta">
+            由证据支撑度 / 来源多样性 / 反方意识 / 未知压力四项加权算出，
+            <strong>不含新颖性</strong>。
+          </div>
+        </Field>
+        <Field label="立场">
+          {stanceSentence(viewpoint)}
+          {!viewpoint.assessment ? (
+            // 5B.3 之前的运行：这个数是模型自己给的，与上面那句推导**不是一回事**。
+            <div className="meta">
+              这个 Run 跑在 Phase 5B.3 之前，当时的置信度由模型直接给出，
+              没有可复算的评估明细。
+            </div>
+          ) : null}
+        </Field>
+        <Field label="适用范围">{scopeSentence(viewpoint)}</Field>
+      </FieldGrid>
+
+      <div>
+        <div className="meta__label">
+          支持这个判断的事实（{viewpoint.evidence.length} 条）
+        </div>
+        {viewpoint.evidence.length === 0 ? (
+          <div className="notice notice--danger">
+            这条判断一条证据都没引上。没有依据的判断不是"差一点的判断"，
+            它是一个会被漂亮话讲出来的断言。
+          </div>
+        ) : (
+          <ul className="stack stack--tight">
+            {viewpoint.evidence.map((item) => (
+              <li key={item.fact_id}>
+                <span className="mono cell-muted">{item.fact_id}</span> {item.text}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <div>
+        <div className="meta__label">反方（{viewpoint.counterpoints.length} 条）</div>
+        {viewpoint.counterpoints.length === 0 ? (
+          // "没写反方"有两种：证据包里本来就没有，或者有却当它不存在。
+          // 界面上不猜是哪一种——那由后端规则判定（RULE-022）。这里只说没有。
+          <div className="cell-muted">这条判断没有写下任何反方意见。</div>
+        ) : (
+          <ul className="stack stack--tight">
+            {viewpoint.counterpoints.map((point, index) => (
+              <li key={index}>{point}</li>
+            ))}
+          </ul>
+        )}
+        {viewpoint.counterpoint_evidence.length > 0 ? (
+          <div className="meta">
+            其中引到事实的：
+            {viewpoint.counterpoint_evidence.map((item) => (
+              <div key={item.fact_id}>
+                <span className="mono cell-muted">{item.fact_id}</span> {item.text}
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </div>
+
+      <Field label="风险">
+        {viewpoint.risk || '这条判断没有说明自己可能错在哪里。'}
+      </Field>
+
+      <details className="disclosure">
+        <summary>技术细节（推理层、范围信号与评估依据）</summary>
+        <div className="disclosure__body stack stack--tight">
+          <Field label="推理层">
+            {/* 这一层是工作单第六节的"事实 → 推理 → 判断"三段里的中间一段。
+                它空着时要说清楚：没有它，"判断"与"事实"之间就是一个
+                无法检查的跳跃。 */}
+            {viewpoint.reasoning || (
+              <span className="cell-muted">
+                没有写出从事实走到这条判断的那一步。
+              </span>
+            )}
+          </Field>
+
+          <FieldGrid>
+            <Field label="观点分">
+              {score ? <span className="mono">{score}</span> : EMPTY}
+              <div className="meta">
+                排序用（0–100），回答"值不值得拿出来说"，
+                <strong>与置信度不是同一个问题</strong>。
+              </div>
+            </Field>
+            <Field label="立场（取值）">
+              <span className="mono">{viewpoint.stance || EMPTY}</span>
+            </Field>
+            <Field label="模型申报的立场">
+              <span className="mono">{viewpoint.stance_declared || EMPTY}</span>
+            </Field>
+            <Field label="证据允许的上界">
+              <span className="mono">{viewpoint.max_stance || EMPTY}</span>
+            </Field>
+            <Field label="申报范围（取值）">
+              <span className="mono">{viewpoint.claim_scope || EMPTY}</span>
+            </Field>
+            <Field label="证据范围（取值）">
+              <span className="mono">{viewpoint.evidence_scope || EMPTY}</span>
+            </Field>
+          </FieldGrid>
+
+          {viewpoint.assumptions.length > 0 ? (
+            <div className="meta">
+              <div className="meta__label">这条判断依赖的假设</div>
+              <ul className="stack stack--tight">
+                {viewpoint.assumptions.map((item, index) => (
+                  <li key={index}>{item}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
+          {viewpoint.implications.length > 0 ? (
+            <div className="meta">
+              <div className="meta__label">
+                影响（以下是对将来的推断，不是已发生的事实）
+              </div>
+              <ul className="stack stack--tight">
+                {viewpoint.implications.map((item, index) => (
+                  <li key={index}>{item}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
+          {assessment ? (
+            <>
+              <div className="meta">
+                <div className="meta__label">置信度是怎么算出来的</div>
+                <div className="mono">{confidenceBreakdown(assessment)}</div>
+                {/* 封顶只在真的咬住时说明——恒显示会让人不再读它。 */}
+                {capNote(
+                  '证据支撑度',
+                  assessment.evidence_support_raw,
+                  assessment.evidence_support,
+                ) ? (
+                  <div>
+                    {capNote(
+                      '证据支撑度',
+                      assessment.evidence_support_raw,
+                      assessment.evidence_support,
+                    )}
+                  </div>
+                ) : null}
+                {capNote(
+                  '置信度',
+                  assessment.confidence_raw,
+                  viewpoint.confidence,
+                ) ? (
+                  <div>
+                    {capNote('置信度', assessment.confidence_raw, viewpoint.confidence)}
+                  </div>
+                ) : null}
+              </div>
+
+              <FieldGrid>
+                <Field label="绑定事实">
+                  {assessment.bound_facts} / {assessment.total_facts}
+                </Field>
+                <Field label="绑定来源 / 作者">
+                  {assessment.bound_sources} / {assessment.bound_authors}
+                </Field>
+                <Field label="反方（绑定 / 声明）">
+                  {assessment.bound_counterpoints} / {assessment.declared_counterpoints}
+                </Field>
+                <Field label="未被事实引用的材料">
+                  {assessment.unreferenced_materials} / {assessment.total_materials}
+                </Field>
+              </FieldGrid>
+
+              <div className="meta">
+                <div className="meta__label">评估依据</div>
+                {assessment.reasons.length === 0 ? (
+                  <div>这次没有留下评估依据。</div>
+                ) : (
+                  <ul className="stack stack--tight">
+                    {assessment.reasons.map((reason, index) => (
+                      <li key={index}>{reason}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+              {assessment.breadth_markers.length > 0 ? (
+                <div className="meta">
+                  <div className="meta__label">判断里出现的全称量词</div>
+                  <div className="mono">{assessment.breadth_markers.join('、')}</div>
+                </div>
+              ) : null}
+            </>
+          ) : null}
+
+          {viewpoint.other_candidates.length > 0 ? (
+            <div className="meta">
+              <div className="meta__label">同一轮里落选的判断</div>
+              <ul className="stack stack--tight">
+                {viewpoint.other_candidates.map((other) => (
+                  <li key={other.claim}>
+                    <span className="mono cell-muted">
+                      {scoreLabel(other.viewpoint_score) ?? EMPTY}
+                    </span>{' '}
+                    {other.claim}
+                    <span className="cell-muted">
+                      {other.stance_label ? `（${other.stance_label}）` : ''}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </div>
+      </details>
+    </DetailSection>
+  )
+}
+
+/**
  * Agent 决策轨迹。
  *
  * 没有 goal 也没有轨迹的 Run（Phase 5A 之前的全部 Run）看到的东西与从前完全一致：
@@ -396,6 +668,10 @@ export function DetailBody({ detail, onSettled }: { detail: AdminRunDetail; onSe
       <AgentTraceSection detail={detail} />
 
       <AgentQualitySection detail={detail} />
+
+      {/* 判断在写作结构之前：这一轮**说什么**决定它怎么说，不是反过来。
+          与 `quality` 同一门控（非 Agent 运行返回 null，整段不出现）。 */}
+      <ViewpointSection detail={detail} />
 
       <StyleSection detail={detail} />
 

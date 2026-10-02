@@ -89,7 +89,7 @@ def _recipe(
 
 
 def _corpus_spans(n: int = SHARED_SPAN) -> set[str]:
-    """合成基准语料的全部 n-gram。检测器本身在 `evals/style/spans.py`。"""
+    """合成基准语料的全部 n-gram。检测器本体在 `app/style/spans.py`。"""
     return corpus_spans([sample.content for sample in corpus.SAMPLES], n)
 
 

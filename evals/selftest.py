@@ -27,6 +27,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from dataclasses import fields as dc_fields
 from typing import Any
 
 from evals._bootstrap import ensure_repo_root_on_path, force_utf8_stdout
@@ -373,6 +374,87 @@ def check_every_gate_can_fail() -> list[str]:
     )
     fired.append("RULE-019")
 
+    # --- Phase 5B.3 的四条观点门禁 ------------------------------------------
+    #
+    # 四份 fixture 共用同一份状态（同一批证据、同一批材料、同一批观点），
+    # 各自只在**一个变量**上与干净那份分叉。所以"哪条门禁响了"能直接读出
+    # "是哪个变量坏的"，而不会出现"改了一个地方、四条一起红"这种看不出
+    # 因果的失败。
+
+    # RULE-020：选定的观点没有推理层，也没有自我反驳
+    thin = load(f"{BASE}/viewpoint_no_reasoning.json")
+    _check(
+        _status_of(thin, "RULE-020") == "fail",
+        "RULE-020 未在「判断没有写出推理层」上失败",
+    )
+    # 同一批分、同一个观点，只把推理层写回去：立刻必须通过。
+    # 没有这一条，上面那条可以靠"永远失败"混过去。
+    recovered = thin.state.selected_angle.model_copy(
+        update={"reasoning": "由被引用的四条事实推出。", "risk": "口径可能有别的解释"}
+    )
+    _check(
+        _status_of(_with_state(thin, selected_angle=recovered), "RULE-020") == "pass",
+        "RULE-020 在补回推理层之后仍然失败——它读的不是 reasoning",
+    )
+    fired.append("RULE-020")
+
+    # RULE-021：申报的适用范围超出了证据能支撑的范围
+    _check(
+        _status_of(load(f"{BASE}/viewpoint_overclaim.json"), "RULE-021") == "fail",
+        "RULE-021 未在「申报范围超出证据」上失败",
+    )
+    fired.append("RULE-021")
+
+    # RULE-022：证据包里有反方，观点与正文都当它不存在
+    _check(
+        _status_of(load(f"{BASE}/viewpoint_counterpoint_erased.json"), "RULE-022")
+        == "fail",
+        "RULE-022 未在「已知的反方被抹掉」上失败",
+    )
+    # 这条门禁有**两条**独立路径，各单独验一次——只验一条等于给另一条留下
+    # "换一种抹法就能绕过"的空间。两份构造都从干净数据出发，只坏一处。
+    clean_viewpoint = load(f"{BASE}/viewpoint_supported.json")
+
+    # (a) 观点既不声明也不绑定反方，正文干干净净。
+    # 打分明细里的两个计数要一并归零：那正是"真的没找过反方"在 state 里的样子，
+    # 而门禁读的是它——只清 Angle 上的两个列表，会造出一份自相矛盾的数据，
+    # 那测的就不是门禁而是 RULE-023 了。
+    angle = clean_viewpoint.state.selected_angle
+    stripped = angle.model_copy(
+        update={
+            "counterpoints": [],
+            "counterpoint_evidence_ids": [],
+            "assessment": angle.assessment.model_copy(
+                update={"declared_counterpoints": 0, "bound_counterpoints": 0}
+            ),
+        }
+    )
+    _check(
+        _status_of(_with_state(clean_viewpoint, selected_angle=stripped), "RULE-022")
+        == "fail",
+        "RULE-022 未在「观点不认反方」这条路径上失败",
+    )
+
+    # (b) 反方照样声明着、绑定着，只是正文补了一句"毫无争议"。
+    # 这是"补一句就能绕过"的反例：两条路径是**或**，不是**与**。
+    first = clean_viewpoint.state.candidates[0]
+    asserting = [
+        first.model_copy(update={"content": "这件事毫无争议。" + first.content})
+    ] + list(clean_viewpoint.state.candidates[1:])
+    _check(
+        _status_of(_with_state(clean_viewpoint, candidates=asserting), "RULE-022")
+        == "fail",
+        "RULE-022 未在「正文声称无争议」这条路径上失败",
+    )
+    fired.append("RULE-022")
+
+    # RULE-023：观点分与观测输入对不上
+    _check(
+        _status_of(load(f"{BASE}/viewpoint_score_drifted.json"), "RULE-023") == "fail",
+        "RULE-023 未在「分数与原始输入对不上」上失败",
+    )
+    fired.append("RULE-023")
+
     _check(
         sorted(fired) == sorted(GATE_RULE_IDS),
         f"被验证会失败的门禁 {sorted(fired)} 与 GATE_RULE_IDS {sorted(GATE_RULE_IDS)} 不一致",
@@ -660,6 +742,139 @@ def check_trend_rules_discriminate() -> list[str]:
     return notes
 
 
+def check_viewpoint_rules_discriminate() -> list[str]:
+    """Phase 5B.3 的四条观点门禁必须**两边都能判**。
+
+    与 `check_trend_rules_discriminate` 同一条理由：只要求"在违规数据上失败"
+    的话，一条永远失败的规则也能过检，而它会把每份数据都标红、然后被人关掉。
+
+    五份 fixture 共用同一份状态，各自只在一个变量上与 `viewpoint_supported`
+    分叉。所以这里的每一条断言都是在问："同一个东西，只改了那一处，
+    门禁的结论就翻过来了吗"——翻不过来，说明它读的不是它声称读的那个变量。
+    """
+    notes: list[str] = []
+    pairs = (
+        ("RULE-020", "viewpoint_no_reasoning"),
+        ("RULE-021", "viewpoint_overclaim"),
+        ("RULE-022", "viewpoint_counterpoint_erased"),
+        ("RULE-023", "viewpoint_score_drifted"),
+    )
+    for rule_id, bad in pairs:
+        _check(
+            _status_of(load(f"{BASE}/viewpoint_supported.json"), rule_id) == "pass",
+            f"{rule_id} 在干净数据 viewpoint_supported 上应当通过，实际不是",
+        )
+        _check(
+            _status_of(load(f"{BASE}/{bad}.json"), rule_id) == "fail",
+            f"{rule_id} 在违规数据 {bad} 上应当失败，实际不是",
+        )
+        notes.append(f"{rule_id}：viewpoint_supported 通过 / {bad} 失败")
+
+    # 五份数据真的只差一个变量：证据包、材料清单与观点条数必须逐字相同。
+    # 没有这一条，"只差一个变量"就只是一句自述，哪天有人顺手改了对照组的
+    # 证据，报告会继续显示四对漂亮的断言，而它们比的东西已经变了。
+    supported = load(f"{BASE}/viewpoint_supported.json")
+    for _, bad in pairs:
+        other = load(f"{BASE}/{bad}.json")
+        _check(
+            supported.state.evidence_pack == other.state.evidence_pack,
+            f"{bad} 的证据包与对照组不一致——这一对不再是「只差一个变量」",
+        )
+        _check(
+            supported.state.viewpoint_inputs == other.state.viewpoint_inputs,
+            f"{bad} 的材料清单与对照组不一致",
+        )
+    notes.append("五份数据的证据包与材料清单逐字相同（adversarial 对照的前提）")
+
+    # 缺原始输入必须判 unavailable，不能判 pass——照 RULE-017 已经立下的规矩：
+    # "缺输入时返回 pass 会让这条规则在大多数数据上变成装饰品"。
+    _check(
+        _status_of(_with_state(supported, viewpoint_inputs=[]), "RULE-023")
+        == "unavailable",
+        "RULE-023 在没有 viewpoint_inputs 的数据上应当 unavailable，而不是通过",
+    )
+    # 反过来：观点没带 assessment（Phase 5B.3 之前的运行）同样判不了。
+    # 这条钉住的是"拿新尺子去量历史数据"这件事不会发生。
+    legacy = _base()
+    _check(
+        not any(a.assessment is not None for a in legacy.state.angles),
+        "healthy_agent_run 应当保留 5B.3 之前的观点（无 assessment）作对照",
+    )
+    _check(
+        _status_of(legacy, "RULE-023") == "unavailable",
+        "RULE-023 在 5B.3 之前的数据上应当 unavailable，而不是判它分数不可复算",
+    )
+    # 同一条口径也要落在另外三条上：没有选定观点时它们是"不适用"，不是"通过"。
+    # 用一个没有观点的运行来问——`_with_state` 把观点那一层清空。
+    no_viewpoint = _with_state(legacy, angles=[], selected_angle=None)
+    for rule_id in ("RULE-020", "RULE-021", "RULE-022"):
+        _check(
+            _status_of(no_viewpoint, rule_id) == "pass",
+            f"{rule_id} 在没有选定观点的运行上应当是不适用（pass），实际不是",
+        )
+    notes.append(
+        "缺原始输入判 unavailable（RULE-023）；无选定观点判不适用（RULE-020~022）"
+    )
+    return notes
+
+
+def check_every_scored_field_is_reproduced() -> list[str]:
+    """RULE-023 比对的字段，必须把 `ViewpointScore` 除 claim/reasons 之外的
+    每一项都覆盖到。
+
+    **少比一项，就是给那一项留了一条"可以悄悄变"的路。** 这句话不是修辞：
+    这一条检查真的抓到过一次——`scope_declared_missing` 算出来了，却只活在
+    `ViewpointScore` 里，压根没写进 `Angle`，于是它既到不了 checkpoint，
+    也永远不会被复算比对。这条断言会强制那个字段先在 `Angle` 上有位置。
+
+    `claim` 不比：它是输入不是输出。`reasons` 不比：它是给人看的一句话说明，
+    措辞变化不该判成"分数不可复现"。
+    """
+    from app.agent.viewpoint import ViewpointScore
+    from evals.behavior.rules import (
+        _VIEWPOINT_ANGLE_FIELDS,
+        _VIEWPOINT_ASSESSMENT_FIELDS,
+    )
+
+    covered = set(_VIEWPOINT_ANGLE_FIELDS) | set(_VIEWPOINT_ASSESSMENT_FIELDS)
+    # `ViewpointScore` 是 dataclass 不是 pydantic 模型（打分器不依赖 pydantic，
+    # 它要对"state 里长什么样"零依赖）。所以这里按 dataclass 取字段名。
+    expected = {f.name for f in dc_fields(ViewpointScore)} - {"claim", "reasons"}
+    _check(
+        covered == expected,
+        f"RULE-023 漏比的字段：{sorted(expected - covered)}；"
+        f"比了不存在的字段：{sorted(covered - expected)}",
+    )
+    _check(
+        not (set(_VIEWPOINT_ANGLE_FIELDS) & set(_VIEWPOINT_ASSESSMENT_FIELDS)),
+        "同一个字段同时出现在两组里——两组应当是互斥的",
+    )
+
+    # 另一侧：这些字段真的落在 `Angle` / `ViewpointAssessment` 上吗。
+    # 上面只检查了两份清单与 `ViewpointScore` 对齐，而 `getattr` 是**读得到
+    # 不存在的东西**的——清单里写一个不存在的字段名，`getattr(angle, x)` 会
+    # 抛异常（这还算好的）；写成 `ViewpointAssessment` 缺的字段则会在
+    # `getattr(assessment, x)` 那里炸。所以这里逐个取一次。
+    from app.agent.schemas import Angle, ViewpointAssessment
+
+    angle_fields = set(Angle.model_fields)
+    assessment_fields = set(ViewpointAssessment.model_fields)
+    _check(
+        set(_VIEWPOINT_ANGLE_FIELDS) <= angle_fields,
+        f"这些字段不在 Angle 上：{sorted(set(_VIEWPOINT_ANGLE_FIELDS) - angle_fields)}",
+    )
+    _check(
+        set(_VIEWPOINT_ASSESSMENT_FIELDS) <= assessment_fields,
+        "这些字段不在 ViewpointAssessment 上："
+        f"{sorted(set(_VIEWPOINT_ASSESSMENT_FIELDS) - assessment_fields)}",
+    )
+    return [
+        f"RULE-023 覆盖 {len(covered)} 个字段"
+        f"（Angle 上 {len(_VIEWPOINT_ANGLE_FIELDS)} 个 / 明细里 "
+        f"{len(_VIEWPOINT_ASSESSMENT_FIELDS)} 个），与 ViewpointScore 逐项对齐"
+    ]
+
+
 def check_clean_fixtures_pass() -> list[str]:
     """干净数据必须全绿——否则门禁会因为误伤而被人关掉。"""
     clean = (
@@ -669,6 +884,7 @@ def check_clean_fixtures_pass() -> list[str]:
         "invalid_action_recovery",
         "multi_author_topic",
         "fresh_topic",
+        "viewpoint_supported",
     )
     for label in clean:
         record = load(f"{BASE}/{label}.json")
@@ -721,6 +937,8 @@ CHECKS: tuple[tuple[str, Any], ...] = (
     ("unavailable 不会被读成 0", check_unavailable_never_reads_as_zero),
     ("干净数据全绿", check_clean_fixtures_pass),
     ("话题规则两边都能判", check_trend_rules_discriminate),
+    ("观点规则两边都能判", check_viewpoint_rules_discriminate),
+    ("观点分逐项都可复算", check_every_scored_field_is_reproduced),
     ("--live 被拒绝", check_live_mode_is_refused),
     ("分数卡没有总分", check_scorecard_has_no_total),
 )

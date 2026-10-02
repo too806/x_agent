@@ -34,6 +34,7 @@ from typing import Any, Mapping
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.agent.labels import claim_scope_label, viewpoint_stance_label
 from app.agent.metrics import quality_metrics
 from app.models.published_post import (
     STATUS_FAILED,
@@ -90,8 +91,11 @@ from app.schemas import (
     RunListPage,
     RunStyleSummary,
     RunSummary,
+    RunViewpointSummary,
     TopicCount,
     TrendPoint,
+    ViewpointCandidateBrief,
+    ViewpointEvidenceItem,
     publish_record_from_row,
 )
 from app.style.labels import (
@@ -253,6 +257,107 @@ def style_summary(state: Mapping[str, Any]) -> RunStyleSummary | None:
         # 没有交付正文就没有可测的对象。这里给 None 而不是空信号：
         # 空信号会被读成"测过了，一个痕迹都没有"，那是另一个结论。
         ai_signals=ai_style_signals(content) if content else None,
+    )
+
+
+def _evidence_items(fact_ids, pack) -> list[ViewpointEvidenceItem]:
+    """把 fact_id 解析回事实原文。
+
+    ## 为什么"解析不到就跳过"而不是报错或留一个空壳
+
+    悬空引用是 RULE-006 要抓的东西，**不是**界面该崩的东西：Run Detail 必须
+    能打开一个坏掉的 Run——那恰恰是它最需要被打开的时候。所以这里跳过解析
+    不出来的 id，但**不伪造**一条"（找不到）"的占位事实：那会让人以为证据包
+    里真有这么一条。少一条看得见（前端会显示条数），编一条看不见。
+
+    只看**同一个 state 的**证据包：观点引的 fact 必须来自本 Run 的证据包，
+    跨 Run 去找等于承认这条链断了。
+    """
+    by_id = {
+        fact.fact_id: fact.fact
+        for fact in (getattr(pack, "facts", None) or [])
+        if getattr(fact, "fact_id", "")
+    }
+    return [
+        ViewpointEvidenceItem(fact_id=str(fid), text=by_id[str(fid)])
+        for fid in (fact_ids or [])
+        if str(fid) in by_id
+    ]
+
+
+def viewpoint_summary(state: Mapping[str, Any]) -> RunViewpointSummary | None:
+    """从 checkpoint 的 `selected_angle` 拼出 Run Detail 的核心判断块。
+
+    ## 为什么没有观点就返回 None
+
+    与 `style_summary` 同一条：`selected_angle` 缺席只剩两种可能——这不是
+    Agent 运行（V1 topic 链根本没有这一步），或者这个 Run 停在还没选观点就
+    结束的位置。两种情况下界面都应当什么也不显示，而不是画一个空白的
+    "核心判断"块——那会让人以为 Agent 形成了判断而内容丢了。
+    （调用点另外还按 `goal` 门控一次，见 `run_detail`。）
+
+    ## 为什么 `other_candidates` 里排除了被选中的那条
+
+    把选中的那条再列一遍，界面会长出两个看起来等价、实则一个是决策一个是
+    备选的"核心判断"。按 `angle_id` 排除，而不是按 claim 文本比——同一个
+    判断在重生成之后可能换了 id，但**同一个 id 在这一次运行里只会指一条**。
+    """
+    angle = state.get("selected_angle")
+    if angle is None:
+        return None
+
+    pack = state.get("evidence_pack")
+    assessment = getattr(angle, "assessment", None)
+    stance = getattr(angle, "stance", None)
+    max_stance = getattr(angle, "max_stance", None)
+    declared = getattr(angle, "stance_declared", None)
+
+    others = [
+        ViewpointCandidateBrief(
+            claim=other.claim,
+            viewpoint_score=other.viewpoint_score,
+            stance=str(getattr(getattr(other, "stance", None), "value", "")),
+            stance_label=viewpoint_stance_label(getattr(other, "stance", None))
+            if getattr(other, "stance", None)
+            else "",
+        )
+        for other in (state.get("angles") or [])
+        if getattr(other, "angle_id", None) != getattr(angle, "angle_id", None)
+    ]
+
+    return RunViewpointSummary(
+        claim=angle.claim,
+        why_it_matters=angle.why_it_matters,
+        reasoning=getattr(angle, "reasoning", ""),
+        evidence=_evidence_items(angle.evidence_ids, pack),
+        counterpoints=list(getattr(angle, "counterpoints", None) or []),
+        counterpoint_evidence=_evidence_items(
+            getattr(angle, "counterpoint_evidence_ids", None), pack
+        ),
+        assumptions=list(getattr(angle, "assumptions", None) or []),
+        implications=list(getattr(angle, "implications", None) or []),
+        risk=getattr(angle, "risk", ""),
+        confidence=angle.confidence,
+        viewpoint_score=getattr(angle, "viewpoint_score", None),
+        stance=str(getattr(stance, "value", "")),
+        stance_label=viewpoint_stance_label(stance) if stance else "",
+        # 只在**与生效值不同**时回传申报值：相同时多显示一个字段，会让人以为
+        # 那两个数永远是两件事，而"模型申报了 strong、证据也支持 strong"时
+        # 它们本来就是一回事。
+        stance_declared=str(getattr(declared, "value", "")) if declared else None,
+        max_stance=str(getattr(max_stance, "value", "")),
+        max_stance_label=viewpoint_stance_label(max_stance) if max_stance else "",
+        claim_scope=str(getattr(getattr(angle, "claim_scope", None), "value", "")) or None,
+        claim_scope_label=claim_scope_label(angle.claim_scope) if angle.claim_scope else "",
+        evidence_scope=str(getattr(getattr(angle, "evidence_scope", None), "value", ""))
+        or None,
+        evidence_scope_label=claim_scope_label(angle.evidence_scope)
+        if angle.evidence_scope
+        else "",
+        scope_exceeds_evidence=getattr(angle, "scope_exceeds_evidence", None),
+        scope_declared_missing=getattr(angle, "scope_declared_missing", None),
+        assessment=assessment,
+        other_candidates=others,
     )
 
 
@@ -506,6 +611,8 @@ class AdminService:
             # （`style_summary` 自己也会在无 recipe 时返回 None，这里是双保险：
             # 将来若给 topic 链路也接上 recipe，这个门控是明确该重新考虑的一处。）
             style=style_summary(state) if state.get("goal") else None,
+            # 第三处同一门控，同一条理由：V1 topic 链路没有"形成判断"这一步。
+            viewpoint=viewpoint_summary(state) if state.get("goal") else None,
             draft=(
                 DraftRecord(
                     draft_id=str(draft.id),
