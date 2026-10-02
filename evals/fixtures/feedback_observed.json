@@ -1,0 +1,853 @@
+{
+  "label": "feedback_observed",
+  "synthetic": true,
+  "provenance": "fixture",
+  "note": "观测数据：一次运行读到了自己过去 2 条帖子、8 条观察的反馈上下文。四条分布信号（注意力/对话/扩散/构成）全部带 n 与非空证据，没有任何因果措辞、指令措辞、自造基线或过去的正文。RULE-024 必须**通过**——只验「必须响」而不验「不该响的不响」，一个见谁报谁的检测器也能全过。",
+  "run_id": "run-fixture-healthy",
+  "goal": "帮我找一个最近值得讨论的 AI Agent 话题",
+  "budget": {
+    "max_steps": 12,
+    "max_research_calls": 4,
+    "max_candidates": 3,
+    "max_revisions": 2,
+    "candidates_per_round": 3
+  },
+  "state": {
+    "run_id": "run-fixture-healthy",
+    "goal": "帮我找一个最近值得讨论的 AI Agent 话题",
+    "topic": "Agent 的评测基准正在从「能不能做」转向「做得多稳」",
+    "candidate_topics": [
+      {
+        "topic_id": "t1",
+        "title": "Agent 的评测基准正在从「能不能做」转向「做得多稳」",
+        "description": "多个团队公布同一任务上的成功率差异",
+        "keywords": [],
+        "source_post_ids": [
+          "ri-1",
+          "ri-2"
+        ],
+        "first_seen_at": "2026-09-18T07:30:00Z",
+        "latest_seen_at": "2026-09-18T09:00:00Z",
+        "observed_at": "2026-09-18T12:00:00Z",
+        "discussion_count": 2,
+        "author_count": 2,
+        "engagement_signal": 593,
+        "recency_score": 0.917,
+        "spread_score": 0.5,
+        "novelty_score": 0.9375,
+        "source_quality_score": 1.0,
+        "engagement_score": 1.0,
+        "trend_score": 84.39,
+        "trend_score_raw": 84.39,
+        "trend_reasons": [
+          "最新一条发布于 3.0 小时前，recency 0.9170（半衰期 24 小时）",
+          "2 位不同作者参与，spread 0.5000（满值 4 人）",
+          "观测互动 593（点赞×1+转发×2+回复×2+引用×3），engagement 1.0000（饱和值 500）",
+          "窗口内首条出现在 94% 处，novelty 0.9375",
+          "引用 2 条来源、其中 2 条可核验，source_quality 1.0000",
+          "trend_score_raw = 100 × (recency×0.3 + spread×0.25 + engagement×0.2 + source_quality×0.15 + novelty×0.1) = 84.39"
+        ],
+        "why_now": "最近几周连续出现同一类复现失败报告",
+        "unknowns": [],
+        "qualification": "qualified",
+        "lifecycle": "researching"
+      },
+      {
+        "topic_id": "t2",
+        "title": "Agent 工具调用协议的碎片化",
+        "description": "格式互不兼容，迁移成本上升",
+        "keywords": [],
+        "source_post_ids": [
+          "ri-3"
+        ],
+        "first_seen_at": "2026-09-17T20:00:00Z",
+        "latest_seen_at": "2026-09-17T20:00:00Z",
+        "observed_at": "2026-09-18T12:00:00Z",
+        "discussion_count": 1,
+        "author_count": 1,
+        "engagement_signal": 240,
+        "recency_score": 0.63,
+        "spread_score": 0.25,
+        "novelty_score": 0.7778,
+        "source_quality_score": 1.0,
+        "engagement_score": 0.8823,
+        "trend_score": 40.0,
+        "trend_score_raw": 65.57,
+        "trend_reasons": [
+          "最新一条发布于 16.0 小时前，recency 0.6300（半衰期 24 小时）",
+          "1 位不同作者参与，spread 0.2500（满值 4 人）",
+          "观测互动 240（点赞×1+转发×2+回复×2+引用×3），engagement 0.8823（饱和值 500）",
+          "窗口内首条出现在 78% 处，novelty 0.7778",
+          "引用 1 条来源、其中 1 条可核验，source_quality 1.0000",
+          "trend_score_raw = 100 × (recency×0.3 + spread×0.25 + engagement×0.2 + source_quality×0.15 + novelty×0.1) = 65.57",
+          "单一来源上限 40 生效（作者数 1 或可核验来源数 1 不足）"
+        ],
+        "why_now": "三家主要厂商在同一季度更新了各自的工具描述格式",
+        "unknowns": [],
+        "qualification": "weak_support",
+        "lifecycle": "discarded"
+      },
+      {
+        "topic_id": "t3",
+        "title": "长上下文是否真的解决了 Agent 的记忆问题",
+        "description": "实测里 Agent 仍然会忘掉较早的约束",
+        "keywords": [],
+        "source_post_ids": [
+          "ri-4"
+        ],
+        "first_seen_at": "2026-09-17T14:00:00Z",
+        "latest_seen_at": "2026-09-17T14:00:00Z",
+        "observed_at": "2026-09-18T12:00:00Z",
+        "discussion_count": 1,
+        "author_count": 1,
+        "engagement_signal": 110,
+        "recency_score": 0.5297,
+        "spread_score": 0.25,
+        "novelty_score": 0.6944,
+        "source_quality_score": 1.0,
+        "engagement_score": 0.7576,
+        "trend_score": 40.0,
+        "trend_score_raw": 59.24,
+        "trend_reasons": [
+          "最新一条发布于 22.0 小时前，recency 0.5297（半衰期 24 小时）",
+          "1 位不同作者参与，spread 0.2500（满值 4 人）",
+          "观测互动 110（点赞×1+转发×2+回复×2+引用×3），engagement 0.7576（饱和值 500）",
+          "窗口内首条出现在 69% 处，novelty 0.6944",
+          "引用 1 条来源、其中 1 条可核验，source_quality 1.0000",
+          "trend_score_raw = 100 × (recency×0.3 + spread×0.25 + engagement×0.2 + source_quality×0.15 + novelty×0.1) = 59.24",
+          "单一来源上限 40 生效（作者数 1 或可核验来源数 1 不足）"
+        ],
+        "why_now": "新模型把上下文窗口又扩大了",
+        "unknowns": [],
+        "qualification": "weak_support",
+        "lifecycle": "discarded"
+      }
+    ],
+    "selected_topic": "Agent 的评测基准正在从「能不能做」转向「做得多稳」",
+    "research_item_ids": [
+      "ri-1",
+      "ri-2",
+      "ri-3",
+      "ri-4",
+      "ri-5",
+      "ri-6",
+      "ri-7"
+    ],
+    "evidence_pack": {
+      "facts": [
+        {
+          "fact_id": "f1",
+          "fact": "同一个 Agent 在两次公布之间成功率相差 11 个百分点，任务集未变",
+          "source_ids": [
+            "ri-5",
+            "ri-6"
+          ],
+          "timestamp": "2026-09-12T00:00:00Z"
+        },
+        {
+          "fact_id": "f2",
+          "fact": "失败样本里有 6 成集中在工具返回异常后的恢复分支",
+          "source_ids": [
+            "ri-6"
+          ],
+          "timestamp": "2026-09-14T00:00:00Z"
+        },
+        {
+          "fact_id": "f3",
+          "fact": "报告里的评测口径从「是否完成」改成了「重试后是否完成」",
+          "source_ids": [
+            "ri-7"
+          ],
+          "timestamp": null
+        },
+        {
+          "fact_id": "f4",
+          "fact": "两份第三方评测对同一批任务的成败判定互相矛盾。",
+          "source_ids": [
+            "ri-1",
+            "ri-2"
+          ],
+          "timestamp": null
+        },
+        {
+          "fact_id": "f5",
+          "fact": "两份评测都没有披露样本量与判定口径。",
+          "source_ids": [
+            "ri-3",
+            "ri-4"
+          ],
+          "timestamp": null
+        }
+      ],
+      "consensus": [
+        "单一一次的成功率不能代表 Agent 的可靠性"
+      ],
+      "counterpoints": [
+        "有观点认为判定不一致只是标注差异，扩大样本量就能收敛"
+      ],
+      "unknowns": [
+        "两家评测的分歧到底有多大",
+        "判定口径统一之后结论会不会反过来"
+      ],
+      "source_ids": [
+        "ri-1",
+        "ri-2",
+        "ri-3",
+        "ri-4",
+        "ri-5",
+        "ri-6",
+        "ri-7"
+      ]
+    },
+    "angles": [
+      {
+        "angle_id": "a1",
+        "claim": "把「成功率」当成 Agent 可靠性的主指标，现在会误导采购决策",
+        "why_it_matters": "采购方按一个不可复现的数做决策，等于按噪声付钱",
+        "evidence_ids": [
+          "f1",
+          "f2",
+          "f3",
+          "f5"
+        ],
+        "risk": "如果两份评测的分歧只是标注差异，这条判断就把口径问题说成了指标问题",
+        "confidence": 0.8345,
+        "reasoning": "两份第三方评测对同一批任务的判定互相矛盾，而两份都没有披露样本量与判定口径；再加上失败案例高度集中在工具异常后的恢复分支，说明一个聚合出来的成功率既不可复现、也不指向具体的能力缺口。",
+        "counterpoints": [
+          "也可能只是评测早期的常态，样本量上去就一致了"
+        ],
+        "counterpoint_evidence_ids": [
+          "f5"
+        ],
+        "assumptions": [
+          "被评测的 Agent 版本在两次评测之间没有变化"
+        ],
+        "implications": [
+          "采购方会开始要求评测方披露样本量与判定口径"
+        ],
+        "novelty_note": "把两份互相矛盾的评测与失败分布连起来看",
+        "restates_known_material": false,
+        "stance": "strong",
+        "stance_declared": null,
+        "max_stance": "strong",
+        "claim_scope": "industry",
+        "evidence_scope": "industry",
+        "scope_exceeds_evidence": false,
+        "scope_declared_missing": false,
+        "viewpoint_score": 79.73,
+        "assessment": {
+          "evidence_support": 0.93,
+          "evidence_support_raw": 0.93,
+          "source_diversity": 1.0,
+          "counterpoint_awareness": 0.5,
+          "unknown_pressure": 0.25,
+          "specificity": 0.4667,
+          "novelty": 1.0,
+          "newness_contribution": 1.0,
+          "confidence_raw": 0.8345,
+          "viewpoint_score_raw": 79.73,
+          "bound_facts": 4,
+          "total_facts": 5,
+          "bound_sources": 5,
+          "bound_authors": 5,
+          "missing_author_sources": 0,
+          "declared_counterpoints": 1,
+          "bound_counterpoints": 1,
+          "total_materials": 7,
+          "unreferenced_materials": 0,
+          "breadth_markers": [],
+          "originality_claim": false,
+          "restates_fact": false,
+          "duplicate_group": "",
+          "reasons": [
+            "绑定 4 条事实（证据包共 5 条）、覆盖 5 条来源 / 5 位作者，evidence_support 0.9300",
+            "来源多样性 1.0000（满值 3 条来源 / 4 位作者）",
+            "反方 1 条、其中 1 条绑定到事实，counterpoint_awareness 0.5000",
+            "7 条可计材料里 0 条没有被任何事实引用，unknown_pressure 0.2500",
+            "claim 的具体痕迹 specificity 0.4667",
+            "novelty 1.0000，经证据门控后 newness_contribution 1.0000（门控满值 0.6）",
+            "confidence_raw = evidence_support×0.4 + source_diversity×0.25 + counterpoint_awareness×0.2 + unknown_certainty×0.15 = 0.8345",
+            "confidence 0.83 ≥ 0.75、绑定 5 条来源 / 5 位作者、已回应反方，上界为 strong",
+            "模型未声明立场，取证据允许的上界 strong（上界本身由证据推出，不构成超证据承诺）",
+            "viewpoint_score_raw = 100 × (evidence_support×0.3 + source_diversity×0.15 + specificity×0.2 + novelty×0.2 + counterpoint_awareness×0.15) = 79.73"
+          ]
+        }
+      },
+      {
+        "angle_id": "a2",
+        "claim": "评测机构之间的口径分歧，本身就是这个领域还没成熟的信号",
+        "why_it_matters": "口径不统一时，任何跨机构的横向比较都不成立",
+        "evidence_ids": [
+          "f4",
+          "f5"
+        ],
+        "risk": "把标注差异读成领域不成熟，跨度有点大",
+        "confidence": 0.5485,
+        "reasoning": "两份评测对同一批任务给出不同判定，说明连「什么算完成」都还没有共识。",
+        "counterpoints": [],
+        "counterpoint_evidence_ids": [],
+        "assumptions": [],
+        "implications": [],
+        "novelty_note": "从分歧本身而不是从某一方的结论出发",
+        "restates_known_material": false,
+        "stance": "cautious",
+        "stance_declared": null,
+        "max_stance": "cautious",
+        "claim_scope": "case",
+        "evidence_scope": "industry",
+        "scope_exceeds_evidence": false,
+        "scope_declared_missing": false,
+        "viewpoint_score": 44.45,
+        "assessment": {
+          "evidence_support": 0.465,
+          "evidence_support_raw": 0.465,
+          "source_diversity": 1.0,
+          "counterpoint_awareness": 0.0,
+          "unknown_pressure": 0.25,
+          "specificity": 0.0,
+          "novelty": 1.0,
+          "newness_contribution": 0.775,
+          "confidence_raw": 0.5485,
+          "viewpoint_score_raw": 44.45,
+          "bound_facts": 2,
+          "total_facts": 5,
+          "bound_sources": 4,
+          "bound_authors": 4,
+          "missing_author_sources": 0,
+          "declared_counterpoints": 0,
+          "bound_counterpoints": 0,
+          "total_materials": 7,
+          "unreferenced_materials": 0,
+          "breadth_markers": [],
+          "originality_claim": false,
+          "restates_fact": false,
+          "duplicate_group": "",
+          "reasons": [
+            "绑定 2 条事实（证据包共 5 条）、覆盖 4 条来源 / 4 位作者，evidence_support 0.4650",
+            "来源多样性 1.0000（满值 3 条来源 / 4 位作者）",
+            "证据包里有 1 条反方说法，这个观点一条都没有回应，counterpoint_awareness 记 0",
+            "7 条可计材料里 0 条没有被任何事实引用，unknown_pressure 0.2500",
+            "claim 的具体痕迹 specificity 0.0000",
+            "novelty 1.0000，经证据门控后 newness_contribution 0.7750（门控满值 0.6）",
+            "confidence_raw = evidence_support×0.4 + source_diversity×0.25 + counterpoint_awareness×0.2 + unknown_certainty×0.15 = 0.5485",
+            "confidence 0.55 ≥ 0.35，上界为 cautious",
+            "模型未声明立场，取证据允许的上界 cautious（上界本身由证据推出，不构成超证据承诺）",
+            "viewpoint_score_raw = 100 × (evidence_support×0.3 + source_diversity×0.15 + specificity×0.2 + novelty×0.2 + counterpoint_awareness×0.15) = 44.45"
+          ]
+        }
+      },
+      {
+        "angle_id": "a3",
+        "claim": "披露样本量会变成评测机构的竞争点",
+        "why_it_matters": "谁先披露，谁就先获得可比较的资格",
+        "evidence_ids": [
+          "f5"
+        ],
+        "risk": "披露与否可能只是各家文档习惯的差别",
+        "confidence": 0.3472,
+        "reasoning": "两份评测都没写样本量，而样本量恰好是判断结论强度的唯一入口。",
+        "counterpoints": [],
+        "counterpoint_evidence_ids": [],
+        "assumptions": [],
+        "implications": [],
+        "novelty_note": "",
+        "restates_known_material": false,
+        "stance": "uncertain",
+        "stance_declared": null,
+        "max_stance": "uncertain",
+        "claim_scope": "case",
+        "evidence_scope": "segment",
+        "scope_exceeds_evidence": false,
+        "scope_declared_missing": false,
+        "viewpoint_score": 23.23,
+        "assessment": {
+          "evidence_support": 0.2325,
+          "evidence_support_raw": 0.2325,
+          "source_diversity": 0.5667,
+          "counterpoint_awareness": 0.0,
+          "unknown_pressure": 0.25,
+          "specificity": 0.0,
+          "novelty": 1.0,
+          "newness_contribution": 0.3875,
+          "confidence_raw": 0.3472,
+          "viewpoint_score_raw": 23.23,
+          "bound_facts": 1,
+          "total_facts": 5,
+          "bound_sources": 2,
+          "bound_authors": 2,
+          "missing_author_sources": 0,
+          "declared_counterpoints": 0,
+          "bound_counterpoints": 0,
+          "total_materials": 7,
+          "unreferenced_materials": 0,
+          "breadth_markers": [],
+          "originality_claim": false,
+          "restates_fact": false,
+          "duplicate_group": "",
+          "reasons": [
+            "绑定 1 条事实（证据包共 5 条）、覆盖 2 条来源 / 2 位作者，evidence_support 0.2325",
+            "来源多样性 0.5667（满值 3 条来源 / 4 位作者）",
+            "证据包里有 1 条反方说法，这个观点一条都没有回应，counterpoint_awareness 记 0",
+            "7 条可计材料里 0 条没有被任何事实引用，unknown_pressure 0.2500",
+            "claim 的具体痕迹 specificity 0.0000",
+            "novelty 1.0000，经证据门控后 newness_contribution 0.3875（门控满值 0.6）",
+            "confidence_raw = evidence_support×0.4 + source_diversity×0.25 + counterpoint_awareness×0.2 + unknown_certainty×0.15 = 0.3472",
+            "confidence 0.35 < 0.35，上界为 uncertain",
+            "模型未声明立场，取证据允许的上界 uncertain（上界本身由证据推出，不构成超证据承诺）",
+            "支撑度 0.2325 < 0.35，观点分压到 50 以下",
+            "viewpoint_score_raw = 100 × (evidence_support×0.3 + source_diversity×0.15 + specificity×0.2 + novelty×0.2 + counterpoint_awareness×0.15) = 23.23"
+          ]
+        }
+      }
+    ],
+    "selected_angle": {
+      "angle_id": "a1",
+      "claim": "把「成功率」当成 Agent 可靠性的主指标，现在会误导采购决策",
+      "why_it_matters": "采购方按一个不可复现的数做决策，等于按噪声付钱",
+      "evidence_ids": [
+        "f1",
+        "f2",
+        "f3",
+        "f5"
+      ],
+      "risk": "如果两份评测的分歧只是标注差异，这条判断就把口径问题说成了指标问题",
+      "confidence": 0.8345,
+      "reasoning": "两份第三方评测对同一批任务的判定互相矛盾，而两份都没有披露样本量与判定口径；再加上失败案例高度集中在工具异常后的恢复分支，说明一个聚合出来的成功率既不可复现、也不指向具体的能力缺口。",
+      "counterpoints": [
+        "也可能只是评测早期的常态，样本量上去就一致了"
+      ],
+      "counterpoint_evidence_ids": [
+        "f5"
+      ],
+      "assumptions": [
+        "被评测的 Agent 版本在两次评测之间没有变化"
+      ],
+      "implications": [
+        "采购方会开始要求评测方披露样本量与判定口径"
+      ],
+      "novelty_note": "把两份互相矛盾的评测与失败分布连起来看",
+      "restates_known_material": false,
+      "stance": "strong",
+      "stance_declared": null,
+      "max_stance": "strong",
+      "claim_scope": "industry",
+      "evidence_scope": "industry",
+      "scope_exceeds_evidence": false,
+      "scope_declared_missing": false,
+      "viewpoint_score": 79.73,
+      "assessment": {
+        "evidence_support": 0.93,
+        "evidence_support_raw": 0.93,
+        "source_diversity": 1.0,
+        "counterpoint_awareness": 0.5,
+        "unknown_pressure": 0.25,
+        "specificity": 0.4667,
+        "novelty": 1.0,
+        "newness_contribution": 1.0,
+        "confidence_raw": 0.8345,
+        "viewpoint_score_raw": 79.73,
+        "bound_facts": 4,
+        "total_facts": 5,
+        "bound_sources": 5,
+        "bound_authors": 5,
+        "missing_author_sources": 0,
+        "declared_counterpoints": 1,
+        "bound_counterpoints": 1,
+        "total_materials": 7,
+        "unreferenced_materials": 0,
+        "breadth_markers": [],
+        "originality_claim": false,
+        "restates_fact": false,
+        "duplicate_group": "",
+        "reasons": [
+          "绑定 4 条事实（证据包共 5 条）、覆盖 5 条来源 / 5 位作者，evidence_support 0.9300",
+          "来源多样性 1.0000（满值 3 条来源 / 4 位作者）",
+          "反方 1 条、其中 1 条绑定到事实，counterpoint_awareness 0.5000",
+          "7 条可计材料里 0 条没有被任何事实引用，unknown_pressure 0.2500",
+          "claim 的具体痕迹 specificity 0.4667",
+          "novelty 1.0000，经证据门控后 newness_contribution 1.0000（门控满值 0.6）",
+          "confidence_raw = evidence_support×0.4 + source_diversity×0.25 + counterpoint_awareness×0.2 + unknown_certainty×0.15 = 0.8345",
+          "confidence 0.83 ≥ 0.75、绑定 5 条来源 / 5 位作者、已回应反方，上界为 strong",
+          "模型未声明立场，取证据允许的上界 strong（上界本身由证据推出，不构成超证据承诺）",
+          "viewpoint_score_raw = 100 × (evidence_support×0.3 + source_diversity×0.15 + specificity×0.2 + novelty×0.2 + counterpoint_awareness×0.15) = 79.73"
+        ]
+      }
+    },
+    "candidates": [
+      {
+        "candidate_id": "c0",
+        "label": "直接观点",
+        "revision": 0,
+        "content": "单轮成功率这个指标已经该退休了。同一个 Agent，任务集没变，两次公布差 11 个百分点——这个数字说明的不是模型不稳，是指标本身没有区分度。真正该看的是重试之后还能不能完成：失败样本里六成卡在工具异常后的恢复分支，那是工程问题，不是能力问题。"
+      },
+      {
+        "candidate_id": "c1",
+        "label": "信息密集",
+        "revision": 0,
+        "content": "三件事放在一起看：一，同任务集的两次公布成功率相差 11 个百分点；二，失败样本 60% 集中在工具返回异常后的恢复分支；三，有报告已经把口径从「是否完成」改成「重试后是否完成」。单轮成功率衡量的是运气，重试后成功率衡量的才是系统。"
+      },
+      {
+        "candidate_id": "c2",
+        "label": "反共识",
+        "revision": 0,
+        "content": "大家都在等更强的模型来解决 Agent 不稳的问题，但数据不支持这个方向。失败样本里六成发生在工具异常的恢复分支上——这部分靠模型能力提升基本救不回来。继续按单轮成功率刷榜，只会把资源投到一个永远不会改善的分母上。"
+      }
+    ],
+    "critic_results": [
+      {
+        "candidate_id": "c0",
+        "score": 7.5,
+        "flags": [
+          "结尾略平"
+        ],
+        "revision_targets": [],
+        "decision": "accept",
+        "factual_support": 8.0,
+        "stance_strength": 8.5,
+        "specificity": 7.5,
+        "generic_ai_style": 2.0,
+        "hook_strength": 7.0,
+        "persona_fit": 8.0,
+        "evidence_binding": 8.0
+      },
+      {
+        "candidate_id": "c1",
+        "score": 8.5,
+        "flags": [],
+        "revision_targets": [],
+        "decision": "accept",
+        "factual_support": 9.0,
+        "stance_strength": 7.5,
+        "specificity": 9.0,
+        "generic_ai_style": 1.5,
+        "hook_strength": 7.5,
+        "persona_fit": 8.0,
+        "evidence_binding": 9.0
+      },
+      {
+        "candidate_id": "c2",
+        "score": 8.0,
+        "flags": [],
+        "revision_targets": [],
+        "decision": "accept",
+        "factual_support": 8.0,
+        "stance_strength": 9.0,
+        "specificity": 8.0,
+        "generic_ai_style": 2.5,
+        "hook_strength": 8.5,
+        "persona_fit": 8.5,
+        "evidence_binding": 8.0
+      }
+    ],
+    "critic_result": {
+      "candidate_id": "c1",
+      "score": 8.5,
+      "flags": [],
+      "revision_targets": [],
+      "decision": "accept",
+      "factual_support": 9.0,
+      "stance_strength": 7.5,
+      "specificity": 9.0,
+      "generic_ai_style": 1.5,
+      "hook_strength": 7.5,
+      "persona_fit": 8.0,
+      "evidence_binding": 9.0
+    },
+    "critic_tally": {
+      "accept": 3,
+      "revise": 0,
+      "reject": 0
+    },
+    "step_count": 8,
+    "research_count": 2,
+    "revision_count": 0,
+    "writer_epoch": 1,
+    "critic_epoch": 1,
+    "draft_content": "三件事放在一起看：一，同任务集的两次公布成功率相差 11 个百分点；二，失败样本 60% 集中在工具返回异常后的恢复分支；三，有报告已经把口径从「是否完成」改成「重试后是否完成」。单轮成功率衡量的是运气，重试后成功率衡量的才是系统。",
+    "draft_id": "draft-fixture-healthy",
+    "guardrail_passed": true,
+    "guardrail_reasons": [],
+    "human_action": null,
+    "final_content": "",
+    "trend_inputs": [
+      {
+        "topic_id": "t1",
+        "claimed_sources": 2,
+        "items": [
+          {
+            "item_id": "ri-1",
+            "post_id": "x-ri-1",
+            "author": "karpathy_zh",
+            "published_at": "2026-09-18T09:00:00Z",
+            "likes": 210,
+            "reposts": 44,
+            "replies": 31,
+            "quotes": 12
+          },
+          {
+            "item_id": "ri-2",
+            "post_id": "x-ri-2",
+            "author": "eval_weekly",
+            "published_at": "2026-09-18T07:30:00Z",
+            "likes": 96,
+            "reposts": 18,
+            "replies": 22,
+            "quotes": 7
+          }
+        ]
+      },
+      {
+        "topic_id": "t2",
+        "claimed_sources": 1,
+        "items": [
+          {
+            "item_id": "ri-3",
+            "post_id": "x-ri-3",
+            "author": "tooling_guy",
+            "published_at": "2026-09-17T20:00:00Z",
+            "likes": 140,
+            "reposts": 25,
+            "replies": 19,
+            "quotes": 4
+          }
+        ]
+      },
+      {
+        "topic_id": "t3",
+        "claimed_sources": 1,
+        "items": [
+          {
+            "item_id": "ri-4",
+            "post_id": "x-ri-4",
+            "author": "context_nerd",
+            "published_at": "2026-09-17T14:00:00Z",
+            "likes": 58,
+            "reposts": 9,
+            "replies": 14,
+            "quotes": 2
+          }
+        ]
+      }
+    ],
+    "viewpoint_inputs": [
+      {
+        "item_id": "ri-1",
+        "author": "alice",
+        "content": "第三方评测把同一批任务跑了两遍，两遍的成败判定并不一致。"
+      },
+      {
+        "item_id": "ri-2",
+        "author": "bob",
+        "content": "另一份评测沿用了自己的一套判定口径，与上一份无法直接比较。"
+      },
+      {
+        "item_id": "ri-3",
+        "author": "carol",
+        "content": "其中一份评测的样本量只有 40 条，结论里没有写置信区间。"
+      },
+      {
+        "item_id": "ri-4",
+        "author": "dave",
+        "content": "另一份没有公布样本量，只说结论来自「一批真实任务」。"
+      },
+      {
+        "item_id": "ri-5",
+        "author": "erin",
+        "content": "同一套 Agent 在两次工具升级之间成功率上升了 11 个百分点。"
+      },
+      {
+        "item_id": "ri-6",
+        "author": "frank",
+        "content": "失败案例里六成集中在工具返回异常之后的恢复分支。"
+      },
+      {
+        "item_id": "ri-7",
+        "author": "gina",
+        "content": "公开材料里没有披露「完成」的判定口径，也没有披露抽样方式。"
+      }
+    ],
+    "feedback_context": {
+      "sample_count": 8,
+      "post_count": 2,
+      "snapshot_count": 8,
+      "latest_observed_at": "2026-09-28T03:00:00Z",
+      "signals": [
+        {
+          "kind": "attention",
+          "statement": "观察到 8 条观察的点赞数（注意力）分布：中位数 22.50，最小 12，最大 45。这是观察到的分布，不构成任何因果结论。",
+          "metric": "likes",
+          "value": 22.5,
+          "comparison_group": null,
+          "sample_count": 8,
+          "confidence": null,
+          "evidence": [
+            "snap-01",
+            "snap-02",
+            "snap-03",
+            "snap-04",
+            "snap-05",
+            "snap-06",
+            "snap-07",
+            "snap-08"
+          ],
+          "window": null
+        },
+        {
+          "kind": "conversation",
+          "statement": "观察到 8 条观察的对话量（回复+引用）分布：中位数 3，最小 1，最大 6。这是观察到的分布，不构成任何因果结论。",
+          "metric": "conversation",
+          "value": 3.0,
+          "comparison_group": null,
+          "sample_count": 8,
+          "confidence": null,
+          "evidence": [
+            "snap-01",
+            "snap-02",
+            "snap-03",
+            "snap-04",
+            "snap-05",
+            "snap-06",
+            "snap-07",
+            "snap-08"
+          ],
+          "window": null
+        },
+        {
+          "kind": "amplification",
+          "statement": "观察到 8 条观察的转发数（扩散）分布：中位数 2，最小 0，最大 4。这是观察到的分布，不构成任何因果结论。",
+          "metric": "reposts",
+          "value": 2.0,
+          "comparison_group": null,
+          "sample_count": 8,
+          "confidence": null,
+          "evidence": [
+            "snap-01",
+            "snap-02",
+            "snap-03",
+            "snap-04",
+            "snap-05",
+            "snap-06",
+            "snap-07",
+            "snap-08"
+          ],
+          "window": null
+        },
+        {
+          "kind": "share",
+          "statement": "在 8 条四类计数齐全的观察中，注意力占互动总量的比例中位数为 0.83，对话为 0.10，扩散为 0.06。这是观察到的构成，不构成任何因果结论。",
+          "metric": "engagement_share",
+          "value": 0.8333333333333334,
+          "comparison_group": null,
+          "sample_count": 8,
+          "confidence": null,
+          "evidence": [
+            "snap-01",
+            "snap-02",
+            "snap-03",
+            "snap-04",
+            "snap-05",
+            "snap-06",
+            "snap-07",
+            "snap-08"
+          ],
+          "window": null
+        }
+      ],
+      "limitations": [
+        "本报告只描述观察到的分布，不做任何因果结论；同时出现不等于谁导致了谁。",
+        "点赞、回复、转发、引用是四类不同的行为，本报告不把它们合成单一分数。",
+        "指标为公开计数；曝光与收藏从未采集，恒为未知，不按 0 计入。",
+        "没有对照组、没有实验设计；任何组间差异都可能来自内容之外的变量。",
+        "曝光量为未知，因此互动率无法计算（不是零互动率）。",
+        "本次观察覆盖的时间档：0-1h、1-6h、6-24h、24-72h、>72h。"
+      ],
+      "source_snapshot_ids": [
+        "snap-01",
+        "snap-02",
+        "snap-03",
+        "snap-04",
+        "snap-05",
+        "snap-06",
+        "snap-07",
+        "snap-08"
+      ]
+    }
+  },
+  "trace": [
+    {
+      "step": 1,
+      "action": "discover_topics",
+      "reason": "还没有候选选题，先做一次发现，看看最近有什么值得讨论的信号。",
+      "target": null,
+      "input_summary": "allowed=discover_topics; step=0/12; research=0/4; topics=0; materials=0; facts=0; angles=0; candidates=0; revisions=0/2",
+      "result_summary": "检索「AI Agent 讨论」取回 3 条材料，发现 3 个候选选题"
+    },
+    {
+      "step": 2,
+      "action": "research_topic",
+      "reason": "候选选题里置信度最高的一条值得展开，先去取它的原始材料。",
+      "target": "Agent 的评测基准正在从「能不能做」转向「做得多稳」",
+      "input_summary": "allowed=research_topic,extract_evidence; step=1/12; research=1/4; topics=3; materials=3; facts=0; angles=0; candidates=0; revisions=0/2",
+      "result_summary": "研究主题「Agent 的评测基准正在从「能不能做」转向「做得多稳」」，取回 2 条材料"
+    },
+    {
+      "step": 3,
+      "action": "extract_evidence",
+      "reason": "材料已经够支撑一次抽取了，先把可追溯的事实固定下来再谈观点。",
+      "target": null,
+      "input_summary": "allowed=research_topic,deepen_research,extract_evidence; step=2/12; research=2/4; topics=3; materials=5; facts=0; angles=0; candidates=0; revisions=0/2",
+      "result_summary": "抽取 3 条事实，其中 3 条可追溯到材料"
+    },
+    {
+      "step": 4,
+      "action": "generate_angles",
+      "reason": "证据在手，接下来把它变成有立场的观点，而不是继续堆材料。",
+      "target": null,
+      "input_summary": "allowed=research_topic,deepen_research,extract_evidence,generate_angles; step=3/12; research=2/4; topics=3; materials=5; facts=3; angles=0; candidates=0; revisions=0/2",
+      "result_summary": "生成 3 个候选观点，覆盖 3 条事实"
+    },
+    {
+      "step": 5,
+      "action": "select_angle",
+      "reason": "a1 的结论最强且证据最完整，选它作为这一轮的写作立场。",
+      "target": "a1",
+      "input_summary": "allowed=research_topic,deepen_research,extract_evidence,generate_angles,select_angle; step=4/12; research=2/4; topics=3; materials=5; facts=3; angles=3; candidates=0; revisions=0/2",
+      "result_summary": "选定 a1：Agent 的评测应当把「重试后成功率」作为主指标"
+    },
+    {
+      "step": 6,
+      "action": "generate_candidates",
+      "reason": "立场已经定了，可以按不同写法一次写出三条候选，让评审有得比较。",
+      "target": null,
+      "input_summary": "allowed=research_topic,deepen_research,extract_evidence,generate_angles,select_angle,generate_candidates; step=5/12; research=2/4; topics=3; materials=5; facts=3; angles=3; candidates=0; revisions=0/2",
+      "result_summary": "写出 3 条候选：直接观点、信息密集、反共识"
+    },
+    {
+      "step": 7,
+      "action": "criticize",
+      "reason": "候选还没有被评价过，交出去之前必须先过一轮评审。",
+      "target": null,
+      "input_summary": "allowed=research_topic,deepen_research,extract_evidence,generate_angles,criticize; step=6/12; research=2/4; topics=3; materials=5; facts=3; angles=3; candidates=3; revisions=0/2",
+      "result_summary": "评价 3 条：c0 accept(7.5)；c1 accept(8.5)；c2 accept(8.0)。聚焦 c1"
+    },
+    {
+      "step": 8,
+      "action": "finish",
+      "reason": "三条候选都已评审通过，c1 得分最高，交给人工审核。",
+      "target": null,
+      "input_summary": "allowed=research_topic,deepen_research,extract_evidence,generate_angles,finish; step=7/12; research=2/4; topics=3; materials=5; facts=3; angles=3; candidates=3; revisions=0/2",
+      "result_summary": "交付候选 c1（信息密集，第 0 稿，136 字）"
+    }
+  ],
+  "outcome": {
+    "run_status": "waiting_for_review",
+    "human_review_reached": true,
+    "human_action": null,
+    "published": false,
+    "publish_initiated_by": "none"
+  },
+  "content_quality": {
+    "annotator": "",
+    "note": "synthetic fixture：不填人工标注，评估报告应如实显示 dimensions 全为 unavailable"
+  }
+}

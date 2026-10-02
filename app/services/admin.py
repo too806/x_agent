@@ -36,6 +36,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.agent.labels import claim_scope_label, viewpoint_stance_label
 from app.agent.metrics import quality_metrics
+from app.feedback.runtime import FEEDBACK_SNAPSHOT_READ_LIMIT, load_feedback_report
+from app.feedback.schema import FeedbackContext
 from app.models.published_post import (
     STATUS_FAILED,
     STATUS_PUBLISHED,
@@ -44,6 +46,7 @@ from app.models.published_post import (
 )
 from app.repositories import (
     average_run_duration,
+    count_post_metrics_snapshots,
     count_published,
     count_published_grouped_by_status,
     count_review_queue,
@@ -58,8 +61,12 @@ from app.repositories import (
     get_published_post,
     get_review_for_run,
     get_runs_by_ids,
+    latest_metrics_by_post,
     list_decisions,
     list_published_page,
+    list_post_metrics_snapshots,
+    list_published_posts_with_x_id,
+    list_recent_post_metrics_snapshots,
     list_research_items,
     list_review_queue,
     list_runs_page,
@@ -74,6 +81,9 @@ from app.schemas import (
     AverageRunDuration,
     DecisionTraceRecord,
     DraftRecord,
+    FeedbackOverview,
+    FeedbackPostSummary,
+    FeedbackSignalRow,
     MetricAvailability,
     OverviewKpis,
     OverviewResponse,
@@ -88,6 +98,7 @@ from app.schemas import (
     ReviewQueueItem,
     ReviewQueuePage,
     ReviewRecord,
+    RunFeedbackSummary,
     RunListPage,
     RunStyleSummary,
     RunSummary,
@@ -129,9 +140,23 @@ PREVIEW_CHARS = 200
 
 # X 公开指标（impressions / likes / engagement）没有同步机制。
 # 这里明确标成不可用，而不是返回 0 假装"表现很差"。
+#
+# Phase 5B.4 起这句话只在**一条快照都没有**时成立：采集脚本
+# `scripts/refresh_post_metrics.py` 已经实现（手工运行，没有调度器）。
+# 有快照时改用下面的 SCOPE_NOTE——"没实现"会变成一句假话。
 X_PERFORMANCE_UNAVAILABLE_REASON = (
-    "X public metrics synchronization has not been implemented."
+    "No post metrics have been collected yet; run scripts/refresh_post_metrics.py."
 )
+
+#: 有快照时的口径说明。**必须**说清范围，否则读者会以为这是 X 的完整表现指标。
+X_PERFORMANCE_AVAILABLE_NOTE = (
+    "Collected from X public counts (likes/replies/reposts/quotes) at manual "
+    "observation times; impressions and bookmarks are not collected, and these "
+    "numbers are observations, not quality scores."
+)
+
+#: 反馈一览里最多列多少条帖子。同 GUARDRAIL_READ_LIMIT：一目览必须有上界。
+FEEDBACK_POSTS_LIMIT = 50
 
 # publish 分发的口径说明。published_post 每个 Run 最多一行、失败重试复用同一行，
 # 所以这里统计的是"每个 Run 的当前结局"而不是"尝试次数"——一个失败后重试成功的
@@ -361,6 +386,148 @@ def viewpoint_summary(state: Mapping[str, Any]) -> RunViewpointSummary | None:
     )
 
 
+def _feedback_post_summaries(
+    rows: list[Any], posts_by_id: Mapping[str, Any]
+) -> list[FeedbackPostSummary]:
+    """观察行 → 每帖一条"最新一次观察"摘要，按最近观察时刻降序，取前 N 条。
+
+    取**最新**那一条而不是求和/取平均：界面要回答的是"这条帖子现在怎么样"，
+    而把不同时刻的观察加起来会造出一个任何时刻都不曾成立的数。
+    完整的观察序列在归因里（`app/feedback/profile.py`）和原始快照表里。
+
+    计数**原样搬运，包括 None**。这里没有任何 `or 0`：`None` 是"这次没读到"，
+    `0` 是"读到的是零"，界面必须能分开显示。
+    """
+    by_post: dict[Any, list[Any]] = {}
+    for row in rows:
+        by_post.setdefault(row.published_post_id, []).append(row)
+
+    summaries = []
+    for group in by_post.values():
+        latest = max(group, key=lambda r: (r.observed_at, str(r.id)))
+        post = posts_by_id.get(str(latest.published_post_id))
+        summaries.append(
+            FeedbackPostSummary(
+                published_post_id=str(latest.published_post_id),
+                x_post_id=latest.x_post_id,
+                # 发布时刻来自 published_post（来源给定的事实），不是从快照推的。
+                # 查不到那行就是 None——不拿 observed_at 冒充。
+                published_at=post.published_at if post is not None else None,
+                observation_count=len(group),
+                latest_observed_at=latest.observed_at,
+                hours_since_publish=latest.hours_since_publish,
+                likes=latest.likes,
+                replies=latest.replies,
+                reposts=latest.reposts,
+                quotes=latest.quotes,
+                impressions=latest.impressions,
+                bookmarks=latest.bookmarks,
+            )
+        )
+    summaries.sort(
+        key=lambda s: s.latest_observed_at or _EPOCH, reverse=True
+    )
+    return summaries[:FEEDBACK_POSTS_LIMIT]
+
+
+#: 排序哨兵：没有观察时刻的摘要排在最后（而不是因为 `None` 不可比较而报错）。
+_EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
+
+
+#: `feedback_context` 这个键**不在** checkpoint 里时的原因。两种"没有反馈"
+#: 必须分开说：键缺席是"那次运行根本没读过反馈"（Phase 5B.4 之前的运行），
+#: 而记住一个空的上下文是"读过了，当时确实没有观察数据"。前者是版本问题，
+#: 后者是数据问题，处置完全不同。
+FEEDBACK_CONTEXT_ABSENT_REASON = (
+    "This Run did not read any feedback context. Runs from Phase 5B.4 and earlier "
+    "never had one; a later Run stores an empty context instead of omitting the key."
+)
+
+#: 键在、但内容是空的（本次运行时还没有任何观察）。
+FEEDBACK_CONTEXT_EMPTY_REASON = (
+    "No post metrics had been collected when this Run started, so it read an empty "
+    "feedback context. Run scripts/refresh_post_metrics.py and a later Run will see data."
+)
+
+
+def feedback_summary(state: Mapping[str, Any]) -> RunFeedbackSummary:
+    """checkpoint 的 `feedback_context` → **这次运行当时读到了什么**。
+
+    刻意**不**拿现在的快照现算一份塞进来：快照在这之后还会继续增加，而那次运行
+    看到的是当时的那一批。用最新的数据顶替，会让 Run Detail 显示一个这次运行
+    根本没见过的样本量。
+
+    两种"没有"分开：键缺席 vs 键在但为空（见上面两条原因说明）。
+    **都不返回一串 0**——0 会被读成"读到了，结果是零互动"。
+    """
+    raw = state.get("feedback_context")
+    if raw is None:
+        return RunFeedbackSummary(available=False, reason=FEEDBACK_CONTEXT_ABSENT_REASON)
+
+    context = raw if isinstance(raw, FeedbackContext) else FeedbackContext.model_validate(raw)
+    if context.is_empty:
+        return RunFeedbackSummary(available=False, reason=FEEDBACK_CONTEXT_EMPTY_REASON)
+
+    return RunFeedbackSummary(
+        available=True,
+        sample_count=context.sample_count,
+        post_count=context.post_count,
+        snapshot_count=context.snapshot_count,
+        latest_observed_at=context.latest_observed_at,
+        signals=[
+            FeedbackSignalRow(
+                kind=signal.kind.value,
+                statement=signal.statement,
+                metric=signal.metric,
+                value=signal.value,
+                comparison_group=signal.comparison_group,
+                sample_count=signal.sample_count,
+                confidence=signal.confidence,
+                evidence=list(signal.evidence),
+                window=signal.window,
+            )
+            for signal in context.signals
+        ],
+        limitations=list(context.limitations),
+        source_snapshot_ids=list(context.source_snapshot_ids),
+    )
+
+
+def observation_summary(
+    rows: list[Any], published: Any, *, observation_count: int | None = None
+) -> FeedbackPostSummary | None:
+    """一个 Run 的已发布帖子的**最新一次观察**；一条快照都没有时是 `None`。
+
+    刻意不返回一行 0：`published_post` 存在但从未采集过时，界面应当显示
+    "还没有观察"，而不是"点赞 0 次"——后者是一个会被当成结论的数字。
+
+    与 `_feedback_post_summaries` 共用同一条口径（取最新的一条，计数原样搬运
+    包括 `None`），区别只在这里只处理一条帖子的观察序列。
+
+    `observation_count` 可以单独传：发布列表一次取一页帖子的最新快照 + 计数
+    （`latest_metrics_by_post`），那条路径上手里只有**一条**最新的行，
+    `len(rows)` 会是 1，而这个帖子其实被观察过 N 次。默认 `None` = 用 `len(rows)`，
+    即调用方确实把整条序列都拿来了。
+    """
+    if not rows:
+        return None
+    latest = max(rows, key=lambda row: (row.observed_at, str(row.id)))
+    return FeedbackPostSummary(
+        published_post_id=str(latest.published_post_id),
+        x_post_id=latest.x_post_id,
+        published_at=getattr(published, "published_at", None),
+        observation_count=len(rows) if observation_count is None else observation_count,
+        latest_observed_at=latest.observed_at,
+        hours_since_publish=latest.hours_since_publish,
+        likes=latest.likes,
+        replies=latest.replies,
+        reposts=latest.reposts,
+        quotes=latest.quotes,
+        impressions=latest.impressions,
+        bookmarks=latest.bookmarks,
+    )
+
+
 class AdminService:
     """控制台只读查询。
 
@@ -548,6 +715,13 @@ class AdminService:
             # 必须比 checkpoint 活得久，否则清理过 checkpoint 的 Run 在控制台上
             # 就只剩一堆没有来由的产物。
             decisions = await list_decisions(session, run_id)
+            # 这个 Run 的已发布帖子自己的观察序列。取不到（没发布 / 没有快照）
+            # 就是空列表，由 `observation_summary` 变成 `None`，不是一行 0。
+            metrics_snapshots = (
+                await list_post_metrics_snapshots(session, published_post_id=published.id)
+                if published is not None
+                else []
+            )
 
         # checkpoint 只读，用于补齐数据库里没有的那几个字段。
         snapshot = await self._graph.aget_state({"configurable": {"thread_id": run_id}})
@@ -613,6 +787,13 @@ class AdminService:
             style=style_summary(state) if state.get("goal") else None,
             # 第三处同一门控，同一条理由：V1 topic 链路没有"形成判断"这一步。
             viewpoint=viewpoint_summary(state) if state.get("goal") else None,
+            # 第四处同一门控：反馈上下文是 Agent 运行才有的东西（5B.4 之前
+            # 的 checkpoint 里连这个键都不存在，`feedback_summary` 会如实
+            # 报成"这次运行没读过"，而不是伪造一个空的上下文）。
+            feedback=feedback_summary(state) if state.get("goal") else None,
+            # 这一项**不**门控于 goal：发布链路是 V1 就有的，topic 链路的 Run
+            # 也会发帖、也会被采集到观察。
+            performance=observation_summary(metrics_snapshots, published),
             draft=(
                 DraftRecord(
                     draft_id=str(draft.id),
@@ -687,6 +868,10 @@ class AdminService:
                 offset=(page - 1) * page_size,
             )
             runs = await get_runs_by_ids(session, [row.agent_run_id for row in rows])
+            # 一页一次，不是一行一次：见 `latest_metrics_by_post` 的说明。
+            # 没有快照的帖子不在这个字典里，于是 `latest_metrics` 为 None，
+            # 界面显示"暂无数据"而不是 0。
+            metrics = await latest_metrics_by_post(session, [row.id for row in rows])
 
         return PublishedListPage(
             items=[
@@ -702,10 +887,76 @@ class AdminService:
                     created_at=row.created_at,
                     updated_at=row.updated_at,
                     last_error=row.last_error,
+                    latest_metrics=(
+                        observation_summary([metrics[row.id][0]], row, observation_count=metrics[row.id][1])
+                        if row.id in metrics
+                        else None
+                    ),
                 )
                 for row in rows
             ],
             page=_page(page, page_size, total),
+        )
+
+    # ---------- Feedback ----------
+
+    async def feedback(self) -> FeedbackOverview:
+        """自己过去发布内容的观察一览（Phase 5B.4）。
+
+        ## 现算，不读那个"证据文件"
+
+        采集脚本不产出任何 JSON 证据文件，报告由存下来的快照现算——
+        这正是"报告是观察的纯函数"的意思。文件是给人看的证据，
+        不是 API 的数据源；把它当数据源会让接口跟着一次人工运行的产物走。
+
+        ## 一条快照都没有时返回原因，不返回零
+
+        `available=False` + 原因，同 `MetricAvailability` 的口径。
+        返回一串 0 会被读成"采到了，结果没人互动"。
+        """
+        async with self._session_factory() as session:
+            snapshot_count = await count_post_metrics_snapshots(session)
+            if snapshot_count == 0:
+                return FeedbackOverview(
+                    available=False,
+                    reason=X_PERFORMANCE_UNAVAILABLE_REASON,
+                    limitations=[
+                        "还没有任何观察快照：先运行 scripts/refresh_post_metrics.py "
+                        "采集已发布帖子的公开计数。"
+                    ],
+                )
+            report = await load_feedback_report(session)
+            # 与报告同一个读取上界：帖子摘要从这同一批观察里分组得到，
+            # 两个数字来自两批不同的行会让"n 条观察 / 覆盖 m 条帖子"自相矛盾。
+            rows = await list_recent_post_metrics_snapshots(
+                session, limit=FEEDBACK_SNAPSHOT_READ_LIMIT
+            )
+            posts = await list_published_posts_with_x_id(session)
+        posts_by_id = {str(post.id): post for post in posts}
+
+        return FeedbackOverview(
+            available=True,
+            reason=X_PERFORMANCE_AVAILABLE_NOTE,
+            sample_count=report.sample_count,
+            snapshot_count=snapshot_count,
+            post_count=len({row.published_post_id for row in rows}),
+            latest_observed_at=max((row.observed_at for row in rows), default=None),
+            signals=[
+                FeedbackSignalRow(
+                    kind=signal.kind.value,
+                    statement=signal.statement,
+                    metric=signal.metric,
+                    value=signal.value,
+                    comparison_group=signal.comparison_group,
+                    sample_count=signal.sample_count,
+                    confidence=signal.confidence,
+                    evidence=list(signal.evidence),
+                    window=signal.window,
+                )
+                for signal in report.signals
+            ],
+            limitations=list(report.limitations),
+            posts=_feedback_post_summaries(rows, posts_by_id),
         )
 
     # ---------- Analytics ----------
@@ -720,6 +971,8 @@ class AdminService:
             run_volume = await count_runs(session, date_from=window_start)
             topics = await topic_distribution(session, limit=10)
             average, sampled, total_runs = await average_run_duration(session)
+            # Phase 5B.4：采集脚本落地之后，"未实现"这句话只在真的没采过时成立。
+            snapshot_count = await count_post_metrics_snapshots(session)
 
         return AnalyticsResponse(
             window_days=days,
@@ -758,7 +1011,15 @@ class AdminService:
                 ),
             ),
             topic_distribution=[TopicCount(topic=topic, count=count) for topic, count in topics],
+            # 有快照 → 可用，并带上口径说明（只有公开计数、手工采集）。
+            # 没有 → 仍然标成不可用，但原因现在是准确的："还没有采集过"，
+            # 而不是从前那句已经变成假话的"尚未实现"。
             x_content_performance=MetricAvailability(
-                available=False, reason=X_PERFORMANCE_UNAVAILABLE_REASON
+                available=snapshot_count > 0,
+                reason=(
+                    X_PERFORMANCE_AVAILABLE_NOTE
+                    if snapshot_count > 0
+                    else X_PERFORMANCE_UNAVAILABLE_REASON
+                ),
             ),
         )

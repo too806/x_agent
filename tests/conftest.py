@@ -58,7 +58,11 @@ def _prepare_test_db():
         # 上一次异常退出（或专门做过"去掉约束"的变异验证）可能留下同一
         # agent_run_id 的多行，会让下面的 ADD CONSTRAINT 直接失败、整个 session
         # 起不来。测试库本就是一次性的（每个 test 前都会 TRUNCATE），先清干净。
-        conn.execute(text("TRUNCATE published_post"))
+        #
+        # 必须带 CASCADE：Phase 5B.4 起 post_metrics_snapshot 有指向本表的外键，
+        # 而裸 `TRUNCATE published_post` 在有表引用它时会被 Postgres 直接拒绝
+        # （FeatureNotSupported，不是静默降级）。
+        conn.execute(text("TRUNCATE published_post CASCADE"))
         # ADD CONSTRAINT 没有 IF NOT EXISTS，用 pg_constraint 先探一下。
         # 这条是整个发布幂等的**关键路径**：并发首次发布时 INSERT 分支全靠它
         # 才只有一个赢家（去掉后 test_concurrent_claims_exactly_one_wins 会拿到

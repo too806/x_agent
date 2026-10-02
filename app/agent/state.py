@@ -25,6 +25,7 @@ from app.agent.schemas import (
     EvidencePack,
 )
 from app.agent.schemas import merge_trace
+from app.feedback.schema import FeedbackContext
 from app.schemas import ResearchResult
 from app.style.schemas import StyleRecipe
 
@@ -90,6 +91,12 @@ class RunState(TypedDict, total=False):
     #: 只活在 checkpoint 里，**不落库**：它是"这次运行选了什么结构"的运行期决策，
     #: 不是语料资产（见 alembic c3d8a45e7f21 的说明）。
     style_recipe: StyleRecipe
+    #: Phase 5B.4：本次运行看到的**自己过去发布结果的观察摘要**。
+    #: 与 `style_recipe` 同样是"这次运行拿到了什么输入"的运行期决策，
+    #: 因此同样只活在 checkpoint 里、**不落库**。由候选工具在渲染 prompt 前
+    #: 备好（不是 AgentAction），并且**只进 Writer**——Critic 不读反馈，
+    #: 否则"评得好不好"会被"发出去效果好不好"污染（工作单第二十七节）。
+    feedback_context: FeedbackContext
     critic_result: CriticResult
     critic_results: list[CriticResult]
     revision_count: int

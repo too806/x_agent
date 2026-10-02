@@ -419,6 +419,93 @@ export interface ViewpointAssessment {
   reasons: string[]
 }
 
+// ---------------------------------------------------------------------------
+// 反馈（Phase 5B.4）
+//
+// 三个类型，回答三个**不同**的问题，不要合并成一个：
+//
+//   RunFeedbackSummary  —— 这次运行**当时读到了什么**（checkpoint，事后不可重算）
+//   FeedbackPostSummary —— 一条帖子**后来被观察到的**最新结果（快照表）
+//   FeedbackOverview    —— 我们这个账号发出去的东西**现在**怎么样（聚合）
+//
+// 前两个在 Run Detail 里并排出现，且**必须并排出现**：快照会继续增加，
+// 而那次运行看到的是当时那一批。合成一个字段，界面就再也分不出
+// "它当时知道什么"与"现在是什么"。
+// ---------------------------------------------------------------------------
+
+/** 一条反馈信号。
+ *
+ * `comparison_group` 与 `confidence` 在 v1 **恒为 null**——还没有基线，
+ * 也没有经过校准的置信度。界面上不要给它们找占位文案：一个编出来的
+ * "置信度 80%" 与一个真的算出来的，读的人是分不出来的。
+ */
+export interface FeedbackSignalRow {
+  kind: string
+  statement: string
+  metric: string | null
+  value: number | null
+  comparison_group: string | null
+  sample_count: number
+  confidence: number | null
+  /** 依据的快照 id，非空。没有证据就没有信号。 */
+  evidence: string[]
+  window: string | null
+}
+
+/** 一条已发布帖子的**最新一次观察**。
+ *
+ * 计数全部可空。`null` = 没读到/没采到，`0` = 读到的是零。渲染必须走
+ * `utils/feedback.ts::metricLabel`，**不要**写 `value ?? 0`。
+ */
+export interface FeedbackPostSummary {
+  published_post_id: string
+  x_post_id: string | null
+  published_at: string | null
+  observation_count: number
+  latest_observed_at: string | null
+  hours_since_publish: number | null
+  likes: number | null
+  replies: number | null
+  reposts: number | null
+  quotes: number | null
+  /** v1 从不写入，恒为 null。 */
+  impressions: number | null
+  /** 同上。 */
+  bookmarks: number | null
+}
+
+/** **这次运行读到的**反馈（来自 checkpoint 的 `feedback_context`）。
+ *
+ * `available === false` 表示这次运行没有读到反馈（Phase 5B.4 之前的运行，
+ * 或者取用失败），**不是**"读到了零条"。两种情况的后端原因不同，原样显示。
+ */
+export interface RunFeedbackSummary {
+  available: boolean
+  reason: string | null
+  sample_count: number
+  post_count: number
+  snapshot_count: number
+  latest_observed_at: string | null
+  signals: FeedbackSignalRow[]
+  limitations: string[]
+  /** 这次运行的摘要依据了哪些快照行，让 Run Detail 能回到原始观察。 */
+  source_snapshot_ids: string[]
+}
+
+/** 反馈一览（`GET /api/admin/feedback`）。一条快照都没有时返回
+ * `available=false` + 原因，**不返回一串 0**。 */
+export interface FeedbackOverview {
+  available: boolean
+  reason: string | null
+  sample_count: number
+  snapshot_count: number
+  post_count: number
+  latest_observed_at: string | null
+  signals: FeedbackSignalRow[]
+  limitations: string[]
+  posts: FeedbackPostSummary[]
+}
+
 export interface AdminRunDetail {
   run_id: string
   /** Agent 选定的主题。null = 还没选出来（不是"没有"这个字段的意思）。 */
@@ -449,6 +536,13 @@ export interface AdminRunDetail {
   /** 同上，只有 Agent 模式的 Run 才会形成判断；其余为 null。
    * 三处与 `quality` 同一门控——非 Agent 运行不该冒出空白的"核心判断"块。 */
   viewpoint: RunViewpointSummary | null
+  /** 这次运行**读到的**反馈摘要（Phase 5B.4，来自 checkpoint）。
+   * 与 `quality` 同一门控：非 Agent 运行没有它。`available=false` 时
+   * 里面说的是"这次运行没读到反馈"，不是"读到了零条"。 */
+  feedback: RunFeedbackSummary | null
+  /** 这条帖子**后来被观察到的**最新一次结果（快照表）。
+   * 发过帖但一次都没采过时是 null——不是一行 0。与 `feedback` 是两件事。 */
+  performance: FeedbackPostSummary | null
   draft: DraftRecord | null
   review: ReviewRecord | null
   publish: PublishRecord | null
@@ -470,6 +564,9 @@ export interface PublishedRow {
   created_at: string
   updated_at: string
   last_error: string | null
+  /** 这一行**后来被观察到的**最新一次结果（Phase 5B.4）。
+   * 没采过的帖子为 null，渲染成"暂无数据"，不是 0。 */
+  latest_metrics: FeedbackPostSummary | null
 }
 
 export interface PublishedListPage {

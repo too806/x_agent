@@ -43,7 +43,7 @@ from support import PERSONA, api_for, runtime_with_checkpointer
 
 
 @asynccontextmanager
-async def admin_api(session_factory, *, persona=PERSONA):
+async def admin_api(session_factory, *, persona=PERSONA, state: dict | None = None):
     """把一个只用于控制台测试的 Runtime 注入 FastAPI。
 
     graph 用 `StubGraph()`（空 state）而不是真实 checkpointer：这类测试是**播种式**
@@ -52,6 +52,10 @@ async def admin_api(session_factory, *, persona=PERSONA):
     "读不到 checkpoint" 本身也是必须覆盖的真实情形（Run 刚 interrupt 的瞬间就是
     这样），所以空 state 不是妥协，而是刻意选定的输入。
 
+    `state` 只有需要**某几个 checkpoint 字段**的测试才传（Phase 5B.4 的
+    Run Detail 反馈块就是这种情况：它必须区分"键在、内容为空"与"键根本不在"）。
+    默认的空字典仍然是绝大多数测试的输入。
+
     publish_service 传 None：Admin API 是只读的，任何路径都不该碰到它。真碰到了
     会直接 AttributeError 炸掉测试 —— 这本身就是"控制台没有偷偷写库"的哨兵。
 
@@ -59,7 +63,7 @@ async def admin_api(session_factory, *, persona=PERSONA):
     那样测试就会跟着配置文件改动而漂移。
     """
     runtime = Runtime(
-        graph=StubGraph(),
+        graph=StubGraph(state),
         session_factory=session_factory,
         publish_service=None,
         persona=persona,
@@ -754,13 +758,18 @@ async def test_analytics_duration_unavailable_instead_of_zero(session_factory):
 
 
 async def test_analytics_marks_x_performance_unavailable(session_factory):
-    """X 内容表现没有同步机制：必须标 Not available，绝不用 0 冒充。"""
+    """**没采过**时标为不可用，绝不用 0 冒充。
+
+    Phase 5B.4 起这句话的含义变了：从前是"尚未实现"，现在是"还没有采过"
+    （采集脚本已经落地）。所以断言从"提到未实现"改成"提到还没采集"——
+    要点没变：**没有数据时必须给出原因，而不是给一个 0**。
+    """
     async with admin_api(session_factory) as api:
         data = (await api.get("/api/admin/analytics")).json()
 
     performance = data["x_content_performance"]
     assert performance["available"] is False
-    assert "not been implemented" in performance["reason"]
+    assert "have been collected" in performance["reason"]
     # 响应里不得出现任何伪造的 X 指标字段
     for fake in ("impressions", "engagement_rate", "bookmarks"):
         assert fake not in data

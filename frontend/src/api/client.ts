@@ -16,6 +16,7 @@
 import type {
   AdminRunDetail,
   AnalyticsResponse,
+  FeedbackOverview,
   OverviewResponse,
   PublishCall,
   PublishResolution,
@@ -215,6 +216,17 @@ export const api = {
 
   getAnalytics(days = 7): Promise<AnalyticsResponse> {
     return request(`/api/admin/analytics${query({ days })}`)
+  },
+
+  /**
+   * 自己过去发布内容的观察一览（Phase 5B.4）。
+   *
+   * **只读**：这个接口在后端只有 GET（`tests/test_admin_feedback_api.py` 断言
+   * POST 返回 405）。采集由 `scripts/refresh_post_metrics.py` 手工触发——
+   * 控制台不提供"马上抓一次"，那会把一个只读控制台变成一个能对外发起请求的东西。
+   */
+  getFeedback(): Promise<FeedbackOverview> {
+    return request('/api/admin/feedback')
   },
 
   // ---------- 写操作：一律复用 Phase 3/4a 的既有端点 ----------

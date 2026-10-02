@@ -1,7 +1,7 @@
 {
   "name": "agent-evaluation-lab-baseline",
-  "version": "1.2.0",
-  "note": "21 条基准目标（10 条 Phase 5A.1 + 6 条 Phase 5B.1 + 5 条 Phase 5B.3）。每条把工作单里的一个评估问题，绑到一个 fixture 上——**不调用真实 X，也不调用 LLM**，所以整套基准可以在任意机器上逐位复现。",
+  "version": "1.3.0",
+  "note": "22 条基准目标（10 条 Phase 5A.1 + 6 条 Phase 5B.1 + 5 条 Phase 5B.3 + 1 条 Phase 5B.4）。每条把工作单里的一个评估问题，绑到一个 fixture 上——**不调用真实 X，也不调用 LLM**，所以整套基准可以在任意机器上逐位复现。",
   "how_to_read": [
     "goal 是「这条基准想回答什么」，question 是它在评估问题清单里的出处，fixture 是回答它的那份数据。",
     "expect 只断言**回归门禁的结论**（§14 定义的那些），不断言任何指标数值。",
@@ -244,6 +244,18 @@
         "passed": false,
         "gate_failures": [
           "RULE-023"
+        ]
+      }
+    },
+    {
+      "id": "G-022",
+      "goal": "同一份反馈上下文（同样的样本量、同样的快照 id、同样的局限说明），只把第一条信号的那句话从「观察到分布」改写成因果断言——系统第一次看到自己过去的结果，把「同时出现」说成「因为所以」，能不能被拦下",
+      "question": "反馈是不是只描述观察、绝不声称因果（工作单第三、十九、三十一节）",
+      "fixture": "feedback_causal_language",
+      "expect": {
+        "passed": false,
+        "gate_failures": [
+          "RULE-024"
         ]
       }
     }

@@ -1,12 +1,24 @@
 import logging
 import uuid
+from collections.abc import Sequence
 from datetime import datetime, timezone
 
 from sqlalchemy import case, func, select, update
+from sqlalchemy.dialects.postgresql import distinct_on
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import AgentDecision, AgentRun, Draft, PublishedPost, ResearchItem, Review
+from app.models import (
+    AgentDecision,
+    AgentRun,
+    Draft,
+    PostMetricsSnapshot,
+    PublishedPost,
+    ResearchItem,
+    Review,
+)
+from app.models.post_metrics_snapshot import UQ_X_POST_OBSERVED
 from app.models.style_profile import StyleProfile
 from app.models.published_post import (
     STATUS_FAILED,
@@ -1033,3 +1045,208 @@ async def get_runs_by_ids(
         return {}
     result = await session.execute(select(AgentRun).where(AgentRun.id.in_(run_ids)))
     return {row.id: row for row in result.scalars().all()}
+
+
+# ---------------------------------------------------------------------------
+# Phase 5B.4 —— post_metrics_snapshot（只追加）
+# ---------------------------------------------------------------------------
+
+
+async def insert_post_metrics_snapshot(
+    session: AsyncSession,
+    *,
+    published_post_id: uuid.UUID,
+    x_post_id: str,
+    observed_at: datetime,
+    hours_since_publish: float,
+    likes: int | None,
+    replies: int | None,
+    reposts: int | None,
+    quotes: int | None,
+    impressions: int | None = None,
+    bookmarks: int | None = None,
+) -> PostMetricsSnapshot | None:
+    """追加一条抓取记录。返回 None 表示**这个时刻已经记过**（幂等跳过）。
+
+    用 `ON CONFLICT DO NOTHING` 按 (x_post_id, observed_at) 去重，而不是先查后插：
+    同一个脚本被跑两遍（或两次抓取落在同一微秒）不该产生第二行，但也不该报错——
+    快照是只追加的事实，重复抓同一时刻没有新信息。
+
+    计数一律**原样**写入，包括 None。调用方不得把"X 没返回这个字段"翻译成 0：
+    0 是一个观测值，NULL 才是"没拿到"，两者在下游（rate 的分母、报告的口径）
+    含义完全不同。
+    """
+    stmt = (
+        pg_insert(PostMetricsSnapshot)
+        .values(
+            published_post_id=published_post_id,
+            x_post_id=x_post_id,
+            observed_at=observed_at,
+            hours_since_publish=hours_since_publish,
+            likes=likes,
+            replies=replies,
+            reposts=reposts,
+            quotes=quotes,
+            impressions=impressions,
+            bookmarks=bookmarks,
+        )
+        .on_conflict_do_nothing(constraint=UQ_X_POST_OBSERVED)
+        .returning(PostMetricsSnapshot.id)
+    )
+    result = await session.execute(stmt)
+    inserted_id = result.scalar_one_or_none()
+    await session.commit()
+    if inserted_id is None:
+        return None
+    return await session.get(PostMetricsSnapshot, inserted_id)
+
+
+async def list_published_posts_with_x_id(
+    session: AsyncSession, *, limit: int | None = None
+) -> list[PublishedPost]:
+    """抓取脚本的输入：**已确认发布**且拿得到 x_post_id 的帖子。
+
+    只取 status=published：`publishing` / `publish_unknown` 的 x_post_id 可能是
+    NULL，而 `failed` 确定没发出去。published_at 也必须非空，否则算不出
+    `hours_since_publish`——"不知道发布了多久"的帖子不进快照表，而不是存一个
+    NULL 年龄。两个条件都在这里过滤，调用方无需再判。
+    """
+    stmt = (
+        select(PublishedPost)
+        .where(
+            PublishedPost.status == STATUS_PUBLISHED,
+            PublishedPost.x_post_id.is_not(None),
+            PublishedPost.published_at.is_not(None),
+        )
+        .order_by(PublishedPost.published_at.asc(), PublishedPost.id.asc())
+    )
+    if limit is not None:
+        stmt = stmt.limit(limit)
+    result = await session.execute(stmt)
+    return list(result.scalars().all())
+
+
+async def get_published_post_by_id(
+    session: AsyncSession, published_post_id: uuid.UUID | str
+) -> PublishedPost | None:
+    """按发布行自己的主键取。
+
+    与 `get_published_post` 的分工：那个是"这个 Run 发过没有"（按 agent_run_id），
+    这个的调用方手上拿的已经是快照行里的 `published_post_id`——
+    反馈侧只有这个 id，回不到 agent_run_id 去找。
+    """
+    result = await session.execute(
+        select(PublishedPost).where(PublishedPost.id == _uuid(published_post_id))
+    )
+    return result.scalars().first()
+
+
+async def list_post_metrics_snapshots(
+    session: AsyncSession,
+    *,
+    published_post_id: uuid.UUID | None = None,
+    x_post_id: str | None = None,
+    limit: int | None = None,
+) -> list[PostMetricsSnapshot]:
+    """按时间正序取快照。时间序列的读法就是正序（Day 0 → Day 7）。"""
+    stmt = select(PostMetricsSnapshot)
+    if published_post_id is not None:
+        stmt = stmt.where(PostMetricsSnapshot.published_post_id == published_post_id)
+    if x_post_id is not None:
+        stmt = stmt.where(PostMetricsSnapshot.x_post_id == x_post_id)
+    stmt = stmt.order_by(
+        PostMetricsSnapshot.observed_at.asc(), PostMetricsSnapshot.id.asc()
+    )
+    if limit is not None:
+        stmt = stmt.limit(limit)
+    result = await session.execute(stmt)
+    return list(result.scalars().all())
+
+
+async def list_recent_post_metrics_snapshots(
+    session: AsyncSession, *, limit: int
+) -> list[PostMetricsSnapshot]:
+    """**最近** limit 条观察，按 `observed_at` 正序返回。
+
+    与 `list_post_metrics_snapshots` 的差别只在"截断的是哪一头"：
+    那个函数的 `limit` 作用在正序的第 N 条，取到的是最早的一批；
+    反馈报告要的是最近的一批（"我们这个月发出去的东西后来怎么样"），
+    所以先按倒序取、再翻回正序，让调用方拿到的仍然是一条时间线。
+    """
+    stmt = (
+        select(PostMetricsSnapshot)
+        .order_by(PostMetricsSnapshot.observed_at.desc(), PostMetricsSnapshot.id.desc())
+        .limit(limit)
+    )
+    result = await session.execute(stmt)
+    rows = list(result.scalars().all())
+    rows.reverse()
+    return rows
+
+
+async def count_post_metrics_snapshots(
+    session: AsyncSession, *, published_post_id: uuid.UUID | None = None
+) -> int:
+    stmt = select(func.count()).select_from(PostMetricsSnapshot)
+    if published_post_id is not None:
+        stmt = stmt.where(PostMetricsSnapshot.published_post_id == published_post_id)
+    result = await session.execute(stmt)
+    return int(result.scalar_one())
+
+
+async def latest_metrics_observed_at(session: AsyncSession) -> datetime | None:
+    """最近一次抓取时刻。用来回答"这份反馈有多新"——没有快照时是 None，不是 now()。"""
+    result = await session.execute(select(func.max(PostMetricsSnapshot.observed_at)))
+    return result.scalar_one_or_none()
+
+
+async def latest_metrics_by_post(
+    session: AsyncSession, post_ids: Sequence[uuid.UUID]
+) -> dict[uuid.UUID, tuple[PostMetricsSnapshot, int]]:
+    """一页帖子的**最新观察 + 观察次数**，一次查完。
+
+    发布列表是要分页的，所以这里**不能**逐条去查最新快照——20 行就是 20 次往返，
+    而且每次都是同一句 SQL。用 `DISTINCT ON` 一次拿到每帖最新那条，
+    再一条 `GROUP BY` 拿计数，总共两次查询，与页大小无关。
+
+    返回 `{published_post_id: (最新快照, 观察次数)}`。
+
+    两条纪律：
+
+    - **没有快照的帖子不出现在返回里**，而不是出现一个计数为 0 的条目。
+      调用方据此渲染"暂无数据"，这与"采到了，是 0"必须长得不一样。
+    - `DISTINCT ON` 的排序键必须与 `ORDER BY` 前缀一致，且后接
+      `observed_at DESC, id DESC`——加上 id 是为了在**同一时刻**有两条时
+      （理论上被唯一约束挡住，但读路径不该依赖写路径的约束）仍然取到确定的一条。
+    """
+    if not post_ids:
+        return {}
+
+    latest_stmt = (
+        select(PostMetricsSnapshot)
+        # `SELECT DISTINCT ON (...)`。用 `.ext(distinct_on(...))` 而不是
+        # `.distinct(列)`：后者在 SQLAlchemy 2.1 起已弃用，而漏掉这个警告
+        # 只会在将来升级时突然变成一句错误的 SQL。
+        .ext(distinct_on(PostMetricsSnapshot.published_post_id))
+        .where(PostMetricsSnapshot.published_post_id.in_(post_ids))
+        .order_by(
+            PostMetricsSnapshot.published_post_id,
+            PostMetricsSnapshot.observed_at.desc(),
+            PostMetricsSnapshot.id.desc(),
+        )
+    )
+    latest_rows = list((await session.execute(latest_stmt)).scalars().all())
+
+    counts_stmt = (
+        select(
+            PostMetricsSnapshot.published_post_id,
+            func.count().label("observation_count"),
+        )
+        .where(PostMetricsSnapshot.published_post_id.in_(post_ids))
+        .group_by(PostMetricsSnapshot.published_post_id)
+    )
+    counts = {row[0]: int(row[1]) for row in (await session.execute(counts_stmt)).all()}
+
+    # 计数查询与最新查询用同一组 post_ids，理论上键集一致；用 `get` 兜底而不是
+    # `[...]`，是因为这里够不到的东西应该表现为"少一条计数"，而不是让整页 500。
+    return {row.published_post_id: (row, counts.get(row.published_post_id, 0)) for row in latest_rows}

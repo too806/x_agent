@@ -28,6 +28,7 @@ import argparse
 import json
 import sys
 from dataclasses import fields as dc_fields
+from datetime import datetime, timezone
 from typing import Any
 
 from evals._bootstrap import ensure_repo_root_on_path, force_utf8_stdout
@@ -455,6 +456,112 @@ def check_every_gate_can_fail() -> list[str]:
     )
     fired.append("RULE-023")
 
+    # --- Phase 5B.4 的反馈门禁 ----------------------------------------------
+    #
+    # 四类违规各构造一次。反馈是系统第一次拿到"自己过去的行为有什么结果"，
+    # 而它最容易在三个地方越界：把观察说成因果、把观察写成指令、在没有依据
+    # 的地方给出结论。只验其中一条，另外两条就只是文档里的一句话。
+    from app.feedback.schema import (
+        FeedbackContext,
+        FeedbackSignal,
+        FeedbackSignalKind,
+    )
+
+    def _feedback(**overrides: Any) -> AgentRunRecord:
+        """一份合法的反馈上下文，只替换 `overrides` 里的字段。"""
+        base = {
+            "sample_count": 8,
+            "post_count": 2,
+            "snapshot_count": 8,
+            "latest_observed_at": datetime(2026, 9, 28, 3, 0, tzinfo=timezone.utc),
+            "signals": (
+                FeedbackSignal(
+                    kind=FeedbackSignalKind.ATTENTION,
+                    statement="观察到 8 条观察的点赞数分布：中位数 22.50。这是观察到的分布，不构成任何因果结论。",
+                    metric="likes",
+                    value=22.5,
+                    sample_count=8,
+                    evidence=("s1", "s2"),
+                ),
+            ),
+            "limitations": ("本报告只描述观察到的分布，不做任何因果结论。",),
+            "source_snapshot_ids": ("s1", "s2"),
+        }
+        base.update(overrides)
+        return _with_state(_base(), feedback_context=FeedbackContext(**base))
+
+    # (a) 把观察写成因果结论——工作单第三、十九、三十一节
+    causal = _feedback(
+        signals=(
+            FeedbackSignal(
+                kind=FeedbackSignalKind.ATTENTION,
+                statement="观察到 8 条观察的点赞数中位数 22.50，说明这类选题带来了更多注意力。",
+                metric="likes",
+                value=22.5,
+                sample_count=8,
+                evidence=("s1", "s2"),
+            ),
+        )
+    )
+    _check(
+        _status_of(causal, "RULE-024") == "fail",
+        "RULE-024 未在「把观察写成因果结论」上失败",
+    )
+
+    # (b) 把观察写成指令（工作单第四十二节）。反证：同一句话改成陈述就通过——
+    # 否则上面那条可以靠"只要提到点赞就红"混过去。
+    instructive = _feedback(
+        limitations=("下次写这类选题，务必多写点赞高的角度。",),
+    )
+    _check(
+        _status_of(instructive, "RULE-024") == "fail",
+        "RULE-024 未在「把观察写成指令」上失败",
+    )
+    _check(
+        _status_of(_feedback(), "RULE-024") == "pass",
+        "RULE-024 在干净反馈上下文上误报",
+    )
+
+    # (c) 没有依据的信号：evidence 为空（工作单第二十五节）
+    groundless = _feedback(
+        signals=(
+            FeedbackSignal(
+                kind=FeedbackSignalKind.ATTENTION,
+                statement="观察到一批点赞的分布。这是观察到的分布，不构成任何因果结论。",
+                metric="likes",
+                value=22.5,
+                sample_count=8,
+                evidence=(),
+            ),
+        )
+    )
+    _check(
+        _status_of(groundless, "RULE-024") == "fail",
+        "RULE-024 未在「信号没有依据」上失败",
+    )
+
+    # (d) 低于样本下限却给出比较结论（工作单第十七节）
+    tiny = _feedback(
+        sample_count=2,
+        snapshot_count=2,
+        source_snapshot_ids=("s1", "s2"),
+        signals=(
+            FeedbackSignal(
+                kind=FeedbackSignalKind.ATTENTION,
+                statement="观察到 2 条观察的点赞数分布：中位数 22.50。这是观察到的分布，不构成任何因果结论。",
+                metric="likes",
+                value=22.5,
+                sample_count=2,
+                evidence=("s1", "s2"),
+            ),
+        ),
+    )
+    _check(
+        _status_of(tiny, "RULE-024") == "fail",
+        "RULE-024 未在「样本量低于下限仍给出比较结论」上失败",
+    )
+    fired.append("RULE-024")
+
     _check(
         sorted(fired) == sorted(GATE_RULE_IDS),
         f"被验证会失败的门禁 {sorted(fired)} 与 GATE_RULE_IDS {sorted(GATE_RULE_IDS)} 不一致",
@@ -818,6 +925,72 @@ def check_viewpoint_rules_discriminate() -> list[str]:
     return notes
 
 
+def check_feedback_rule_discriminates() -> list[str]:
+    """RULE-024 必须**两边都能判**，而且判的是它声称读的那个变量。
+
+    与 `check_viewpoint_rules_discriminate` 同一条理由：只要求"在违规数据上
+    失败"的话，一条永远失败的规则也能过检——而它会把每份数据都标红、然后
+    被人关掉。
+
+    两份 fixture 只差一句话：`feedback_causal_language` 把第一条信号的
+    statement 从"观察到分布"改写成因果断言，其余每一条信号、每条局限、
+    样本量与证据 id 逐字不变。所以"红的那一条"只能归因于那句话本身。
+    """
+    notes: list[str] = []
+    _check(
+        _status_of(load(f"{BASE}/feedback_observed.json"), "RULE-024") == "pass",
+        "RULE-024 在干净反馈上下文 feedback_observed 上应当通过，实际不是",
+    )
+    _check(
+        _status_of(load(f"{BASE}/feedback_causal_language.json"), "RULE-024") == "fail",
+        "RULE-024 在违规数据 feedback_causal_language 上应当失败，实际不是",
+    )
+    notes.append("RULE-024：feedback_observed 通过 / feedback_causal_language 失败")
+
+    # 两份数据真的只差那一句话：反馈上下文除 signals[0].statement 之外
+    # 必须逐字相同。没有这一条，"只差一个变量"就只是一句自述。
+    clean = load(f"{BASE}/feedback_observed.json")
+    dirty = load(f"{BASE}/feedback_causal_language.json")
+    clean_context = clean.state.feedback_context
+    dirty_context = dirty.state.feedback_context
+    _check(
+        clean_context is not None and dirty_context is not None,
+        "两份 fixture 都必须带 feedback_context，否则这一对什么都证明不了",
+    )
+    clean_tail = clean_context.signals[1:]
+    dirty_tail = dirty_context.signals[1:]
+    _check(
+        clean_tail == dirty_tail,
+        "两份 fixture 除第一条信号之外还有别的信号不一致——这一对不再是「只差一个变量」",
+    )
+    _check(
+        clean_context.limitations == dirty_context.limitations
+        and clean_context.source_snapshot_ids == dirty_context.source_snapshot_ids
+        and clean_context.sample_count == dirty_context.sample_count,
+        "两份 fixture 的信号条数/局限/快照 id/样本量必须逐字相同",
+    )
+    _check(
+        clean_context.signals[0].statement != dirty_context.signals[0].statement,
+        "两份 fixture 的第一条信号居然一字不差——那它们没有差别，红的那条就没有归因",
+    )
+    notes.append("两份数据的其余反馈字段逐字相同（对抗性对照的前提）")
+
+    # 缺席必须判 pass（不适用），不能判 fail。
+    # 这条钉住的是"拿新尺子去量历史数据"这件事不会发生：本次改动之前
+    # 每一次真实运行的 checkpoint 里都没有这个字段。
+    legacy = _base()
+    _check(
+        legacy.state.feedback_context is None,
+        "healthy_agent_run 应当保留 5B.4 之前的形状（无 feedback_context）作对照",
+    )
+    _check(
+        _status_of(legacy, "RULE-024") == "pass",
+        "RULE-024 在没有反馈上下文的运行上应当是不适用（pass），实际不是",
+    )
+    notes.append("无 feedback_context 判不适用（pass），不把历史数据染红")
+    return notes
+
+
 def check_every_scored_field_is_reproduced() -> list[str]:
     """RULE-023 比对的字段，必须把 `ViewpointScore` 除 claim/reasons 之外的
     每一项都覆盖到。
@@ -885,6 +1058,9 @@ def check_clean_fixtures_pass() -> list[str]:
         "multi_author_topic",
         "fresh_topic",
         "viewpoint_supported",
+        # Phase 5B.4：带上反馈上下文的运行也必须是全绿的——RULE-024 只在
+        # 反馈**真的越界**时才响，读到一批干净观察不是违规。
+        "feedback_observed",
     )
     for label in clean:
         record = load(f"{BASE}/{label}.json")
@@ -938,6 +1114,7 @@ CHECKS: tuple[tuple[str, Any], ...] = (
     ("干净数据全绿", check_clean_fixtures_pass),
     ("话题规则两边都能判", check_trend_rules_discriminate),
     ("观点规则两边都能判", check_viewpoint_rules_discriminate),
+    ("反馈规则两边都能判", check_feedback_rule_discriminates),
     ("观点分逐项都可复算", check_every_scored_field_is_reproduced),
     ("--live 被拒绝", check_live_mode_is_refused),
     ("分数卡没有总分", check_scorecard_has_no_total),

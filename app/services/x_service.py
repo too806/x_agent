@@ -7,7 +7,7 @@
 from datetime import datetime, timezone
 from typing import Callable
 
-from app.schemas import ResearchResult
+from app.schemas import PostMetricsObservation, ResearchResult
 from app.services.x_api import XApiClient
 
 
@@ -73,6 +73,62 @@ class XService:
             topic, max_results, start_time=start_time, end_time=end_time
         )
         return self._map(raw, observed_at=observed_at or self._clock())
+
+    async def fetch_public_metrics(
+        self,
+        ids: list[str],
+        *,
+        observed_at: datetime | None = None,
+    ) -> tuple[list[PostMetricsObservation], list[str]]:
+        """按 id 读我们自己已发布帖子的公开指标（只读，Phase 5B.4）。
+
+        返回 `(observations, ids_not_returned)`。
+
+        ## 为什么"没被返回"要单独交出去
+
+        X 的 `/2/tweets?ids=` 对读不到的 id（删除了、被限流、权限不够）**直接
+        不放进 `data`**，同时可能在 `errors` 里给一条。两种情况下我们手上都
+        没有计数——这时唯一的正确做法是把它列进 `ids_not_returned` 让调用方
+        如实报告，而不是补一条全 0 的观察。补 0 会把"读不到"记成"没人互动"，
+        而这两件事在反馈里含义相反。
+
+        ## 为什么缺字段是 None 而不是 0
+
+        与 `_map` 不同（那一路径的既定口径是补 0）。这里逐个键用 `.get(key)`
+        取默认 `None`：X 没有给 `like_count` 时，我们**没有**观测到 0 个赞。
+        一次抓取一个 `observed_at`，整批共用（同 `research`）。
+        """
+        if not ids:
+            return [], []
+        raw = await self._client.get_posts_by_ids(list(ids))
+        stamp = observed_at or self._clock()
+
+        observations: list[PostMetricsObservation] = []
+        returned: set[str] = set()
+        for entry in raw.get("data") or []:
+            post_id = entry.get("id")
+            if not post_id:
+                continue
+            post_id = str(post_id)
+            returned.add(post_id)
+            metrics = entry.get("public_metrics") or {}
+            observations.append(
+                PostMetricsObservation(
+                    platform_post_id=post_id,
+                    # 逐个键取，默认 None——**不要**抄 `_map` 里的
+                    # `metrics.get("like_count", 0)`：那是"别人帖子"的口径。
+                    likes=metrics.get("like_count"),
+                    replies=metrics.get("reply_count"),
+                    reposts=metrics.get("retweet_count"),
+                    quote_count=metrics.get("quote_count"),
+                    # v1：这两项从未请求，恒为 None（字段留在 schema 里而已）。
+                    impressions=metrics.get("impression_count"),
+                    bookmarks=metrics.get("bookmark_count"),
+                    observed_at=stamp,
+                )
+            )
+        not_returned = [pid for pid in ids if pid not in returned]
+        return observations, not_returned
 
     async def publish(self, content: str) -> str:
         """发布推文，返回 X 侧 post id。

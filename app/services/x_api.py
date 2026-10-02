@@ -25,6 +25,11 @@ from app.services.x_oauth import build_authorization_header
 #: 又被剥掉 5 秒——这个取舍显然划算。
 END_TIME_MIN_LAG = timedelta(seconds=15)
 
+#: `/2/tweets?ids=` 单次请求的 id 上限（X 的硬限制）。超过要由调用方分批——
+#: 这不是"建议值"，超了 X 直接 400，所以放在最靠近 X 的地方并公开出去，
+#: 免得每个调用方各记一个数字。
+MAX_LOOKUP_IDS = 100
+
 
 def _rfc3339(value: datetime) -> str:
     """X 的 search 端点要求 RFC3339（例如 2026-09-26T12:00:00Z）。
@@ -90,6 +95,14 @@ class XApiClient(Protocol):
         """返回 /2/tweets/search/recent 的原始 JSON dict（data/includes/meta）。
 
         `start_time` / `end_time` 是 X 侧的过滤窗口（RFC3339）。
+        """
+
+    async def get_posts_by_ids(self, ids: list[str]) -> dict:
+        """返回 /2/tweets?ids=... 的原始 JSON dict（data/errors）。
+
+        只读。用来读**我们自己已发布帖子**的公开指标；`ids` 超过
+        `MAX_LOOKUP_IDS` 时由调用方分批。X 未返回的 id 不会出现在 `data` 里，
+        调用方必须把"缺席"当作"取不到"，不得补一个 0。
         """
 
     async def create_post(self, text: str) -> str:
@@ -194,6 +207,42 @@ class RealXApiClient:
             now = datetime.now(timezone.utc)
             latest_allowed = now - END_TIME_MIN_LAG
             params["end_time"] = _rfc3339(min(end_time, latest_allowed))
+        headers = {"Authorization": f"Bearer {self._bearer_token}"}
+
+        resp = await self._request("GET", url, params=params, headers=headers)
+        if resp.status_code >= 400:
+            raise XApiResponseError(
+                resp.status_code, f"X API returned {resp.status_code}: {resp.text[:200]}"
+            )
+        return self._parse_json(resp)
+
+    async def get_posts_by_ids(self, ids: list[str]) -> dict:
+        """GET /2/tweets?ids=...&tweet.fields=public_metrics（app-only Bearer）。
+
+        ## 只请求 public_metrics，连 created_at 都不要
+
+        `created_at` 是"来源给定的发布时刻"，而 published_post.published_at 早已
+        把它记下来了。这里再要一次，就等于给同一个事实制造第二个来源：两处一旦
+        不一致（比如发布是人工确认的、时刻与 X 的并不相同），谁对谁错无从判断。
+        Phase 5B.2 的纪律是"只有两种时间语义，不要发明第三种"，那条同样适用于
+        "不要重复采集已经有来源的时间"。
+
+        ## 为什么错误分类要复用 `_request`
+
+        与 search 走同一条 `_request` 路径，于是连接失败 → `XApiTransportError`、
+        非 2xx → `XApiResponseError(status_code)` 的语义与写路径完全一致。读路径
+        不关心"有没有送达"（GET 不会创建任何东西），但让调用方拿到同样的错误类型
+        意味着抓取脚本可以用与发布同样的一套判断来报告失败。
+        """
+        if len(ids) > MAX_LOOKUP_IDS:
+            raise ValueError(
+                f"get_posts_by_ids accepts at most {MAX_LOOKUP_IDS} ids per call, got {len(ids)}"
+            )
+        url = f"{self._base_url}/2/tweets"
+        params: dict[str, object] = {
+            "ids": ",".join(ids),
+            "tweet.fields": "public_metrics",
+        }
         headers = {"Authorization": f"Bearer {self._bearer_token}"}
 
         resp = await self._request("GET", url, params=params, headers=headers)

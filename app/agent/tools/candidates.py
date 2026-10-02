@@ -19,6 +19,7 @@ from app.agent.budget import AgentBudget, counter
 from app.agent.persona import Persona
 from app.agent.prompts import (
     format_evidence,
+    format_feedback_context,
     format_persona,
     format_style_recipe,
     format_viewpoint,
@@ -27,6 +28,7 @@ from app.agent.prompts import (
 )
 from app.agent.schemas import Candidate, CandidateList
 from app.agent.tools.base import ToolResult, complete_json
+from app.feedback.runtime import resolve_feedback_context
 from app.services.llm import LLMService
 from app.style.runtime import resolve_recipe
 
@@ -67,11 +69,19 @@ def make_candidates_tool(
             # 是同一个 `persona.max_length`，三处同源。
             hard_max_length=persona.max_length,
         )
-        style_delta = {"style_recipe": recipe}
+        # Phase 5B.4：反馈上下文与 recipe 并排备好。两者都是"这次运行拿到了什么
+        # 输入"的运行期决策，都要在**每条返回路径**上落进 state——漏掉任何一条，
+        # 那一次运行就会在最需要解释的时候缺失"当时看到了什么"。
+        feedback = await resolve_feedback_context(
+            session_factory,
+            existing=state.get("feedback_context"),
+        )
+        # 两个 delta 合成一个：返回路径有三条，逐个列举很容易在某一条上漏掉一个。
+        context_delta = {"style_recipe": recipe, "feedback_context": feedback}
 
         capacity = budget.max_candidates - len(existing)
         if capacity <= 0:  # pragma: no cover - 前置条件已挡住，防御性分支
-            return ToolResult(delta=style_delta, summary="候选池已满，未生成新候选")
+            return ToolResult(delta=context_delta, summary="候选池已满，未生成新候选")
 
         wanted = min(budget.candidates_per_round, capacity)
         angle = state.get("selected_angle")
@@ -97,6 +107,10 @@ def make_candidates_tool(
             # STYLE **必须**每次都传：render 只替换传进去的键，不会因为缺键报错，
             # 漏传会让字面量 {{STYLE}} 原样进入发给模型的 prompt。
             STYLE=format_style_recipe(recipe),
+            # FEEDBACK **必须**每次都传，理由同 STYLE / VIEWPOINT：漏传会让
+            # 字面量 `{{FEEDBACK}}` 原样进入 prompt。这里给的是**过去结果的观察**，
+            # 不是写作要求（工作单第四十二节）。
+            FEEDBACK=format_feedback_context(feedback),
             MAX_LENGTH=persona.max_length,
             COUNT=wanted,
         )
@@ -127,7 +141,7 @@ def make_candidates_tool(
             # criticize 的前置条件也就不会满足（不会去评价一批没写过的东西）。
             # style_recipe 仍然要写：这一轮虽然没产出候选，但"本次的结构"已经定了，
             # 而 Critic 下一轮读的正是 state 里这个字段。
-            return ToolResult(delta=style_delta, summary="模型没有产出可用候选")
+            return ToolResult(delta=context_delta, summary="模型没有产出可用候选")
 
         logger.info("agent candidates completed (run_id=%s, new=%d)", run_id, len(fresh))
         labels = "；".join(f"{c.candidate_id}（{c.label}）" for c in fresh)
@@ -137,7 +151,7 @@ def make_candidates_tool(
                 # writer_epoch 表示"候选池被改动过几次"。criticize 靠它判断
                 # 自己评的是不是最新的那批（见 budget.allowed_actions）。
                 "writer_epoch": counter(state, "writer_epoch") + 1,
-                **style_delta,
+                **context_delta,
             },
             summary=f"写出 {len(fresh)} 条候选：{labels}",
         )

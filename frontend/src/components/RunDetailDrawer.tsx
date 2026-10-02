@@ -13,6 +13,14 @@ import { ResearchList } from './ui/ResearchList'
 import { DetailSection, Field, FieldGrid } from './ui/Section'
 import { TraceTimeline } from './ui/TraceTimeline'
 import { IconExternal } from './ui/icons'
+import {
+  FEEDBACK_DISCLAIMER,
+  feedbackHeadline,
+  hoursSinceLabel,
+  metricLabel,
+  observationLine,
+  signalHeadline,
+} from '../utils/feedback'
 import { buildLifecycle } from '../utils/lifecycle'
 import { traceSummary } from '../utils/trace'
 import {
@@ -264,6 +272,165 @@ function StyleSection({ detail }: { detail: AdminRunDetail }) {
           </div>
         </div>
       </details>
+    </DetailSection>
+  )
+}
+
+/**
+ * 这条帖子**后来被观察到的**结果（Phase 5B.4）。
+ *
+ * 与 `FeedbackSection` 是两件事，并且**必须分成两段**：
+ *
+ *   - 这一段来自快照表，回答"这条帖子现在怎么样"——它还会继续变；
+ *   - 那一段来自 checkpoint，回答"这次运行当时看到了什么"——它永远不变。
+ *
+ * 合成一段的话，人就会拿今天的点赞数去解释当时 Agent 为什么那么写。
+ *
+ * 门槛与其它段不同：**不是**看 `detail.performance` 是否为空，而是看这个 Run
+ * 有没有一条真正带着 `x_post_id` 的发布记录。没发出去的 Run 不出现这一段
+ * ——一个"发都没发出去"的 Run 下面挂一句"还没有观察记录"，会被读成"发了但没人看"。
+ */
+function PerformanceSection({ detail }: { detail: AdminRunDetail }) {
+  const publish = detail.publish
+  if (!publish || !publish.x_post_id) return null
+  const observed = detail.performance
+
+  return (
+    <DetailSection
+      title="这条帖子的后续观察"
+      hint={observed ? observationLine(observed.observation_count, observed.latest_observed_at) : undefined}
+    >
+      {observed === null ? (
+        <div className="notice">
+          <div className="notice__title">还没有观察记录</div>
+          这条帖子确认发出去了（x_post_id 为 <span className="mono">{publish.x_post_id}</span>），
+          但从没跑过采集，所以本系统对它的表现<strong>一无所知</strong>。
+          这不是"没人互动"——是没看过。采集由
+          <span className="mono">scripts/refresh_post_metrics.py</span> 手工触发。
+        </div>
+      ) : (
+        <>
+          <FieldGrid>
+            {/* 每一个计数都走 metricLabel：未知显示「暂无数据」，**不是** 0。
+                这两者在界面上长得不一样，是这一整块存在的意义。 */}
+            <Field label="点赞">{metricLabel(observed.likes)}</Field>
+            <Field label="回复">{metricLabel(observed.replies)}</Field>
+            <Field label="转发">{metricLabel(observed.reposts)}</Field>
+            <Field label="引用">{metricLabel(observed.quotes)}</Field>
+          </FieldGrid>
+
+          <FieldGrid>
+            <Field label="发布时刻">{dateTime(observed.published_at)}</Field>
+            <Field label="最近观察">{dateTime(observed.latest_observed_at)}</Field>
+            <Field label="发布后时长">{hoursSinceLabel(observed.hours_since_publish)}</Field>
+            <Field label="观察次数">{observationLine(observed.observation_count, null)}</Field>
+          </FieldGrid>
+
+          <div className="meta">
+            {/* 取的是**最新**一条观察，不是各次之和。求和会造出一个任何一个
+                时刻都不曾成立的数——计数是单调累计的，相加等于把同一个人
+                数了一遍又一遍。 */}
+            上面的计数是<strong>最新一次观察</strong>读到的公开数字，
+            不是各次观察之和。曝光与书签不在采集范围内（v1 只读公开计数），
+            因此它们在这里不显示，也不显示 0。
+          </div>
+          <div className="meta">{FEEDBACK_DISCLAIMER}</div>
+        </>
+      )}
+    </DetailSection>
+  )
+}
+
+/**
+ * 这次运行**读到的**反馈摘要（Phase 5B.4）。
+ *
+ * 门槛与 `AgentQualitySection` 相同（非 Agent 运行的 `feedback` 为 null，
+ * 这一段不出现）。
+ *
+ * 最要紧的一件事是**把三种"没有"分开**，否则读的人会把它们混成一种：
+ *
+ *   1. `available=false` —— 这次运行压根没读到反馈（5B.4 之前的运行，
+ *      或者取用失败）。后端给的原因原样显示，前端不翻译、不改写。
+ *   2. `available=true` 但一条信号都没有 —— 读到了，但当时还没有可观察的东西。
+ *   3. 有信号 —— 正常。
+ *
+ * `limitations` 一条都不筛：被筛掉的那条通常恰好是最该被读到的那条。
+ */
+function FeedbackSection({ detail }: { detail: AdminRunDetail }) {
+  const feedback = detail.feedback
+  if (!feedback) return null
+
+  return (
+    <DetailSection
+      title="这次运行读到的反馈"
+      hint={feedback.available ? undefined : '没有读到'}
+    >
+      <div>
+        <div className="meta__label">当时对过去发布结果的了解</div>
+        <div>{feedbackHeadline(feedback)}</div>
+        {!feedback.available && feedback.reason ? (
+          // 原因必须印出来：两种"没有"（键不在 vs 键在但为空）在后端就是
+          // 两条不同的常量，界面把它们合并成一句就等于抹掉了这个区别。
+          <div className="meta">{feedback.reason}</div>
+        ) : null}
+      </div>
+
+      {feedback.available ? (
+        <FieldGrid>
+          <Field label="观察条数">{feedback.sample_count}</Field>
+          <Field label="涉及帖子">{feedback.post_count}</Field>
+          <Field label="依据快照">{feedback.snapshot_count}</Field>
+          <Field label="最近观察">{dateTime(feedback.latest_observed_at)}</Field>
+        </FieldGrid>
+      ) : null}
+
+      {feedback.available && feedback.signals.length > 0 ? (
+        <div>
+          <div className="meta__label">观察到的信号（{feedback.signals.length} 条）</div>
+          <ul className="stack stack--tight">
+            {feedback.signals.map((signal, index) => (
+              <li key={index}>
+                {/* 样本量印在每一条结论上：没有 n 的结论无法被判断为
+                    "样本太小"，而样本太小恰恰是这批数据最常见的问题。 */}
+                <div className="meta__label">{signalHeadline(signal)}</div>
+                <div>{signal.statement}</div>
+                {signal.evidence.length > 0 ? (
+                  // 证据 id 是可核对的把手：一个不能回到原始观察的结论，
+                  // 和一个不能核对的分数一样没用。
+                  <div className="meta">
+                    <span className="mono cell-muted">{signal.evidence.join('、')}</span>
+                  </div>
+                ) : null}
+                {/* comparison_group 与 confidence 恒为 null（v1 没有基线，
+                    也没有校准过的置信度）。这里**不显示**这两项：给一个
+                    恒为空的字段配一句"暂无"，只会让人以为它本来该有值。 */}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {feedback.limitations.length > 0 ? (
+        <div className="meta">
+          <div className="meta__label">这份摘要没有回答什么</div>
+          <ul className="stack stack--tight">
+            {feedback.limitations.map((note, index) => (
+              <li key={index}>{note}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      <div className="meta">{FEEDBACK_DISCLAIMER}</div>
+
+      {feedback.source_snapshot_ids.length > 0 ? (
+        <details className="disclosure">
+          <summary>技术细节（依据的原始观察）</summary>
+          <div className="disclosure__body">
+            <div className="mono">{feedback.source_snapshot_ids.join('\n')}</div>
+          </div>
+        </details>
+      ) : null}
     </DetailSection>
   )
 }
@@ -674,6 +841,14 @@ export function DetailBody({ detail, onSettled }: { detail: AdminRunDetail; onSe
       <ViewpointSection detail={detail} />
 
       <StyleSection detail={detail} />
+
+      {/* 反馈两块排在一起，且**按时间顺序**排：
+          先"这次运行当时读到了什么"（它是这次决策的输入），
+          再"这条帖子后来怎么样"（它是这次决策的结果）。
+          反过来摆，读的人会以为 Agent 当时就知道后面的数。 */}
+      <FeedbackSection detail={detail} />
+
+      <PerformanceSection detail={detail} />
 
       <DetailSection
         title="研究素材"

@@ -24,9 +24,13 @@ CHECKPOINT_URL = to_libpq_url(TEST_URL)
 #: 它们与 agent_run 没有外键关系，`TRUNCATE agent_run CASCADE` 够不到它们，
 #: 残留行会跨测试存活——而候选工具运行时要读 style_profile，
 #: 上一个测试留下的 Profile 就成了下一个测试的隐藏输入。
+#:
+#: Phase 5B.4 的 post_metrics_snapshot 同理：它只挂在 published_post 上，
+#: 而 published_post 本身要等 agent_run 那条链被 CASCADE 到才会被清。
+#: 显式列进来，读快照的测试才不会看到上一个测试留下的观察。
 _ALL_TABLES = (
     "account, agent_run, research_item, draft, review, published_post, agent_decision, "
-    "tracked_account, style_sample, style_profile"
+    "tracked_account, style_sample, style_profile, post_metrics_snapshot"
 )
 
 # 固定的"现在"。`SAMPLE_X_RESPONSE` 里的 `created_at` 是写死的，而 Phase 5B.1 的

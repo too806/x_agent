@@ -13,8 +13,9 @@ import { useAsync } from '../hooks/useAsync'
 import { useConsole } from '../hooks/useConsole'
 import { usePageClamp } from '../hooks/usePageClamp'
 import { PUBLISH_STATUSES, isUnresolved } from '../types/api'
+import { NO_DATA, hoursSinceLabel, metricLabel } from '../utils/feedback'
 import { EMPTY, codePointLength, dateTime, publishStatusLabel } from '../utils/format'
-import type { PublishedRow } from '../types/api'
+import type { FeedbackPostSummary, PublishedRow } from '../types/api'
 
 const UNRESOLVED_FILTER = '__unresolved__'
 
@@ -31,10 +32,42 @@ const UNRESOLVED_FILTER = '__unresolved__'
  *
  * 本系统是审计记录，不是 X 当前状态的实时镜像——所以这里**没有删除按钮，也没有
  * "标记删除"**。人工去 X 上删了推文，这一行不会跟着变，也不该变。
+ *
+ * Phase 5B.4 加的「最新观察」列是这张表里**唯一**一个例外，所以它单独标注时间
+ * （"发布后 N 小时"）和来源（手工采集）：上面几列是发布那一刻的审计事实，
+ * 那一列是后补的观察。两者不加区分地并排，人会拿今天的数字解释当时的行为。
  */
 
 /** 短于这个长度的正文直接整段显示，不给"展开全文"。 */
 const INLINE_BODY_LIMIT = 60
+
+/**
+ * 这条帖子**后来被观察到的**最新一次结果（Phase 5B.4）。
+ *
+ * 这是整张表里唯一一个**会随时间变化**的格：上面几列都是发布那一刻的审计事实，
+ * 这一列是后采的。所以它必须自带时间（"发布后 N 小时"），否则人会拿今天的数
+ * 去对昨天那一行做结论。
+ *
+ * 没采过时显示「暂无数据」——**不是 `0`**。整张表里一个"赞 0 · 回 0 · 转 0"
+ * 会被直接读成"这条没人看"，而事实是这个帖子从没被采集过。
+ */
+function MetricsCell({ metrics }: { metrics: FeedbackPostSummary | null }) {
+  if (metrics === null) {
+    // 采集是手工触发的（scripts/refresh_post_metrics.py），没跑过就一个快照都没有。
+    return <span className="cell-muted">{NO_DATA}</span>
+  }
+  return (
+    <div className="stack stack--tight">
+      <span className="cell-nowrap">
+        赞 {metricLabel(metrics.likes)} · 回 {metricLabel(metrics.replies)} · 转{' '}
+        {metricLabel(metrics.reposts)} · 引 {metricLabel(metrics.quotes)}
+      </span>
+      <span className="cell-muted">
+        {hoursSinceLabel(metrics.hours_since_publish)} · 观察 {metrics.observation_count} 次
+      </span>
+    </div>
+  )
+}
 
 function PublishRow({
   row,
@@ -104,6 +137,9 @@ function PublishRow({
         <td className="cell-nowrap">
           <div className="table__time-abs">{dateTime(row.published_at)}</div>
         </td>
+        <td>
+          <MetricsCell metrics={row.latest_metrics} />
+        </td>
         <td className="cell-nowrap">
           <div className="table__time-abs">{dateTime(row.updated_at)}</div>
         </td>
@@ -137,7 +173,7 @@ function PublishRow({
       </tr>
       {unresolved ? (
         <tr className="table__row--unknown">
-          <td colSpan={7} className="resolve-cell">
+          <td colSpan={8} className="resolve-cell">
             <ResolveControl
               runId={row.run_id}
               publish={{
@@ -333,6 +369,9 @@ export function Published() {
                         <th>发布状态</th>
                         <th>X 帖子 ID</th>
                         <th title="X 接受这条帖子的时刻。结果未定的行这里是 —。">发布时间</th>
+                        <th title="手工采集到的最新一次公开计数（点赞 / 回复 / 转发 / 引用），以及距发布多久。没有采集记录时显示「暂无数据」——那不是 0。">
+                          最新观察
+                        </th>
                         <th title="这条发布记录最后一次被改动的时刻。结果未定的行靠它判断这次尝试是什么时候发起的。">
                           记录更新时间
                         </th>

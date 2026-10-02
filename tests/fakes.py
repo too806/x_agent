@@ -52,16 +52,24 @@ class FakeXApiClient:
         error=None,
         post_id: str = "1900000000000000001",
         post_error: BaseException | None = None,
+        lookup_raw: dict | None = None,
+        lookup_error: BaseException | None = None,
     ):
         self._raw = raw if raw is not None else SAMPLE_X_RESPONSE
         self._error = error
         self._post_id = post_id
         self._post_error = post_error
+        # Phase 5B.4：按 id 读公开指标的假响应。默认空（"一条都没返回"）——
+        # 测试要显式给出 data，才能断言"缺席 ≠ 0"。
+        self._lookup_raw = lookup_raw if lookup_raw is not None else {}
+        self._lookup_error = lookup_error
         self.created: list[str] = []
         # 每次检索的 (query, max_results, start_time, end_time)。
         # 扫描窗口是 Phase 5B.1 的一等公民（"最近"必须有定义），所以测试要能
         # 断言它确实被传下去了，而不是被悄悄丢掉。
         self.searches: list[dict] = []
+        # 每次按 id 抓取请求的 id 列表。
+        self.lookups: list[list[str]] = []
 
     async def search_recent_tweets(
         self,
@@ -88,6 +96,12 @@ class FakeXApiClient:
         if self._post_error is not None:
             raise self._post_error
         return self._post_id
+
+    async def get_posts_by_ids(self, ids: list[str]) -> dict:
+        self.lookups.append(list(ids))
+        if self._lookup_error is not None:
+            raise self._lookup_error
+        return self._lookup_raw
 
 
 class FakeLLMService:

@@ -1,0 +1,110 @@
+{
+  "phase": "5B.4",
+  "note": "每次 smoke 一份记录，累积保存在 runs 里。",
+  "runs": [
+    {
+      "phase": "5B.4",
+      "generated_at": "2026-10-02T11:43:06.528729+00:00",
+      "note": "工作单第四十一节五条 smoke 的记录。Smoke 3 / 5 在合成数据上跑；Smoke 1 / 2 / 4 因为没有已发布帖子而**跑不了**，记成 blocked。内容含当天真实 X 检索与真实 LLM 的产物，因此**不可复现**——它不是基准，是当时的记录。",
+      "goal": "找一个值得讨论的 AI Agent 话题。",
+      "smokes": {
+        "3_small_sample": {
+          "available": true,
+          "threshold": 5,
+          "sample_count": 4,
+          "signal_kinds": [
+            "insufficient_sample"
+          ],
+          "insufficient_sample_count": 1,
+          "comparative_signal_count": 0,
+          "guard_statement": "当前可用的观察只有 4 条，低于比较下限 5，本期不产出任何分组比较或比率结论。这个下限是采集量的门槛，不是统计显著性判断。",
+          "guard_evidence_count": 4,
+          "causal_hits": {},
+          "writer_block": "- 以下是你自己账号**过去已发布内容**被观察到的结果，只作背景参考，不是本次的写作要求。\n- 样本：4 条观察，覆盖 1 条已发布内容。\n- 最近一次观察时刻：2026-09-24T13:00:00+00:00。\n- 当前可用的观察只有 4 条，低于比较下限 5，本期不产出任何分组比较或比率结论。这个下限是采集量的门槛，不是统计显著性判断。\n- 口径与局限：本报告只描述观察到的分布，不做任何因果结论；同时出现不等于谁导致了谁。；点赞、回复、转发、引用是四类不同的行为，本报告不把它们合成单一分数。；指标为公开计数；曝光与收藏从未采集，恒为未知，不按 0 计入。；没有对照组、没有实验设计；任何组间差异都可能来自内容之外的变量。；观察数 n=4，低于比较下限 5，本报告只报告样本量，不产出任何比较结论。；曝光量为未知，因此互动率无法计算（不是零互动率）。；本次观察覆盖的时间档：1-6h。",
+          "writer_block_chars": 398,
+          "note": "低于下限时上下文里没有任何可被当成结论的分布：Writer 拿到的唯一一句反馈就是「观察只有 4 条，低于下限，不产出比较」。"
+        },
+        "5a_agent_reads_feedback": {
+          "available": true,
+          "run_id": "614b57ac-8166-4df3-9f89-7b15db0a47f2",
+          "interrupted": true,
+          "steps": 9,
+          "snapshot_count": 8,
+          "post_count": 1,
+          "sample_count": 8,
+          "signal_kinds": [
+            "attention",
+            "conversation",
+            "amplification",
+            "share"
+          ],
+          "signal_count": 4,
+          "comparison_group_is_null": true,
+          "confidence_is_null": true,
+          "evidence_non_empty": true,
+          "writer_block_chars": 562,
+          "writer_block": "- 以下是你自己账号**过去已发布内容**被观察到的结果，只作背景参考，不是本次的写作要求。\n- 样本：8 条观察，覆盖 1 条已发布内容。\n- 最近一次观察时刻：2026-09-24T17:00:00+00:00。\n- 观察到 8 条观察的点赞数（注意力）分布：中位数 23.50，最小 13，最大 34。这是观察到的分布，不构成任何因果结论。\n- 观察到 8 条观察的对话量（回复+引用）分布：中位数 6，最小 3，最大 9。这是观察到的分布，不构成任何因果结论。\n- 观察到 8 条观察的转发数（扩散）分布：中位数 1，最小 1，最大 1。这是观察到的分布，不构成任何因果结论。\n- 在 8 条四类计数齐全的观察中，注意力占互动总量的比例中位数为 0.77，对话为 0.20，扩散为 0.03。这是观察到的构成，不构成任何因果结论。\n- 口径与局限：本报告只描述观察到的分布，不做任何因果结论；同时出现不等于谁导致了谁。；点赞、回复、转发、引用是四类不同的行为，本报告不把它们合成单一分数。；指标为公开计数；曝光与收藏从未采集，恒为未知，不按 0 计入。；没有对照组、没有实验设计；任何组间差异都可能来自内容之外的变量。；曝光量为未知，因此互动率无法计算（不是零互动率）。；本次观察覆盖的时间档：1-6h、6-24h。",
+          "note": "合成上下文注入初始 state；没有往 published_post 写任何一行。prompt 抓包级证据见 tests/test_feedback_writer_integration.py。"
+        },
+        "5b_agent_without_feedback": {
+          "available": true,
+          "run_id": "ca4d4d72-550a-4fcf-916d-40812dd28a6c",
+          "interrupted": true,
+          "steps": 11,
+          "context_is_empty": true,
+          "writer_block": "（本次没有可用的历史结果观察：账号此前发布的内容还没有被采集过，或采集到的数量还不构成任何可说的分布。按上面的目标与证据自行写作。）",
+          "note": "空上下文渲染成一段说明（不是空白、也不是未替换的占位符）。"
+        },
+        "1_historical_post_chain": {
+          "available": false,
+          "blocked": true,
+          "reason": "库里 published_post 一行都没有（也没有任何 post_metrics_snapshot），所以这条数据链没有可跑的对象。它不是'没跑到'，是**没有东西可跑**。工作单第三十五节：数据不足时不编，如实记为 blocked。 本阶段锁定决定：不做真实 X 调用（工作单第三十三节只说 GET 允许，而工作单第四十一节这几条 smoke 要求的是历史真实帖子的回读）。"
+        },
+        "2_snapshot_time_series": {
+          "available": false,
+          "blocked": true,
+          "reason": "库里 published_post 一行都没有（也没有任何 post_metrics_snapshot），所以这条数据链没有可跑的对象。它不是'没跑到'，是**没有东西可跑**。工作单第三十五节：数据不足时不编，如实记为 blocked。 时间序列的**分档口径**另在 evals/feedback/selftest.py::multiple_windows 有离线对照，但那证明的是算法，不是数据链。"
+        },
+        "4_feedback_report_enough_samples": {
+          "available": false,
+          "blocked": true,
+          "reason": "库里 published_post 一行都没有（也没有任何 post_metrics_snapshot），所以这条数据链没有可跑的对象。它不是'没跑到'，是**没有东西可跑**。工作单第三十五节：数据不足时不编，如实记为 blocked。 样本足够时产出报告的**算法**另在 evals/feedback/selftest.py::healthy_sample 有离线对照，但那证明的是算法，不是真实数据。"
+        }
+      },
+      "runs": [
+        {
+          "run_id": "614b57ac-8166-4df3-9f89-7b15db0a47f2",
+          "goal": "找一个值得讨论的 AI Agent 话题。",
+          "interrupted": true,
+          "db_status": "running",
+          "steps": 9,
+          "topic": "26Q3 AI 季报：Muse 引爆个人助理、Astra 进入机器人、OpenAI 收入猛增"
+        },
+        {
+          "run_id": "ca4d4d72-550a-4fcf-916d-40812dd28a6c",
+          "goal": "找一个值得讨论的 AI Agent 话题。",
+          "interrupted": true,
+          "db_status": "running",
+          "steps": 11,
+          "topic": "All In One BNB, All In. https://t.co/jdiBzwoKnM"
+        }
+      ],
+      "failed_runs": {},
+      "x_requests": {
+        "total": 6,
+        "by_method": {
+          "GET": 6
+        },
+        "post_tweets": 0,
+        "queries": [
+          "\"AI Agent\" 实测 体验 翻车 讨论",
+          "\"AI Agent\" 智能体 讨论 争议",
+          "AI Agent 争议 落地 实测 讨论",
+          "AI Agent 智能体 讨论 进展",
+          "AI 季报 Muse 个人助理 Astra 机器人 OpenAI 营收",
+          "找一个值得讨论的 AI Agent 话题。"
+        ]
+      }
+    }
+  ]
+}

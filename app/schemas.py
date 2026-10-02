@@ -68,6 +68,39 @@ class ResearchResult(BaseModel):
     is_reply: bool = False
 
 
+class PostMetricsObservation(BaseModel):
+    """**我们自己已发布帖子**在某一时刻的公开指标（Phase 5B.4）。
+
+    与 `ResearchResult` 的关键区别，也是本模型存在的理由：
+
+    - `ResearchResult` 描述的是**别人发的**帖子（检索回来的材料），缺失的计数
+      填 0 是那一路径的既定口径。
+    - 本模型描述的是**我们自己发的**帖子后来怎么样了，而这里"没拿到"和"是 0"
+      必须分开：0 表示观测到"没人互动"，NULL 表示"这次没读到"。用 0 冒充未知，
+      会让一条被 X 限流、字段缺失的帖子看起来像一条没人理的帖子——而这两种
+      情况对反馈的含义完全相反。
+
+    因此所有计数默认 `None`，且**永远不由客户端补默认值**。
+
+    ## 时间
+
+    只有 `observed_at` 这**一个**时间字段：**我们**抓取的时刻，一次抓取一个值。
+    发布时刻不在这里——它已经在 `published_post.published_at` 上（来源给定），
+    重复采集只会制造第二个来源。`hours_since_publish` 由调用方用两者相减得出。
+    """
+
+    platform_post_id: str
+    likes: int | None = None
+    replies: int | None = None
+    reposts: int | None = None
+    quote_count: int | None = None
+    #: v1 恒为 None：需要 user-context 的 non_public_metrics，当前没有采集路径。
+    #: 字段留着，是为了将来有来源时下游不必改形状。
+    impressions: int | None = None
+    bookmarks: int | None = None
+    observed_at: datetime
+
+
 class GeneratedDraft(BaseModel):
     """LLM 结构化输出，经 schema validation。"""
 
@@ -633,6 +666,76 @@ class ViewpointCandidateBrief(BaseModel):
     stance_label: str = ""
 
 
+class FeedbackSignalRow(BaseModel):
+    """一条反馈信号的对外形状（Phase 5B.4）。
+
+    与 `app/feedback/schema.py::FeedbackSignal` 字段一一对应，但**分开定义**：
+    那个是纯核心的内部契约，这个是 API 契约。合成一个的话，改一次内部字段
+    就会悄悄改掉一个已经发布的接口，而这种改动不会有任何测试报错。
+    """
+
+    kind: str
+    statement: str
+    metric: str | None = None
+    value: float | None = None
+    #: 与谁比较。v1 恒为 None——还没有基线，只描述分布。
+    comparison_group: str | None = None
+    sample_count: int = 0
+    #: 经过校准的置信度。v1 恒为 None（编一个数字就是捏造）。
+    confidence: float | None = None
+    #: 依据的快照 id，非空。
+    evidence: list[str] = []
+    window: str | None = None
+
+
+class FeedbackPostSummary(BaseModel):
+    """一条已发布帖子的**最新一次观察**。
+
+    计数全部可空，而且**没有默认值 0**：`None` 表示"这次没读到/没采到"，
+    `0` 表示"读到的是零"。界面必须把两者显示成不同的样子
+    （见 `frontend/src/utils/feedback.ts`）。
+    """
+
+    published_post_id: str
+    x_post_id: str | None = None
+    published_at: datetime | None = None
+    observation_count: int = 0
+    latest_observed_at: datetime | None = None
+    hours_since_publish: float | None = None
+    likes: int | None = None
+    replies: int | None = None
+    reposts: int | None = None
+    quotes: int | None = None
+    impressions: int | None = None
+    bookmarks: int | None = None
+
+
+class RunFeedbackSummary(BaseModel):
+    """**这次运行读到的**反馈（Phase 5B.4，来自 checkpoint 的 `feedback_context`）。
+
+    与 `FeedbackOverview` 是两个不同的东西，刻意分开：
+
+    - `FeedbackOverview` 是"我们这个账号发出去的东西现在怎么样"——一个聚合视图；
+    - 本模型是"**这一次运行当时看到了什么**"——一个运行期事实，事后不可重算
+      （快照会继续增加，而那次运行看到的是当时的那一批）。
+
+    所以它必须从 checkpoint 读，不能拿现在的快照现算一份最新的塞进去。
+    `available=False` 表示这次运行没有读到反馈（Phase 5B.4 之前的运行，
+    或者取用失败），**不是**"读到了零条"。
+    """
+
+    available: bool
+    reason: str | None = None
+    sample_count: int = 0
+    post_count: int = 0
+    snapshot_count: int = 0
+    latest_observed_at: datetime | None = None
+    signals: list[FeedbackSignalRow] = []
+    limitations: list[str] = []
+    #: 这次运行的摘要依据了哪些快照行，让 Run Detail 能回到原始观察。
+    source_snapshot_ids: list[str] = []
+
+
 class AdminRunDetail(BaseModel):
     """Run 的完整生命周期视图。
 
@@ -674,6 +777,15 @@ class AdminRunDetail(BaseModel):
     # 否则 V1 topic 链的 Run 会冒出一个空白的"核心判断"块。两侧都要加——
     # 它是 response_model，schema 里没有的字段会被静默丢弃。
     viewpoint: RunViewpointSummary | None = None
+    # Phase 5B.4：这次运行**读到**的反馈（checkpoint），与它发布出去的帖子
+    # **后来被观察到的**结果（数据库快照）。两者来源不同、时间语义不同，
+    # 所以是两个字段而不是一个：前者是运行期决策，后者是外部世界的回音。
+    # 与 quality / style / viewpoint 同一处门控（只有 Agent 运行才有）。
+    feedback: RunFeedbackSummary | None = None
+    #: 这个 Run 的已发布帖子的**最新一次观察**。没有快照（还没采过、
+    #: 或者这条帖子根本没有 x_post_id）时为 `None`，**不是一行 0**。
+    #: 它不门控于 goal：发布链路是 V1 就有的，topic 链路的 Run 也会发帖。
+    performance: FeedbackPostSummary | None = None
     draft: DraftRecord | None = None
     review: ReviewRecord | None = None
     publish: PublishRecord | None = None
@@ -697,6 +809,12 @@ class PublishedRow(BaseModel):
     created_at: datetime
     updated_at: datetime
     last_error: str | None = None
+    #: 这一行**后来被观察到的**最新一次结果（Phase 5B.4）。
+    #:
+    #: 与 Run Detail 里的 `performance` 是同一个东西、同一个来源（快照表）。
+    #: 没采过的帖子这里是 `None`，**不是**一行 0——"没采到"与"采到了零"
+    #: 在界面上必须长得不一样（见 `frontend/src/utils/feedback.ts`）。
+    latest_metrics: FeedbackPostSummary | None = None
 
 
 class PublishedListPage(BaseModel):
@@ -722,6 +840,33 @@ class MetricAvailability(BaseModel):
 
     available: bool
     reason: str | None = None
+
+
+class FeedbackOverview(BaseModel):
+    """反馈的一览（`GET /api/admin/feedback`）。
+
+    ## 没有快照时返回 `available=False` + 原因，不返回一串 0
+
+    同 `MetricAvailability` 的口径：0 会被读成"采到了，结果是零"，
+    而真实情况是"从来没采过"。这两件事在运维上的处置完全不同。
+
+    ## 这个接口**不读 checkpoint**
+
+    `app/services/admin.py` 的整体边界就是"聚合接口不读 checkpoint"（见该模块
+    说明）。每条帖子的**归因**（当时选了什么观点、什么结构）在 Run Detail 里，
+    那里本来就要读那一次运行的 checkpoint。在这里读 N 条帖子的 checkpoint，
+    会把一个一览接口变成一个慢查询，而且失败模式会从"少一块"变成"整页报错"。
+    """
+
+    available: bool
+    reason: str | None = None
+    sample_count: int = 0
+    snapshot_count: int = 0
+    post_count: int = 0
+    latest_observed_at: datetime | None = None
+    signals: list[FeedbackSignalRow] = []
+    limitations: list[str] = []
+    posts: list[FeedbackPostSummary] = []
 
 
 class ReviewDecisionDistribution(BaseModel):

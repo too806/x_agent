@@ -39,6 +39,7 @@ from app.agent.schemas import (
     CriticResult,
     EvidencePack,
 )
+from app.feedback.schema import FeedbackContext
 from app.style.schemas import StyleRecipe
 
 __all__ = [
@@ -129,6 +130,11 @@ class AgentRunState(BaseModel):
     # "Writer 收到的是 recipe 而不是样本原文"（extra="allow" 本来也能收下它，
     # 但那样规则里只能按 dict 读，读错字段名不会报错）。
     style_recipe: StyleRecipe | None = None
+    # Phase 5B.4：本次运行读到的**自己过去发布结果的观察摘要**。与 style_recipe
+    # 一样是 checkpoint-only 的字段，所以声明它，评估才能断言"进 Writer 的反馈
+    # 是观察而不是指令"（RULE-024）。`None` = 这次运行没有反馈可用，
+    # 与"读到了但内容为空"是两件事，规则里分开处置。
+    feedback_context: FeedbackContext | None = None
     candidates: list[Candidate] = Field(default_factory=list)
 
     # --- 评审 ---

@@ -1,15 +1,17 @@
 import { useState } from 'react'
 import type { ReactNode } from 'react'
 
-import { api } from '../api/client'
+import { api, ApiError } from '../api/client'
 import { EmptyState, ErrorState, LoadingState } from '../components/States'
 import { StatusBadge } from '../components/StatusBadge'
 import { TrendChart } from '../components/TrendChart'
 import { IconRefresh } from '../components/ui/icons'
 import { useAsync } from '../hooks/useAsync'
-import { EMPTY, duration } from '../utils/format'
+import { FEEDBACK_DISCLAIMER, signalHeadline } from '../utils/feedback'
+import { EMPTY, dateTime, duration } from '../utils/format'
 import type {
   AverageRunDuration,
+  FeedbackOverview,
   PublishOutcomeDistribution,
   ReviewDecisionDistribution,
   TopicCount,
@@ -31,9 +33,11 @@ import type {
  *
  * 三件贯穿全页的诚实性约束：
  *
- * - **不含任何 X 的内容表现指标**（impressions / likes / engagement）。系统没有回读
- *   X 的机制，那类数字在库里根本不存在，所以这里既不显示它们，也不显示 0——一张
- *   "阅读量为 0"的图会被读成"这篇没人看"，而事实是"我们不知道"。
+ * - **上面四层不含任何 X 的内容表现指标**（impressions / likes / engagement）。
+ *   Phase 5B.4 起系统确实有了回读机制，但那是**每条帖子**的公开计数、由脚本手工采集，
+ *   与这一页"系统自己跑了多少"不是同一种东西，所以单独成节（「发布内容的反馈」）
+ *   而不是并进这些按 Run 计数的图里。曝光与书签仍然采不到——v1 只读公开计数，
+ *   它们一律不显示，也不显示 0。
  * - **算不出来的不给 0，也不给占位符。** 平均运行时长在样本不足时显示"暂无足够数据"
  *   并说明缺的是哪一类 Run。计数类的 0 是**真实测量值**（窗口内确实一条都没有），
  *   照常显示，但用弱化样式，免得一个 0 看起来像个成绩。
@@ -236,6 +240,101 @@ function DurationKpi({ metric }: { metric: AverageRunDuration }) {
   )
 }
 
+/**
+ * 自己过去发布内容的反馈（Phase 5B.4）。
+ *
+ * 这是这一页上**唯一**一块"关于我们自己发出去的东西"的数据，所以它与上面所有
+ * 块都不同：上面回答"系统跑了多少"，这一块回答"发出去的东西后来怎么样了"。
+ *
+ * 三种状态必须长得不一样，否则读的人会把它们混成一种：
+ *
+ *   1. **请求失败** —— 这是"这一块没拿到"，与下面两种都不同。绝不能显示成
+ *      `available=false` 的那句"还没有采集过"：那会把一次加载失败说成一个
+ *      关于数据的结论。（`useAsync` 的错误与 `data` 是分开的两个值。）
+ *   2. `available=false` —— 确实一条快照都没有，原因由后端下发。
+ *   3. 有数据 —— 样本量、信号、缺口。
+ */
+function FeedbackBlock({
+  data,
+  loading,
+  error,
+  onRetry,
+}: {
+  data: FeedbackOverview | null
+  loading: boolean
+  error: ApiError | null
+  onRetry: () => void
+}) {
+  if (error && !data) {
+    return (
+      <ErrorState error={error} what="加载反馈数据失败。" onRetry={onRetry} />
+    )
+  }
+  if (!data) {
+    return loading ? <LoadingState message="正在加载反馈…" /> : null
+  }
+
+  if (!data.available) {
+    return (
+      <NotAvailable
+        what={
+          <>
+            <strong>还没有采集过任何发布结果</strong>
+            ：本系统对自己发出去的帖子表现如何<strong>一无所知</strong>，所以这里不显示
+            任何计数——不是显示 0。0 会被读成"发了，但没人互动"。
+          </>
+        }
+        reason={data.reason}
+      />
+    )
+  }
+
+  return (
+    <div className="stack">
+      <div className="kpi-grid">
+        <CountKpi label="观察条数" value={data.sample_count} sub="一条快照 = 一次观察，不是一条帖子" />
+        <CountKpi label="涉及帖子" value={data.post_count} sub="有观察记录的已发布帖子" />
+        <CountKpi label="依据快照" value={data.snapshot_count} sub="采到并落库的原始读数" />
+        <div className="kpi kpi--quiet">
+          <div className="kpi__label">最近一次采集</div>
+          <div className="kpi__value kpi__value--none">{dateTime(data.latest_observed_at)}</div>
+          {/* 采集是**手工**触发的，所以"这份数据有多新"是这一块最要紧的元信息之一：
+              一个三天前的数字与一个三分钟前的数字，读法完全不同。 */}
+          <div className="kpi__sub">采集由脚本手工触发，没有定时任务</div>
+        </div>
+      </div>
+
+      {data.signals.length > 0 ? (
+        <Block title="观察到的信号" hint={`${data.signals.length} 条 · v1 只描述分布，不做比较`}>
+          <ul className="stack stack--tight">
+            {data.signals.map((signal, index) => (
+              <li key={index}>
+                {/* 样本量跟每一条结论一起出现：没有 n 的结论没法被判断为"样本太小"。 */}
+                <div className="meta__label">{signalHeadline(signal)}</div>
+                <div>{signal.statement}</div>
+              </li>
+            ))}
+          </ul>
+        </Block>
+      ) : null}
+
+      {data.limitations.length > 0 ? (
+        <Block title="这份反馈没有回答什么">
+          <ul className="stack stack--tight">
+            {data.limitations.map((note, index) => (
+              <li key={index} className="cell-muted">
+                {note}
+              </li>
+            ))}
+          </ul>
+        </Block>
+      ) : null}
+
+      <p className="cell-muted scope-note">{FEEDBACK_DISCLAIMER}</p>
+    </div>
+  )
+}
+
 /** 明细表的一行。范围那一列是全页最要紧的信息，所以它单独成列而不是塞进说明里。 */
 function ScopeRow({
   metric,
@@ -261,6 +360,10 @@ function ScopeRow({
 export function Analytics() {
   const [days, setDays] = useState(7)
   const { data, loading, error, reload } = useAsync(() => api.getAnalytics(days), [days])
+  // 反馈是**另一个接口**（`GET /api/admin/feedback`），单独取、单独失败。
+  // 合成一个请求的话，反馈拿不到会让整页变成错误页——而这一页上其它每一块
+  // 都还能用。日期窗口对它也无效：反馈是全库的，没有 window 参数。
+  const feedback = useAsync(() => api.getFeedback(), [])
 
   const decisions = data ? reviewRows(data.review_decisions) : []
   const outcomes = data ? publishRows(data.publish_outcomes) : []
@@ -463,6 +566,22 @@ export function Analytics() {
           </section>
 
           {/* ── 4. 明细 ─────────────────────────────────────────────────── */}
+          {/* 反馈单独成节，不并进上面任何一块：它的**对象**不一样。
+              上面全部在数"系统自己跑了多少"，这一节说的是"发出去的东西
+              后来怎么样了"——那是外部世界，而且全部是观察，不是成绩。 */}
+          <section className="section">
+            <div className="section__head">
+              <h2 className="section__title">发布内容的反馈</h2>
+              <span className="section__hint">公开计数 · 手工采集 · 不是质量评分</span>
+            </div>
+            <FeedbackBlock
+              data={feedback.data}
+              loading={feedback.loading}
+              error={feedback.error}
+              onRetry={feedback.reload}
+            />
+          </section>
+
           <section className="section">
             <div className="section__head">
               <h2 className="section__title">口径与数据缺口</h2>
@@ -523,10 +642,16 @@ export function Analytics() {
                       note="后端没有日期过滤参数。计数之和 ≠ Run 总数。"
                     />
                     <ScopeRow
-                      metric="X 内容指标"
-                      scope={EMPTY}
-                      source="未采集"
-                      note={<strong>暂未接入 X 内容指标同步</strong>}
+                      metric="发布内容的反馈"
+                      scope={data.x_content_performance.available ? '全库 · 最新一次观察' : EMPTY}
+                      source="post_metrics_snapshot"
+                      note={
+                        <>
+                          只有<strong>公开计数</strong>（点赞 / 回复 / 转发 / 引用），由脚本
+                          <strong>手工采集</strong>；没有曝光与书签，也没有定时任务。
+                          这一块的数值见上面的「发布内容的反馈」。
+                        </>
+                      }
                     />
                   </tbody>
                 </table>
@@ -534,25 +659,28 @@ export function Analytics() {
             </div>
 
             <div className="block-gap">
-              {/* 后端若某天开始下发这些字段，这里不能继续硬说"从来没采集过"——
-                  所以按 `available` 分支，而不是把结论写死在文案里。 */}
+              {/* 按 `available` 分支，而不是把结论写死在文案里：采集脚本落地之后
+                  "从来没有被采集过"这句只在真的还没跑过时成立。 */}
               {data.x_content_performance.available ? (
                 <div className="notice">
-                  <div className="notice__title">X 内容指标：接口报告可用，但本页仍不显示</div>
-                  后端的可用性标记是 true，但当前的分析响应里没有逐条帖子的指标字段，所以
-                  这个控制台拿不到曝光 / 点赞 / 转发 / 收藏 / 互动率的数值。要显示它们，需要
-                  后端先下发这些字段 —— 在拿到之前这里<strong>不会</strong>用任何近似值填充。
+                  <div className="notice__title">反馈数据已就绪，但不在这一页的图表里</div>
+                  本页的图都按 Run 计数（"系统跑了多少"），而反馈是**每条帖子**的公开计数，
+                  两者不是同一种东西，所以没有并进上面的分布图。逐条的数值在
+                  上面的「发布内容的反馈」、发布记录页的「最新观察」列，以及
+                  Run 详情里的「这条帖子的后续观察」。
                 </div>
               ) : (
                 <NotAvailable
                   what={
                     <>
-                      <strong>暂未接入 X 内容指标同步</strong>
-                      ：曝光、点赞、回复、转发、收藏和互动率在本控制台里
-                      <strong>一律不显示</strong>。它们不是查询失败才拿不到 —— 是这些数据从来
-                      没有被采集过。
+                      <strong>还没有采集过任何发布结果</strong>
+                      ：曝光、点赞、回复、转发、收藏和互动率目前
+                      <strong>一律不显示</strong>。它们不是查询失败才拿不到 —— 是采集脚本
+                      （<code>scripts/refresh_post_metrics.py</code>）还没有跑过。
+                      本页也<strong>不会</strong>用 0 或任何近似值填充。
                     </>
                   }
+                  reason={data.x_content_performance.reason}
                 />
               )}
             </div>

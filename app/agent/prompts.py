@@ -11,6 +11,7 @@ Planner 的 target 要引 topic / angle_id / candidate_id。模型只能引用�
 且不会有任何报错。
 """
 
+import logging
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -42,6 +43,8 @@ from app.style.labels import (
 # 标签表本身在 `app/style/labels.py`——Run Detail 要展示同一组取值，
 # 抄一份就会漂，漂了还不报错。这里保留 `_xxx_label` 的私有别名，是为了让
 # `format_style_recipe` 的正文一行都不用改。
+
+logger = logging.getLogger(__name__)
 
 
 def load_prompt(name: str) -> str:
@@ -137,6 +140,72 @@ def format_style_recipe(recipe: Any | None) -> str:
         rationale = "\n".join(f"  - {reason}" for reason in recipe.reasons)
         return f"{body}\n选择依据：\n{rationale}"
     return body
+
+
+#: 渲染给 Writer 的反馈摘要长度上限（字符）。
+#:
+#: 不是为了省令牌，是为了让 Writer 看到的是一段**能读完**的背景——
+#: 一屏塞不下的历史会诱导模型去抓它抓得住的那一条（通常是最大的那个数），
+#: 而那正是工作单第四十二节要避免的"把某一条观察当成目标"。
+MAX_FEEDBACK_CONTEXT_CHARS = 1200
+
+
+def format_feedback_context(context: Any | None) -> str:
+    """FeedbackContext 的文本块（Phase 5B.4）。
+
+    ## 永远返回一段文本
+
+    同 `format_style_recipe`：`render()` 不会因为缺键报错，调用方漏传这个参数，
+    字面量 `{{FEEDBACK}}` 会原样进入发给模型的 prompt。所以**无数据时也要有话说**
+    ——返回的是"还没有采集到历史结果"这句交代，而不是空串。
+
+    ## 它是**观察**，不是指令（工作单第四十二节）
+
+    这段文本里没有一条过去帖子的正文，也没有"这种写法拿到了多少赞"这类
+    可以被当成目标的说法。它只有样本量、几类互动的分布、以及这份摘要的局限。
+    渲染完再过一遍 `assert_observational`：这些话是代码用固定模板生成的，
+    命中指令性措辞只有一个解释——有人改了模板。
+
+    ## 守卫失败时不炸掉运行
+
+    反馈是增强，不是前置条件（工作单第三十八节）。万一守卫真的命中了，
+    这里记一条 error 并把摘要丢掉，而不是让 `{{FEEDBACK}}` 的渲染抛异常
+    把整个 Run 带走——**一次措辞失误不该让 Agent 停下来**。
+    """
+    if context is None or getattr(context, "is_empty", True):
+        return (
+            "（本次没有可用的历史结果观察：账号此前发布的内容还没有被采集过，"
+            "或采集到的数量还不构成任何可说的分布。按上面的目标与证据自行写作。）"
+        )
+
+    lines = [
+        "- 以下是你自己账号**过去已发布内容**被观察到的结果，只作背景参考，"
+        "不是本次的写作要求。",
+        f"- 样本：{context.snapshot_count} 条观察，覆盖 {context.post_count} 条已发布内容。",
+    ]
+    latest = getattr(context, "latest_observed_at", None)
+    if latest is not None:
+        lines.append(f"- 最近一次观察时刻：{latest.isoformat()}。")
+    for signal in context.signals:
+        lines.append(f"- {signal.statement}")
+    if context.limitations:
+        lines.append("- 口径与局限：" + "；".join(context.limitations))
+
+    text = "\n".join(lines)
+    if len(text) > MAX_FEEDBACK_CONTEXT_CHARS:
+        text = text[:MAX_FEEDBACK_CONTEXT_CHARS].rstrip() + "…（已达长度上限，此处截断）"
+
+    try:
+        from app.feedback.signals import assert_observational
+
+        assert_observational(text, where="feedback context prompt block")
+    except Exception:  # noqa: BLE001 - 见 docstring：措辞问题不该让运行失败
+        logger.error("feedback context failed the observational guard; dropping it", exc_info=True)
+        return (
+            "（本次的反馈摘要未通过观察性检查，已丢弃。"
+            "按上面的目标与证据自行写作。）"
+        )
+    return text
 
 
 def format_viewpoint(angle: Any | None) -> str:

@@ -27,6 +27,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from app.schemas import (
     AdminRunDetail,
     AnalyticsResponse,
+    FeedbackOverview,
     OverviewResponse,
     PublishedListPage,
     ReviewQueuePage,
@@ -149,6 +150,20 @@ def create_admin_router(runtime_dep) -> APIRouter:
             page_size=page_size,
         )
 
+    @router.get("/feedback", response_model=FeedbackOverview)
+    async def get_feedback(
+        service: AdminService = Depends(get_admin_service),
+    ) -> FeedbackOverview:
+        """我们**自己过去发布内容**被观察到的结果（Phase 5B.4）。
+
+        只读：报告由已存的快照现算，接口不触发任何采集。要采集请手工运行
+        `scripts/refresh_post_metrics.py`（本阶段刻意没有调度器）。
+
+        一条快照都没有时返回 `available=false` + 原因，**不返回一串 0**——
+        "没采过"与"采到了，结果是零"在处置上完全不同。
+        """
+        return await service.feedback()
+
     @router.get("/analytics", response_model=AnalyticsResponse)
     async def get_analytics(
         days: int = Query(7, ge=1, le=365, description="趋势窗口，含今天在内的自然日数"),
@@ -156,9 +171,10 @@ def create_admin_router(runtime_dep) -> APIRouter:
     ) -> AnalyticsResponse:
         """系统运行分析。
 
-        只统计**本系统自己的**运行数据，不涉及 X 侧的内容表现指标——后者需要
-        metrics 同步，本阶段未实现，接口里以 `available=false` + 原因明确标出，
-        **不返回 0 冒充**。
+        统计的是**本系统自己的**运行数据。`x_content_performance` 是唯一一个
+        关于外部世界的项：Phase 5B.4 起它在**已有快照**时标为可用并附口径说明
+        （只有公开计数、手工采集），**没有快照**时标为不可用并给出原因——
+        两种情况都不返回 0 冒充。
         """
         return await service.analytics(days=days)
 

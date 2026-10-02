@@ -2,6 +2,7 @@ from app.models.account import Account
 from app.models.agent_decision import AgentDecision
 from app.models.agent_run import AgentRun
 from app.models.draft import Draft
+from app.models.post_metrics_snapshot import PostMetricsSnapshot
 from app.models.published_post import PublishedPost
 from app.models.research_item import ResearchItem
 from app.models.review import Review
@@ -21,4 +22,6 @@ __all__ = [
     "TrackedAccount",
     "StyleSample",
     "StyleProfile",
+    # Phase 5B.4
+    "PostMetricsSnapshot",
 ]

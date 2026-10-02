@@ -101,6 +101,14 @@ SERDE = JsonPlusSerializer(
         ("app.style.schemas", "EndingType"),
         # 注意：`CriticResult.style_fit` 里的 `StyleFit` **不在**这里——它是嵌套的
         # **模型**，会被 model_dump() 内联，登记了就是用不到的死条目。
+        # Phase 5B.4：FeedbackContext 同样以**顶层值**进 RunState
+        # （state["feedback_context"]），所以必须登记。
+        ("app.feedback.schema", "FeedbackContext"),
+        # 它内部引用的枚举——同 5B.2 的那批：嵌套**枚举**不会被 model_dump() 拍平，
+        # 不登记就降级成字符串，而"读到的信号种类还是不是枚举"在报告路径上
+        # 是按值比较的（`kind is FeedbackSignalKind.ATTENTION`），降级后恒为假。
+        # `FeedbackSignal` / `SnapshotObservation` 是嵌套**模型**，会被内联，**不**登记。
+        ("app.feedback.schema", "FeedbackSignalKind"),
     ]
 )
 

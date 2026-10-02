@@ -1,0 +1,705 @@
+# Phase 5B.4 — Feedback Loop Foundation
+
+**范围**：让 Agent 第一次**看见自己过去真实做过什么、结果如何**。只建上半环：
+
+```
+真实发布结果 → 数据采集 → 结果归因 → 可解释反馈信号 → Agent 可读取
+```
+
+**基线**：`master`，HEAD `a6f67b7`（Phase 5B.3 COMPLETE：backend 555 通过 / frontend 61 通过）。
+
+**分支**：`feat/phase-5b4-feedback-loop`，**独立 worktree** `X_Agent-phase-5b4`
+（工作单第四十三节）。`master` 保持 `a6f67b7` 不动。
+
+**状态**：Complete（Smoke 1/2/4 记 `blocked`，见 I 节；原因见 K 节）。
+
+**结论**：完成，并且**只完成上半环**。三层认知能力（Trend / Style / Viewpoint）之后
+第一次出现"自己行为的结果"这一层，但本阶段**不许它改变自己**：
+
+```
+Trend      = 当前外部世界
+Style      = 外部高质量语料
+Viewpoint  = 当前证据下的判断
+Feedback   = 自己过去行为的真实结果        ← 本阶段新增，且只到这里
+```
+
+**本阶段没有发布任何内容**：`POST /2/tweets = 0`。反馈采集只有
+`GET /2/tweets?ids=…`，且真机上一次都没有发出（库里没有可采集的帖子）。
+
+---
+
+## A. 交付概览
+
+**新增**
+
+```
+app/models/post_metrics_snapshot.py            一张新表，只追加
+alembic/versions/e5f1a9c4d20b_phase_5b4_….py   手写迁移（revises c3d8a45e7f21）
+app/feedback/__init__.py
+app/feedback/schema.py                         FeedbackSignal / FeedbackReport / FeedbackContext / SnapshotObservation
+app/feedback/metrics.py                        确定性派生度量（纯函数，无 IO）
+app/feedback/signals.py                        封闭信号枚举 + 因果/指令措辞守卫
+app/feedback/report.py                         报告与上下文的组装
+app/feedback/profile.py                        结果归因（读 checkpoint，不写库）
+app/feedback/runtime.py                        resolve_feedback_context
+scripts/refresh_post_metrics.py                人工采集 CLI（GET-only，无调度）
+scripts/smoke_5b4.py                           工作单第四十一节的五个 smoke
+evals/feedback/{__init__,cases,selftest}.py    六类 case + 12 项检查
+evals/fixtures/feedback_observed.json          干净 fixture（RULE-024 pass）
+evals/fixtures/feedback_causal_language.json   因果 fixture（RULE-024 fail）
+tests/test_feedback_metrics.py
+tests/test_feedback_signals.py
+tests/test_feedback_attribution.py
+tests/test_feedback_repository.py
+tests/test_feedback_writer_integration.py
+tests/test_admin_feedback_api.py
+tests/test_x_api_metrics.py
+frontend/src/utils/feedback.ts                 纯渲染层
+frontend/tests/feedback.test.ts
+docs/phase-5b4-smoke-runs.json                 五个 smoke 的运行记录
+```
+
+**改动**：`app/agent/{prompts,state}.py`、`app/agent/tools/candidates.py`、
+`app/models/__init__.py`、`app/repositories.py`、`app/schemas.py`、
+`app/services/{admin,x_api,x_service}.py`、`app/api/admin.py`、
+`app/db/checkpointer.py`、`prompts/agent/candidates.txt`、
+`evals/{behavior/rules,model,selftest}.py`、`evals/datasets/goals.json`、
+`tests/{conftest,fakes,support,test_admin_api}.py`、
+`frontend/src/{api/client.ts,components/RunDetailDrawer.tsx,pages/Analytics.tsx,pages/Published.tsx,types/api.ts}`。
+
+**只新增一张表。没有新增 AgentAction，没有新增图节点，预算一处未动。**
+
+---
+
+## B. 只读审计结论（写代码之前先指认问题）
+
+工作单假设的链路是 `PublishedPost → X metrics snapshot`。先查系统里到底有什么：
+
+```
+agent_run            137
+draft                 72
+review                 1
+published_post         0        ← 一条都没有
+post_metrics_snapshot  不存在
+```
+
+三个结论直接决定了本阶段的形状：
+
+1. **`published_post` 是空的。** 从来没有发布过任何内容。所以工作单第三十四节的
+   "用历史真实帖子验证"**没有对象**——这不是"没跑到"，是没有可跑的东西。
+   如实记进 K 节，不拿合成数据顶替（§35）。
+2. **X 客户端读不到我们自己帖子的指标。** 改之前只有
+   `GET /2/tweets/search/recent`（`x_api.py:176`，app-only）和
+   `POST /2/tweets`（`:213`，OAuth 1.0a）。**没有按 id 查的路径**，
+   `impression_count` / `bookmark_count` 在全仓库不存在。采集要从零加一条 GET。
+3. **归因要的那些输入全是 checkpoint-only。** `selected_angle`（5B.3）、
+   `style_recipe`（5B.2，当时明确决定"刻意不落库"）、`critic_result`、
+   话题的 trend 分——都不在数据库里。所以归因只能在**分析时读 checkpoint**
+   （`viewpoint_summary(state)` 的先例，`admin.py:288-361`），
+   **不能靠加列**：那会把前一个阶段特意做过的决定反过来。
+
+---
+
+## C. 数据模型：`post_metrics_snapshot`
+
+一条帖子一行，只追加：
+
+| 列 | 类型 | 可空 | 说明 |
+|---|---|---|---|
+| `id` | UUID PK | 否 | `UUIDPrimaryKeyMixin` |
+| `published_post_id` | UUID FK → `published_post.id` CASCADE | 否 | 归因的接点 |
+| `x_post_id` | String(255) | 否 | 从父行拷来，查询键 |
+| `observed_at` | timestamptz | 否 | **我们的**抓取时刻，一个批次共用一个 |
+| `hours_since_publish` | Float | 否 | `observed_at − published_post.published_at`，写入时算好 |
+| `likes`/`replies`/`reposts`/`quotes` | Integer | **是** | NULL = X 没返回这一项（§10） |
+| `impressions`/`bookmarks` | Integer | **是** | **v1 从不写入** |
+| `created_at` | timestamptz | 否 | `CreatedAtMixin`（仅 DB 层） |
+
+- `UniqueConstraint(x_post_id, observed_at)`——**不是** `observed_at` 单独唯一：
+  一个批次里多条帖子合理地共享同一个时刻。插入走 `ON CONFLICT DO NOTHING`，
+  重复跑幂等（`test_the_same_instant_is_idempotent`）。
+- `x_post_id` 与 `published_post_id` 各一个索引。
+- **只存原始事实。** 派生指标逐位可复算，落成列就是造第二个会漂移的真相来源
+  （同 `style_sample` 的理由，迁移 `c3d8a45e7f21:43-45`）。唯一例外是
+  `hours_since_publish`：它**不能**从本行重算（那要 join 回 `published_post`）。
+- 采集脚本**跳过** `x_post_id` 或 `published_at` 为 NULL 的帖子，而不是给一个
+  "年龄未知"的快照（`test_only_confirmed_published_posts_with_an_id_are_listed`）。
+- 模型上**没有** `updated_at`，测试直接断言这一点
+  （`test_snapshot_model_has_no_update_path`）：有了它，将来一定会有人 UPDATE 掉
+  "当时的观察"，而快照的价值恰恰在于它永不被改写。
+
+**为什么配得上进数据库**（迁移 docstring 里逐条论证）：checkpoint 装的是
+"这次运行决定了什么"，Run 结束就只是历史；本表装的是**外部世界对我们过去行为的
+事实**，读它的可能是三个月后的另一次 Run。checkpoint 会被 GC，这个问题不会。
+
+---
+
+## D. 时间语义：`observed_at` / `published_at` / 分档（§4/§5）
+
+三个时间刻意分开，全仓库同一条纪律（`app/schemas.py:10-31`）：
+
+| 时间 | 谁的 | 在哪 |
+|---|---|---|
+| `published_at` | **来源给的**发布时刻 | `published_post`（不复制进快照） |
+| `observed_at` | **我们的**抓取时刻 | `post_metrics_snapshot` |
+| `hours_since_publish` | 两者之差 | 写入时算好，存下来 |
+
+**为什么不请求 `created_at`**：`published_at` 是来源给定的事实，已经在
+`published_post` 上；`GET /2/tweets` 再取一次 `created_at` 等于让同一个事实有
+两个可能不一致的来源。所以 v1 的 `tweet.fields` **只有** `public_metrics`
+（`x_api.py:244`）。
+
+**观察窗口是纯函数**（`app/feedback/metrics.py:31-36`）：
+
+```
+WINDOW_BOUNDARY_HOURS = (1, 6, 24, 72)
+WINDOW_LABELS         = ("0-1h", "1-6h", "6-24h", "24-72h", ">72h")
+```
+
+只要 `hours_since_publish` 存下来了，任何时候都能分档——**不需要一个有状态的
+调度器按时去"采样第 1 小时"**。工作单第五节的 Day 0/1/3 因此是数据形状，
+不是基础设施要求。
+
+---
+
+## E. 派生指标（§6）
+
+`app/feedback/metrics.py` 是纯的：没有 IO、没有随机、没有 `datetime.now()`、
+不读配置（`app/agent/viewpoint.py` 的先例）。**不落库**。
+
+| 量 | 定义 | v1 |
+|---|---|---|
+| `engagement_total` | 四类计数之和 | **任一项未知 → `None`** |
+| `engagement_rate` | `total / impressions` | **恒 `None`**（v1 没有曝光） |
+| `reply_rate` / `repost_rate` | `replies|reposts / impressions` | 恒 `None` |
+| `attention_share` / `conversation_share` / `amplification_share` | 各占 `total` 的比例 | 有 total 就能算 |
+| `window_bucket(hours)` | 见 D 节 | 只要小时数就能算 |
+
+两条硬规则，写进模块 docstring 并各配测试：
+
+1. **求和是"全有才求和"**。把已知的三项加起来，会把"未知"变成一个更小的、
+   看起来真实的数字——那是本阶段口径上最严重的错误类型。
+2. **比率的分母缺失或 ≤ 0 → `None`**，永远不是 `0.0`。分母为 0 时"比例是多少"
+   没有被定义，而 `0.0` 会被读成"测出来是零"。
+
+`engagement_rate` 明知恒为 `None` 也留着，是给将来的来源一个明显的落点。
+
+---
+
+## F. 信号与报告（§9/§10）
+
+`app/feedback/signals.py` + `report.py`。
+
+**信号是封闭枚举**（`FeedbackSignalKind`）：
+
+```
+attention           点赞的分布
+conversation        回复 + 引用的分布
+amplification       转发的分布
+share               三类互动占互动总量的比例
+insufficient_sample 样本量低于比较下限：只说 n
+missing_metric      有观察缺某个计数：如实记"读不到"
+```
+
+这里**没有** `QUALITY` / `ENGAGEMENT_SCORE` / `RECOMMENDATION`，而且不该有。
+工作单第十二节拆开的三类互动（注意力 / 对话 / 扩散）在代码里就是三个独立信号：
+点赞永远不会被折算成一个"好帖"的判断，也不存在把四类计数合成单一分数的路径。
+
+**小样本保护**（§17）：
+
+```
+MIN_SAMPLES_FOR_COMPARISON = 5
+```
+
+低于它 → **恰好一条** `insufficient_sample`，只带原始 `n`，没有任何比较。
+v1 自己没有基线，所以**所有**信号的 `comparison_group` 都是 `None`，
+全部只描述分布。`confidence` 也恒为 `None`——不存在校准过的概率，
+凭空造一个正是 §10 禁止的编造。
+
+**因果守卫**（§3/§19/§31）：每条信号的 `statement` 都是代码用观察性模板生成的，
+返回报告之前过一次 `assert_no_causal_claim`，对封闭的中英双语标记表
+（`因为…所以` / `导致` / `证明了` / `带来了` / `caused` / `proves` / `leads to` /
+`drives` …）扫描。命中的唯一解释是有人改了模板。
+
+**可追溯性**（§25）：每条信号的 `evidence` 都是非空的快照 id 元组，
+且这些 id 必须真的出现在报告的 observations 里。**没有依据就没有结论**。
+
+`FeedbackReport(sample_count, observations, signals, limitations)` 的
+`limitations` 把"没算的东西"逐条列出来，包括"曝光量未知，因此互动率无法计算
+（不是零互动率）"。
+
+---
+
+## G. 结果归因：Post Performance Profile（§13/§14）
+
+`app/feedback/profile.py::build_post_performance_profile` 是薄的 async，
+**只读 checkpoint，不写 SQL**。它把
+
+```
+快照序列 → published_post（正文长度 = 实际交付长度）
+        → agent_run（话题）
+        → checkpoint per-row（graph.aget_state(thread_id=run_id)）
+            ├ selected_topic + candidate_topics 的 trend 分
+            ├ selected_angle（复用 viewpoint_summary）
+            ├ style_recipe（结构 / hook / 目标长度）
+            └ critic_result
+```
+
+接起来，**任何一个字段取不到就是 `None`，不是猜**。checkpoint 读失败时
+降级成"只有数据库字段 + 一条 limitation"，**不返回 500**
+（`admin.py:376-390` 的 `_guardrail` 姿态）。读取上限
+`FEEDBACK_PROFILE_READ_LIMIT = 50`，超过记 `None`（"这次没读"），不是猜。
+
+**没有任何东西被反规范化进快照表。** trend 分是**读出来的记录值**——
+反馈永远不会给当前这次运行的 trend 打分（§27）。
+
+---
+
+## H. Agent 如何消费（§11/§42）
+
+**只有一个入口：Writer。** 具体是 `generate_candidates`，与 `style_recipe` 并列。
+
+- `app/agent/state.py`：一个 checkpoint-only 键 `feedback_context`
+  （pydantic `BaseModel`，同 `StyleRecipe`，保证 checkpoint 的 serde 仍是
+  JSON 可序列化的）。
+- `app/feedback/runtime.py::resolve_feedback_context`：结构与
+  `resolve_recipe`（`app/style/runtime.py:32-86`）一致。一次运行内后续轮次
+  直接返回已有值（运行内稳定）；任何 DB / checkpoint 失败都记日志并返回
+  **空的中性上下文**——反馈是增强，不是前置条件（§38）。
+- `app/agent/tools/candidates.py`：在 recipe 旁边解析，并在**所有**
+  `ToolResult` 返回路径上带 `feedback_delta`，与 `style_delta` 完全一样。
+- `app/agent/prompts.py::format_feedback_context`：**永远返回一段文本**。
+  无数据时返回"还没有采集到历史结果"这句交代，而不是空串（`render()`
+  不会因缺键报错，漏传会让字面量 `{{FEEDBACK}}` 进入 prompt）。
+  渲染完再过一遍 `assert_observational`；**守卫失败不炸掉运行**——
+  记一条 error、丢掉摘要，而不是让一次措辞失误带走整个 Run。
+- `prompts/agent/candidates.txt`：`{{FEEDBACK}}` 块放在 `{{VIEWPOINT}}` 之后，
+  标注为 *本账号过去已发布内容被观察到的结果——背景，不是指令*。
+
+**Writer 拿不到的东西（§42 逐条）**：
+
+```
+✗ 历史几十篇完整帖子        —— FeedbackContext 里没有任何正文
+✗ 「这类帖子以前有 300 likes」 —— 没有单帖计数，没有"这类"的归类
+✗ 任何绝对指令              —— 文案自称"背景参考"，且有指令性措辞守卫
+```
+
+**别的地方一处都没动**：没有新节点、没有新 `AgentAction`
+（`graph.py:64-75` 的 `TOOL_ACTIONS` 未触碰）、预算 / `step_count` 未变（§39）、
+Critic 的 prompt 里没有反馈、没有任何路径用反馈写 `trend_score`、
+没有与 StyleRecipe 合并。
+
+---
+
+## I. 真实 Smoke（工作单第四十一节）
+
+工作单列了五个。**本阶段只跑得动两个**，另外三个跑不了（§35：不编）。
+
+| Smoke | 看什么 | 本阶段 | 结果 |
+|---|---|---|---|
+| 1 | 历史帖子 `PublishedPost → X metrics snapshot` 的数据链 | **跑不了**（`published_post` 0 行） | `blocked` |
+| 2 | 多快照（Day 0 / 1 / 3）的时间序列 | **跑不了**（同上） | `blocked` |
+| 3 | 小样本 `n < threshold` → `insufficient_sample` | 跑（合成观察） | ✅ 通过 |
+| 4 | 样本足够 → 生成 `FeedbackReport` | **跑不了**（同上） | `blocked` |
+| 5 | Agent 读 Feedback Context；没有也照常跑 | 跑（合成上下文） | ✅ 5a / 5b 都通过 |
+
+**Smoke 3**（4 条观察，`threshold=5`）：信号只有一条 `insufficient_sample`，
+比较类信号 **0** 条，`comparison_group` 与 `confidence` 都是 `None`，
+evidence 4 条，因果标记命中 **0**。Writer 看到的块 398 字符，里面唯一一句反馈
+就是守卫原句「当前可用的观察只有 4 条，低于比较下限 5，本期不产出任何分组比较
+或比率结论。这个下限是采集量的门槛，不是统计显著性判断。」
+——**低于下限时上下文里没有任何可被当成结论的分布。**
+
+**Smoke 5a**（有反馈，`run_id=614b57ac…`，9 步，停在人工评审）：
+8 条观察 / 1 条已发布内容 / 4 条信号（`attention` / `conversation` /
+`amplification` / `share`），`comparison_group` 全 `None`、`confidence` 全 `None`、
+evidence 全非空。Writer 的块 562 字符，只有分布与局限。Run 正常走到
+`human_review` 并挂起——**反馈没有让它改变动作、也没有增加步数预算**。
+
+**Smoke 5b**（无反馈，`run_id=ca4d4d72…`，11 步）：`{{FEEDBACK}}` 渲染成
+53 字符的一段说明（「本次没有可用的历史结果观察……按上面的目标与证据自行写作。」），
+**不是空白、也不是未替换的占位符**，Agent 照常跑完并挂起。
+
+**X 请求账**：本次 smoke 共 6 个请求，**全部是 GET**，
+`POST /2/tweets = 0`。6 个都是 `GET /2/tweets/search/recent`（Agent 自己的研究检索）。
+`GET /2/tweets?ids=…`（本阶段新增的采集路径）真机一次都没发出——
+库里没有可查的帖子。
+
+**1 / 2 / 4 为什么是 `blocked` 而不是 `skipped`**：它们问的都是"我们自己发出去的
+东西后来怎么样"，而这需要库里真的有已发布帖子。一条都没有——不是"没跑到"，
+是**没有可跑的对象**。Smoke 2 / 4 想验证的**性质**（时间序列分档、样本足够时
+产出报告）在 `evals/feedback/selftest.py` 里有确定性的离线对照
+（`multiple_windows` / `healthy_sample` 两个 case）。那份对照证明的是**算法**，
+不是**数据链**——两者的区别正是 1/2/4 仍然算"没跑"的原因。
+
+**Smoke 5 用合成上下文，且不写数据库**：刻意**不往库里塞假的 `published_post`**。
+那张表是"我们到底发出去了什么"的审计记录，往里写一条没发过的帖子，
+就是把审计记录变成一份假的。合成的 `FeedbackContext` 直接注入初始 state。
+
+**只读守卫**：与 `scripts/smoke_5b1/5b2/5b3.py` 同一套——`RealXApiClient._request`
+被替换，非 GET **在发出去之前**就抛。报告末尾给出请求总数、按方法分组，
+以及 `POST /2/tweets` 的计数。
+
+运行记录见 `docs/phase-5b4-smoke-runs.json`（每次运行追加进 `runs`）。
+
+---
+
+## J. 只读面：Admin API 与前端
+
+**`GET /api/admin/feedback`**（`app/api/admin.py:153`）：
+
+- `FeedbackOverview`：`available` / `reason` / `sample_count` / `snapshot_count` /
+  `latest_observed_at` / `signals` / `limitations` / `posts`。
+- 0 条快照时返回 `available=false` + `reason`，**不是一堆 0**
+  （`MetricAvailability` 的纪律，`admin.py:720-724`）。
+- **只有 GET**：`POST /api/admin/feedback` → 405，测试里直接断言。
+  admin API 的既有边界（`app/api/admin.py:1-20`）一个字没改。
+- 报告是**读时现算**的，不是读 CLI 写出的 JSON 证据文件——
+  那份文件是证据，不是 API 的数据源。
+
+`analytics()` 的 `x_content_performance`：只在 `snapshot_count == 0` 时保持
+`available=false`；有快照后转为可用并附口径说明（只有公开计数、人工刷新）。
+这去掉了一句现在已经不成立的"未实现"，而没有引入任何聚合性能计算。
+
+**前端**（最小、只读）：
+
+- `frontend/src/utils/feedback.ts`（纯函数，可被 `node --test` 直接测）：
+  `metricLabel(null) → '暂无数据'`，**永不** `'0'`；
+  `hoursSinceLabel`、`observationLine`、`signalHeadline`、
+  `limitationLines`、`FEEDBACK_DISCLAIMER`。
+- `RunDetailDrawer.tsx`：`FeedbackSection`（这次运行看到了什么）与
+  `PerformanceSection`（这条帖子被观察到了什么）**分成两块**，按时间先后排，
+  对应后端两个独立字段。
+- `Published.tsx`：新增「最新观察」列——这是这张表上**唯一会随时间变化**的列。
+- `Analytics.tsx`：`FeedbackBlock` 区分三种"没有反馈"：请求出错 /
+  `available=false` 带原因 / 有数据但为空。
+
+---
+
+## K. 已知限制（§35）
+
+1. **库里没有任何已发布帖子**（`published_post` 0 行），所以
+   "采集 → 归因"这条链只在合成 fixture 上走过。**Smoke 1/2/4 是 `blocked`，
+   不是 `skipped`**，也不拿合成帖子充数。
+2. **`impressions` / `bookmarks` 恒为 NULL**。v1 只读 `public_metrics` 里的公开
+   计数；`engagement_rate` 因此恒为 `None`——公式在，分子分母的分子那半没有。
+3. **只有自然产生的数据，没有实验设计**，所以任何因果关系在构造上就不可能
+   得出。这不是"本阶段没做"，是"这样做不到"。
+4. **`GET /2/tweets?ids=…` 只在 mock transport 上验证过**。真机没有可查的帖子，
+   这条路径从来没有真正发出过一个请求。
+5. **Agent 侧的反馈仍是 checkpoint-only**（与 `guardrail_*` / `style_recipe`
+   一致）。checkpoint 被 GC 掉的运行拿不到归因的那一半字段——profile 会
+   降级并附一条 limitation，不会崩。
+6. **429 / 5xx / 传输失败没有退避**。CLI 每批只做一次有界尝试；出错就打印状态、
+   **那一批不写任何行**、非零退出（全批中止）。阶段内没有可复用的退避实现，
+   也不打算为它引入一个调度层。
+7. **`MIN_SAMPLES_FOR_COMPARISON = 5` 是本阶段定的地板**（§17 要求一个明确下限
+   但没给数值）。它是一个**采集量的门槛，不是统计显著性判断**——报告里
+   逐字这么写。
+
+---
+
+## L. 明确没有做什么（工作单 §3/§28/§39/§42/§45）
+
+```
+✗ 自动修改 Prompt          ✗ 自动修改 StyleRecipe
+✗ 自动修改 Budget          ✗ 自动修改策略
+✗ 自动发布                 ✗ Fine-tuning
+✗ Multi-agent              ✗ Vector DB / embedding
+✗ A/B testing 基础设施     ✗ Celery / Redis / Kafka / cron
+✗ 分布式调度器             ✗ 任何形式的自主发布
+```
+
+具体到代码：
+
+- **没有**任何写路径把反馈写回 prompt 模板、`StyleRecipe`、预算或阈值。
+- **没有**把反馈合并进 StyleRecipe（§28）。两者在 Writer 的 prompt 里是两个
+  独立的块，来源也不同（外部语料 vs 自己的结果）。
+- **没有**让反馈影响当前运行的 trend 分（§27）。
+- **没有**综合分 / 排名 / "这条帖子更好"的判断（§12）。
+- **没有**新增 AgentAction、图节点、预算（§39）。
+- **没有**发布任何内容：`POST /2/tweets = 0`（§33）。
+- **没有**调度器：采集是人工跑的 CLI，admin API 保持只读。
+
+---
+
+## M. 本阶段修掉的真实缺陷
+
+1. **`metrics.get("like_count", 0)` 没有照抄。** 既有 `_map`
+   （`x_service.py:111-115`）把缺失的计数补成 0——那是**别人发的**搜索结果的读法。
+   新的 `fetch_public_metrics` 里，缺失的键映射为 `None`，X 没返回的 id 进
+   `ids_not_returned` 而**不合成一行零计数**。补 0 会让"没观测到"变成
+   "观测到零互动"，而这两句话含义相反。
+2. **`PublishedRow` 原本没有指标字段。** 计划要求列表上有一列"最新观察"，
+   逐行查会变成 N+1。改为一次批量两查的仓库函数
+   `latest_metrics_by_post`，用 Postgres `DISTINCT ON` 取每帖最新一条 +
+   分组计数；顺手修掉 SQLAlchemy 2.1 的
+   `SADeprecationWarning: Passing expression to distinct …`（改用 `.ext(distinct_on(...))`）。
+   这个函数**不返回**没有快照的帖子——返回一个计数为 0 的条目会让每一张
+   没采过的帖子显示成"赞 0 回 0"，那是另一句话。
+3. **`feedback context` 的守卫失败不炸运行。** 最初打算让
+   `assert_observational` 抛出——那意味着模板里一个措辞失误会带走整个 Run。
+   改为记 error + 丢掉摘要 + 返回一句中性交代。
+4. **`kpis` 这个 CSS 类不存在**（真实的类名是 `kpi-grid`），`FeedbackBlock` 里改掉。
+5. **前端测试里一条断言写错了对象**：断言的是"没有窗口时不出现 `·`"，
+   而 `·` 是种类标签与 `n=` 之间**恒定存在**的分隔符。改成断言完整字符串
+   `'注意力（点赞） · n=5'`。
+6. **Smoke 3 的期望修过一次**：原本断言渲染结果里出现"还没有被采集过"，
+   但 4 条观察的上下文**不是空的**，它带着 `insufficient_sample` 信号。
+   改成断言守卫原句与"样本：4 条观察"出现在 Writer 看到的块里——
+   这才是真正想要的行为（Writer 看到的是"数据不够"，不是一份分布）。
+
+---
+
+## N. 四层边界（§45）
+
+```
+Trend = 当前外部世界     —— 由 5B.1 提供，本阶段一个字没改
+Style = 外部高质量语料   —— 由 5B.2 提供，feedback 不与之合并（§28）
+Viewpoint = 当前证据下的判断 —— 由 5B.3 提供，feedback 不改当前 run 的 trend（§27）
+Feedback = 自己过去行为的真实结果 —— 本阶段新增，输出是**观察**，不是指令
+```
+
+代码里的边界是硬的，不靠约定：
+
+- `app/feedback/` 是**独立的包**，不在 `app/agent/` 里——与
+  `viewpoint.py` / `style/` 放在一起等于邀请 §27/§28 的合并。它没有 IO、
+  没有 `datetime.now()`、不读配置。
+- 反馈进 Writer 的通道是**独立的 prompt 块**，不是 StyleRecipe 的字段。
+- `comparison_group` 恒为 `None`：v1 没有任何基线，所以也没有"比上次好"这种
+  跨时间的比较结论。
+- 唯一的写路径是 `post_metrics_snapshot` 的 INSERT，而它拷进来的
+  `hours_since_publish` 之外没有任何派生物。
+
+---
+
+## O. 逐条回答工作单第四十四节的 23 个问题
+
+**1. 为什么需要 Feedback Loop**
+前三层建的是 Agent 的**认知**：现在什么值得说（Trend）、怎么说（Style）、
+说什么判断（Viewpoint）。它对自己做过的事一无所知——不知道发出去以后发生了什么，
+也就没有任何依据在将来做得不同。5B.4 是第一次出现闭环的上半环：
+`Agent 做过什么 → 发生了什么 → 它以后可以参考什么`。
+**刻意只做上半环**：先让反馈数据本身成为可靠事实，否则下一步就会是
+"一次爆款 → 当成规律 → 自动改策略 → 下次失败 → 再次自动改"，
+从一个可审计的 Agent 变成一个不可解释的自动调参器。
+
+**2. X metrics 当前能获得哪些**
+`GET /2/tweets?ids=…&tweet.fields=public_metrics`（app-only Bearer）能给
+**公开计数**：`like_count` / `reply_count` / `retweet_count` / `quote_count`。
+**拿不到** `impression_count` 与 `bookmark_count`——它们需要 user-context 授权，
+本项目没有那条路径。因此快照表里这两列先建（可空），v1 恒为 NULL，
+**绝不写 0**。
+
+**3. Snapshot 数据模型**
+`post_metrics_snapshot`：`id` / `published_post_id`（FK，CASCADE）/
+`x_post_id` / `observed_at` / `hours_since_publish` / 四个公开计数（可空）/
+`impressions`·`bookmarks`（可空，v1 不写）/ `created_at`。
+`UniqueConstraint(x_post_id, observed_at)`，`ON CONFLICT DO NOTHING`，
+只追加，模型上没有 `updated_at`。详见 C 节。
+
+**4. observed_at / published_at**
+两个不同来源的时间，全程不混：`published_at` 是来源给的发布时刻，留在
+`published_post` 上；`observed_at` 是我们的抓取时刻，一个批次共用一个。
+`hours_since_publish` 是两者之差，**唯一**存下来的派生值——因为它不能从
+快照行自身重算。`GET /2/tweets` 刻意**不请求 `created_at`**：不让同一个事实
+有两个可能不一致的来源。
+
+**5. observation windows**
+纯函数分档，边界 `(1, 6, 24, 72)` 小时 → `0-1h | 1-6h | 6-24h | 24-72h | >72h`。
+只要 `hours_since_publish` 存下来了，读的时候随时能分——**不需要调度器按时采样**。
+
+**6. derived metrics**
+`engagement_total`（四类之和，任一未知即 `None`）、`engagement_rate` /
+`reply_rate` / `repost_rate`（需要曝光，v1 恒 `None`）、
+`attention_share` / `conversation_share` / `amplification_share`、
+`window_bucket`。全部**不落库**：逐位可复算，存一份只会多一个会漂移的真相来源。
+
+**7. small sample protection**
+`MIN_SAMPLES_FOR_COMPARISON = 5`。低于它 → 恰好一条 `insufficient_sample`，
+只带原始 `n`，零比较结论，`comparison_group` 与 `confidence` 都是 `None`。
+报告里逐字写明这是**采集量门槛，不是统计显著性判断**。
+Smoke 3 验证的就是这条（4 条观察 → 1 条 `insufficient_sample`，
+比较类信号 0 条，Writer 看到的唯一一句反馈就是"不多于 4 条，低于下限"）。
+
+**8. correlation vs causation**
+v1 的每一句话都是观察性模板生成的，返回前过 `assert_no_causal_claim`
+（封闭的中英双语标记表）。`comparison_group` 恒为 `None`：没有对照组、
+没有实验设计、没有基线，所以**构造上就不可能**得出因果结论。
+`limitations` 里逐字写着"同时出现不等于谁导致了谁"。
+
+**9. FeedbackSignal**
+封闭枚举：`attention` / `conversation` / `amplification` / `share` /
+`insufficient_sample` / `missing_metric`。没有 `quality` / `score` /
+`recommendation`。每条带 `sample_count`、`window`、`evidence`（非空快照 id 元组）、
+`comparison_group`（恒 `None`）、`confidence`（恒 `None`）。
+**没有依据就不产出信号。**
+
+**10. FeedbackReport**
+`FeedbackReport(sample_count, observations, signals, limitations)`。
+读时现算（CLI 与 Admin API 各算一次），**不落库**——它是一次读的产物，不是资产。
+`limitations` 把没算的东西逐条列出。
+
+**11. Agent 如何消费**
+只进 **Writer**（`generate_candidates`），作为 checkpoint-only 的
+RunState 键 `feedback_context`。没有新节点、没有新 AgentAction、预算未变。
+入口是 `prompts/agent/candidates.txt` 的 `{{FEEDBACK}}` 块，内容只有样本量、
+几类互动的分布、以及局限——**没有任何帖子正文，也没有单帖计数**。
+Critic 的 prompt 里没有反馈。
+
+**12. Style / Trend / Viewpoint / Feedback 如何保持边界**
+Trend 是外部世界、Style 是外部语料、Viewpoint 是当前证据下的判断、
+Feedback 是自己过去行为的结果。代码里 `app/feedback/` 是独立包（不在
+`app/agent/` 里），pure、无 IO；反馈在 prompt 里是独立块，不是 StyleRecipe 的字段；
+没有任何路径用反馈写 `trend_score`；反馈不合并进 StyleRecipe；不增加预算。
+详见 N 节。
+
+**13. 是否新增 DB 表**
+**新增一张**：`post_metrics_snapshot`。**没有**在任何既有表上加列。
+没有 `feedback_signal` / `feedback_report` 表——它们是读取时的确定性派生视图。
+
+**14. Migration**
+手写 `alembic/versions/e5f1a9c4d20b_phase_5b4_feedback_loop_foundation.py`，
+`revises c3d8a45e7f21`，**刻意不用 `--autogenerate`**（LangGraph 的 4 张
+checkpoint 表不在 `Base.metadata` 里）。docstring 逐条论证这张表为什么属于
+数据库而不属于 checkpoint，以及什么**没有**建。
+
+**15. Evaluation**
+`evals/feedback/{__init__,cases,selftest}.py`，`python -m evals.feedback.selftest`，
+离线可跑（无 X、无 LLM、无 DB、无时钟）。6 类 case × 反向扰动 + 12 项检查，
+覆盖 §30 点名的六项：`snapshot_time_semantics`、`null_metrics_not_zero`、
+`derived_metric_requirements`、`small_sample_guard`、`causal_language_guard`、
+`feedback_traceability`（另加确定性、上下文只带摘要、每个 case 都配反向扰动）。
+
+**16. Offline benchmark**
+**恰好一条新 gate：RULE-024 `feedback_context_is_observational`**。
+没有 `feedback_context` → pass（不适用）；有 → 不允许因果标记、样本量必须出现、
+低于下限不得给出比较结论、不允许出现帖子正文或把单帖点赞写成指令。
+六个同步点全部登记（规则函数 / `RULES` 元组 / `GATE_RULE_IDS` /
+fail 构造 + `CHECKS` / `G-022` + fixture / `evals/model.py` 的
+`feedback_context` 字段）。fixture 两个：`feedback_observed`（pass）与
+`feedback_causal_language`（fail）。基准 `22/22` 通过，含 `G-022`。
+
+**17. 历史真实帖子验证**
+**没有做，因为没有对象。** `published_post` 0 行——从来没有发布过任何内容。
+如实记成 `blocked`（K 节第 1 条），不拿合成的帖子冒充。
+
+**18. 5 次 Smoke**
+Smoke 3 与 5 跑了（合成数据），Smoke 1/2/4 **跑不了**并写明原因。
+运行记录见 `docs/phase-5b4-smoke-runs.json`。详见 I 节。
+
+**19. X GET**
+新增 `XApiClient.get_posts_by_ids(ids)` → `GET /2/tweets?ids=…&tweet.fields=public_metrics`，
+走既有的 `_request`，错误分类（`XApiConfigError` / `XApiResponseError` /
+`XApiTransportError`）原样复用。`MAX_LOOKUP_IDS = 100`，调用方分批
+（`x_service.fetch_public_metrics`）。真机一次都没有发出——没有可查的帖子；
+只在 mock transport 上验证过。
+
+**20. X POST**
+**0。** 本阶段没有任何 POST 路径：采集是 GET，`scripts/smoke_5b4.py` 带只读守卫，
+非 GET 在发出去之前就抛。工作单第三十三节的红线。
+
+**21. 测试结果**
+完整性见 P 节。backend `pytest -q` 644 通过；`evals.selftest` 15；
+`run_benchmark` 22（含 `G-022`）；`evals.style.selftest` 22；
+`evals.viewpoint.selftest` 17；`evals.feedback.selftest` 12；
+前端 `node --test` 75；`tsc --noEmit` clean；`npm run build` 成功。
+
+**22. 已知限制**
+见 K 节，7 条。最要紧的两条：**没有真实已发布帖子**（所以数据链只在合成
+fixture 上走过）、**没有实验设计**（所以因果在构造上不可能得出）。
+
+**23. 明确没有做什么**
+见 L 节：不自动改 Prompt / StyleRecipe / Budget / 策略，不自动发布，
+不做 fine-tuning、embedding、vector DB、multi-agent、A/B 基础设施、
+Celery/Redis/Kafka/cron、分布式调度。采集是人工 CLI，API 只读。
+
+---
+
+## P. 验证命令与结果（全部串行）
+
+```bash
+PY=/c/Users/Too_Far/miniconda3/envs/2026-agent/python.exe
+
+$PY -c "import app, evals; print(app.__file__, evals.__file__)"   # 必须在 worktree 内
+$PY -m alembic upgrade head
+$PY -m pytest -q
+$PY -m evals.selftest
+$PY -m evals.run_benchmark --dataset goals.json
+$PY -m evals.style.selftest
+$PY -m evals.viewpoint.selftest
+$PY -m evals.feedback.selftest
+$PY scripts/refresh_post_metrics.py --dry-run
+$PY scripts/smoke_5b4.py
+
+cd frontend && node --test "tests/**/*.test.ts"
+cd frontend && npx tsc --noEmit
+cd frontend && npm run build
+```
+
+**只增不减**（5B.3 文档记的基线 → 本阶段；本阶段没有删除或放松任何一条既有测试）：
+
+| 项 | 5B.3 基线 | 5B.4 | 结果 |
+|---|---|---|---|
+| `pytest -q` | 555 | 644 | ✅ 全通过 |
+| `evals.selftest` | 14 | 15 | ✅ 全通过 |
+| `evals.style.selftest` | 22 | 22 | ✅ 无回归 |
+| `run_benchmark` | 21 | 22 | ✅ 全通过（含 `G-022` / RULE-024） |
+| `evals.viewpoint.selftest` | 17 | 17 | ✅ 无回归 |
+| `evals.feedback.selftest` | — | 12 | ✅ 新增 |
+| 前端 `node --test` | 61 | 75 | ✅ 全通过 |
+| `tsc --noEmit` | clean | clean | ✅ |
+| `npm run build` | ✅ | ✅ | ✅ |
+
+**注意**：在仓库根跑 `evals` 必须用 `python -m evals.…`（本机 editable 安装的
+`.pth` 指向 master 检出，按路径直跑会 import 到 master 的 `evals` 包，见
+`docs/phase-5b1-content-intelligence.md:333-336`）；`run_benchmark` 的
+`--dataset` 取的是**数据集名字**（`goals.json`），给路径会被 `DATASET_DIR`
+二次拼接后报 `FileNotFoundError`。worktree 里 `node_modules` 需要
+`npm ci --prefer-offline` 先装（本机 npm cache 目录不可写，`npm install` 会
+静默什么都不装，退出码却是 0）。
+
+---
+
+## Q. 结论
+
+Feedback Loop 决定的是**"我过去做的事后来怎么样"**，而它在本阶段**只能描述、
+不能指挥**。这条分界在代码里是硬的：
+
+- **未知就是未知**：NULL 全程没有被补成 0——从 X 响应映射、到快照列、
+  到 `metricLabel`，每一层都有测试钉住 `None` / `0` / 数字是三件不同的事；
+- **样本不够就闭嘴**：低于下限只报 `n`，且逐字声明这是采集量门槛，
+  不是统计显著性；
+- **观察不是结论**：因果措辞在生成侧被模板排除、在返回前被守卫扫一遍、
+  在 eval 侧被 RULE-024 判失败；
+- **没有依据就没有信号**：每条信号的 evidence 都指向真实存在的快照行；
+- **反馈是背景不是指令**：Writer 拿到的是"你过去发的东西被观察到这样"，
+  而不是"你下次该这么写"，也没有任何正文或单帖计数；
+- **它改不了自己**：没有写路径从反馈回到 prompt / StyleRecipe / 预算 / 阈值，
+  当前运行的 trend 分不受影响。
+
+系统的终点因此从"基于当前证据形成判断"变成
+**"并且在若干次运行之后，能说出自己过去做过的事实际发生了什么——只说不做"**。
+**这是本阶段的成功判据。**
+
+**Phase 5B.4 — Feedback Loop Foundation 完成，立即停止（§45）。**
+
+---
+
+## R. 收口记录
+
+见本节末（提交后补）。
+
+---
+
+> 本阶段核心：先让 Agent 看见自己过去真实做过什么、结果如何，
+> 而不是马上让它学会自动改变自己。
+>
+> ```
+> Trend    = 当前外部世界
+> Style    = 外部高质量语料
+> Viewpoint = 当前证据下的判断
+> Feedback = 自己过去行为的真实结果
+> ```
+>
+> 这四层必须保持独立。

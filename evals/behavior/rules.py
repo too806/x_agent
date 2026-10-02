@@ -28,6 +28,12 @@ from app.agent.trends import (
     score_topic,
 )
 from app.agent.viewpoint import evidence_index, score_viewpoints
+from app.feedback.schema import FeedbackSignalKind
+from app.feedback.signals import (
+    MIN_SAMPLES_FOR_COMPARISON,
+    find_causal_language,
+    find_instruction_language,
+)
 from evals.analysis import (
     METHOD_MARKER,
     METHOD_NONE,
@@ -1797,6 +1803,195 @@ def rule_023_viewpoint_score_is_reproducible(analysis: RunAnalysis) -> RuleResul
     )
 
 
+# --------------------------------------------------------------------------
+# RULE-024：Phase 5B.4 的 Feedback Loop Foundation
+# --------------------------------------------------------------------------
+
+#: 反馈上下文里**允许**出现的信号种类。
+#:
+#: 这里只列"描述分布"与两个诚实出口。`FeedbackSignalKind` 是封闭枚举，
+#: 所以这张表不需要跟着生产走——但反过来说，生产哪天加了一个 `QUALITY`
+#: 或 `RECOMMENDATION`，这里必须显式改一次，而那次改动会被人看见。
+#: 这正是这条门禁存在的意义：把"反馈只描述观察"从一个约定变成一次审批。
+_OBSERVATIONAL_SIGNAL_KINDS = frozenset(
+    {
+        FeedbackSignalKind.ATTENTION,
+        FeedbackSignalKind.CONVERSATION,
+        FeedbackSignalKind.AMPLIFICATION,
+        FeedbackSignalKind.SHARE,
+        FeedbackSignalKind.INSUFFICIENT_SAMPLE,
+        FeedbackSignalKind.MISSING_METRIC,
+    }
+)
+
+#: 比较类信号：它们描述的是"各类互动之间的构成"，只有在样本量够时才允许出现。
+_COMPARATIVE_SIGNAL_KINDS = frozenset(
+    {
+        FeedbackSignalKind.ATTENTION,
+        FeedbackSignalKind.CONVERSATION,
+        FeedbackSignalKind.AMPLIFICATION,
+        FeedbackSignalKind.SHARE,
+    }
+)
+
+#: 反馈上下文里一段文本的合理长度上限。
+#:
+#: 全部 `statement` 都由 `app/feedback/signals.py` 的固定模板生成，最长的一条
+#: （比率构成）也不到 200 字。超出这个数只有一个解释：有人把某条帖子的**正文**
+#: 或一整段观察记录塞了进来——而工作单第四十二节禁止 Writer 读到过去的正文。
+#: 用长度做代理而不是按键名查，是因为"正文"可以有无数个字段名，但塞进来的
+#: 正文一定很长。
+MAX_FEEDBACK_FIELD_CHARS = 600
+
+
+def rule_024_feedback_context_is_observational(analysis: RunAnalysis) -> RuleResult:
+    """查什么：本次运行读到的反馈上下文，是不是**只描述观察**。
+
+    四件事，每一件对应工作单里的一条硬约束：
+
+    (a) **不声称因果**（第三、十九、三十一节）：`statement` 里不得出现因果
+        措辞。信号的句子由代码模板生成，所以命中必然是有人改了模板——那是
+        本轮唯一能把因果结论送进 Writer 的路径。（只查 statement，见下方注释：
+        标记表是子串匹配，用在为了否认因果而必须提到因果的 `limitations` 上
+        只会产生假阳性，而生产的因果检查也只覆盖 statement。）
+    (b) **不写成指令**（第四十二节）：`statement` 与 `limitations` 里都不得
+        出现"你应该/下次写/模仿这条"。反馈是"我看到过去发生了什么"，
+        不是"照着这个来"。
+    (c) **低于下限就不比**（第十七节）：`sample_count` 低于
+        `MIN_SAMPLES_FOR_COMPARISON` 时不得出现任何比较类信号。同时，
+        每条信号都必须带 n 与非空证据——没有依据的信号不成立（第二十五节）。
+    (d) **不带正文、不自造基线**（第十、四十二节）：`comparison_group` 与
+        `confidence` 在 v1 恒为 `None`（我们还没有基线，也没有校准过的概率）；
+        任何一段文本超过 `MAX_FEEDBACK_FIELD_CHARS` 视为把正文塞了进来。
+
+    为什么值得查：这是系统第一次拿到"自己过去的行为产生了什么结果"。这一层
+    最容易、也最容易被好心越过的界，就是把这批数字当成一条可以据以改写的规律。
+    生产侧已经把因果措辞做成异常（`assert_no_causal_claim`），但那条异常只守
+    `format_feedback_context` 这一个出口；checkpoint 里**存下来**的上下文才是
+    真正被 Writer 读到的东西，这条门禁读的是它。
+
+    `feedback_context` 缺席（Phase 5B.4 之前的运行、以及全部历史 fixture）
+    ⇒ pass：路径没跑过，不是路径跑坏了。与 RULE-019/020 同一条口径——
+    否则新尺子会把全部历史数据一次染红。
+
+    判不出来时：判得出来。上下文是 checkpoint 里的显式字段，四件事全部
+    读它的结构化值，不做任何语义推断。
+    """
+    state = analysis.record.state
+    context = getattr(state, "feedback_context", None)
+
+    if context is None:
+        return _pass(
+            "RULE-024", "反馈上下文必须是观察，不是指令", "gate",
+            "本次运行没有可读的反馈上下文（Phase 5B.4 之前的运行），此项不适用",
+        )
+
+    problems: list[str] = []
+
+    # (a) 因果措辞：只查 `statement`。
+    #
+    # 边界是照抄生产的：`report.py::_validate_signals` 也只查 statement。
+    # 理由是这张标记表**只能抓我们自己写出来的句子**——它是子串匹配，分不出
+    # "A 导致了 B" 与 "不等于谁导致了谁"。而 `limitations` 是一段解释性文字，
+    # 它为了否认因果必须提到因果（`BASE_LIMITATIONS` 第一条就是这种句子）。
+    # 把标记表用在解释性文字上只会得到一堆必须靠改文案绕开的假阳性；用在
+    # 代码模板生成的陈述句上，命中就必然是有人改了模板。工作单第三、十九、
+    # 三十一节要防的正是后者：**结论**不许写成因果。
+    for index, signal in enumerate(context.signals):
+        hits = find_causal_language(signal.statement)
+        if hits:
+            problems.append(
+                f"signals[{index}].statement 出现因果措辞 {hits!r}：{signal.statement!r}"
+            )
+
+    # (b) 指令措辞：`statement` 与 `limitations` **都**查。
+    #
+    # 这一条没有上面那个边界问题：`format_feedback_context` 渲染给 Writer 的
+    # 整段（信号 + 局限）已经过一遍 `assert_observational`，所以这里是同一个
+    # 口径落在**存进 checkpoint 的那份值**上，而不是另立一套。
+    instructional_texts: list[tuple[str, str]] = [
+        (f"signals[{index}].statement", signal.statement)
+        for index, signal in enumerate(context.signals)
+    ] + [
+        (f"limitations[{index}]", note)
+        for index, note in enumerate(context.limitations)
+    ]
+    for where, text in instructional_texts:
+        hits = find_instruction_language(text)
+        if hits:
+            problems.append(f"{where} 出现指令性措辞 {hits!r}：{text!r}")
+
+    # (c) 样本量与可追溯性。
+    for index, signal in enumerate(context.signals):
+        if signal.kind not in _OBSERVATIONAL_SIGNAL_KINDS:
+            problems.append(
+                f"signals[{index}] 的种类 {signal.kind.value!r} 不是一个观察性信号"
+            )
+        if signal.sample_count <= 0:
+            problems.append(
+                f"signals[{index}] 没有样本量（sample_count={signal.sample_count}）"
+                "——一个没有 n 的结论无法被判断为样本太小"
+            )
+        if not signal.evidence:
+            problems.append(
+                f"signals[{index}] 没有依据（evidence 为空）——没有依据就没有信号"
+            )
+        missing_evidence = [
+            snapshot_id
+            for snapshot_id in signal.evidence
+            if snapshot_id not in context.source_snapshot_ids
+        ]
+        if missing_evidence:
+            problems.append(
+                f"signals[{index}] 引用了上下文里不存在的快照 "
+                f"{missing_evidence[:3]}——事后无法回到那条观察"
+            )
+        if (
+            context.sample_count < MIN_SAMPLES_FOR_COMPARISON
+            and signal.kind in _COMPARATIVE_SIGNAL_KINDS
+        ):
+            problems.append(
+                f"signals[{index}] 在 {context.sample_count} 条观察"
+                f"（低于下限 {MIN_SAMPLES_FOR_COMPARISON}）上给出了"
+                f"{signal.kind.value!r} 比较结论"
+            )
+
+    # (d) 不自造基线、不塞正文。
+    for index, signal in enumerate(context.signals):
+        if signal.comparison_group is not None:
+            problems.append(
+                f"signals[{index}] 带有对照组 {signal.comparison_group!r}"
+                "——v1 还没有自己的基线，任何组间比较都无据可依"
+            )
+        if signal.confidence is not None:
+            problems.append(
+                f"signals[{index}] 带有置信度 {signal.confidence!r}"
+                "——没有经过校准的概率可以给出来"
+            )
+
+    for name, value in context.model_dump().items():
+        for text in value if isinstance(value, list) or isinstance(value, tuple) else [value]:
+            if isinstance(text, str) and len(text) > MAX_FEEDBACK_FIELD_CHARS:
+                problems.append(
+                    f"feedback_context.{name} 里有一段 {len(text)} 字的文本"
+                    f"（上限 {MAX_FEEDBACK_FIELD_CHARS}）——观察摘要里不该有正文"
+                )
+
+    if problems:
+        return _fail(
+            "RULE-024", "反馈上下文必须是观察，不是指令", "gate",
+            "；".join(problems[:5]) + ("…" if len(problems) > 5 else ""),
+            *problems,
+        )
+    kinds = "、".join(sorted({signal.kind.value for signal in context.signals})) or "无"
+    return _pass(
+        "RULE-024", "反馈上下文必须是观察，不是指令", "gate",
+        f"反馈上下文只描述观察：{context.sample_count} 条观察 / "
+        f"{context.snapshot_count} 张快照，信号种类 {kinds}，"
+        "无因果措辞、无指令措辞、无自造基线、无正文",
+    )
+
+
 #: 全部规则，按编号顺序。报告按这个顺序渲染。
 RULES: tuple[Callable[[RunAnalysis], RuleResult], ...] = (
     rule_001_actions_are_defined,
@@ -1822,6 +2017,7 @@ RULES: tuple[Callable[[RunAnalysis], RuleResult], ...] = (
     rule_021_claim_scope_exceeds_evidence,
     rule_022_counterpoints_are_not_erased,
     rule_023_viewpoint_score_is_reproducible,
+    rule_024_feedback_context_is_observational,
 )
 
 
@@ -1848,6 +2044,7 @@ GATE_RULE_IDS: tuple[str, ...] = (
     "RULE-021",
     "RULE-022",
     "RULE-023",
+    "RULE-024",
 )
 
 
