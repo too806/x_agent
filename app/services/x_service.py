@@ -121,9 +121,21 @@ class XService:
                     replies=metrics.get("reply_count"),
                     reposts=metrics.get("retweet_count"),
                     quote_count=metrics.get("quote_count"),
-                    # v1：这两项从未请求，恒为 None（字段留在 schema 里而已）。
-                    impressions=metrics.get("impression_count"),
-                    bookmarks=metrics.get("bookmark_count"),
+                    # v1 只读公开计数：这两项**刻意不读**，字段留在 schema 里而已。
+                    #
+                    # 真机验证（Phase 5B.4 Real-world Validation）推翻了这里的
+                    # 原假设。原来写的是 `metrics.get("impression_count")`，理由是
+                    # "v1 只请求公开计数，所以这两项不会出现在响应里"——**这是错的**：
+                    # `GET /2/tweets?ids=` 即使只要 `public_metrics`，也会把
+                    # `impression_count` / `bookmark_count` 一起放进响应，而且是 `0`。
+                    # 于是"恒为 None"的假设静默失效，快照里落下两个 0。
+                    #
+                    # 为什么这不是"多读了两个数"这么轻：`report.py` 只有在**全部**
+                    # 观察的 impressions 都是 None 时才写"曝光量为未知，因此互动率
+                    # 无法计算（不是零互动率）"。一旦落成 0，这条最该说的话就不见了，
+                    # 报告转而暗示"测出来是 0 曝光"。工作单第十节禁的正是这个。
+                    impressions=None,
+                    bookmarks=None,
                     observed_at=stamp,
                 )
             )

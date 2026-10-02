@@ -11,7 +11,13 @@
 **分支**：`feat/phase-5b4-feedback-loop`，**独立 worktree** `X_Agent-phase-5b4`
 （工作单第四十三节）。`master` 保持 `a6f67b7` 不动。
 
-**状态**：Complete（Smoke 1/2/4 记 `blocked`，见 I 节；原因见 K 节）。
+**状态**：Complete。Foundation 部分见 A–R 节；**Real-world Validation**（一次真实、
+人工确认的 X 发布，把整条链在真实数据上跑通）见
+`docs/phase-5b4-real-validation.json` 与 S 节。
+
+> 说明：I 节的 Smoke 1/2/4 在**当时**记 `blocked`——那时库里确实一条已发布帖子都没有。
+> 那块缺口后来由 Real-world Validation 补上了（S 节）。两节都保留，因为"当时没跑"
+> 与"后来用真实数据跑了"是两件事，不能拿后者覆写前者。
 
 **结论**：完成，并且**只完成上半环**。三层认知能力（Trend / Style / Viewpoint）之后
 第一次出现"自己行为的结果"这一层，但本阶段**不许它改变自己**：
@@ -378,15 +384,19 @@ evidence 全非空。Writer 的块 562 字符，只有分布与局限。Run 正�
 
 ## K. 已知限制（§35）
 
-1. **库里没有任何已发布帖子**（`published_post` 0 行），所以
-   "采集 → 归因"这条链只在合成 fixture 上走过。**Smoke 1/2/4 是 `blocked`，
-   不是 `skipped`**，也不拿合成帖子充数。
+1. ~~**库里没有任何已发布帖子**~~ —— **已被 Real-world Validation 补上**（S 节）：
+   2026-10-02 真实发布了 1 条（`x_post_id=2105998097302028593`），并采集了 2 条快照。
+   在此之前，Smoke 1/2/4 记的是 `blocked` 而不是 `skipped`（当时确实没有可跑的对象）。
+   仍然成立的残余部分：**样本只有 n=2**，证明的是数据链，不是任何内容规律。
 2. **`impressions` / `bookmarks` 恒为 NULL**。v1 只读 `public_metrics` 里的公开
-   计数；`engagement_rate` 因此恒为 `None`——公式在，分子分母的分子那半没有。
+   计数；`engagement_rate` 因此恒为 `None`——公式在，分母那半没有。
+   **真机验证为此修掉了一个缺陷**：X 的响应里其实**带着**这两个键（真机上是 `0`），
+   原来的映射把它们读走并落成 0，反而让报告不再声明"曝光量未知"（见 S 节 D1）。
 3. **只有自然产生的数据，没有实验设计**，所以任何因果关系在构造上就不可能
    得出。这不是"本阶段没做"，是"这样做不到"。
-4. **`GET /2/tweets?ids=…` 只在 mock transport 上验证过**。真机没有可查的帖子，
-   这条路径从来没有真正发出过一个请求。
+4. ~~**`GET /2/tweets?ids=…` 只在 mock transport 上验证过**~~ —— **已被真机验证**：
+   该路径在 2026-10-02 真实发出并返回 200（S 节）。仍然成立的部分：只验证过
+   **1 条 id、3 次调用**，多 id 分批（`MAX_LOOKUP_IDS=100`）仍只有 mock 覆盖。
 5. **Agent 侧的反馈仍是 checkpoint-only**（与 `guardrail_*` / `style_recipe`
    一致）。checkpoint 被 GC 掉的运行拿不到归因的那一半字段——profile 会
    降级并附一条 limitation，不会崩。
@@ -729,6 +739,90 @@ C:\xuexi\py\2026_agent\X_Agent-phase-5b4\evals\__init__.py
 **明确没有做的收口动作**：没有合并回 `master`、没有 push、没有删除 worktree、
 没有打 tag。工作单第四十三节只要求"在独立分支与 worktree 上做、`master` 不动"，
 这三点都满足。
+
+---
+
+## S. Real-world Validation（2026-10-02）
+
+Foundation 交付之后，整条链在真实数据上**没有跑过**——`published_post` 是 0 行。
+本节记录把这块缺口补上的那一次：一次真实、人工确认的 X 发布。
+完整证据在 `docs/phase-5b4-real-validation.json`。
+
+### S1. 做了什么
+
+```
+Goal → Agent → waiting_for_review          （run 426edc13…，Agent 自选话题）
+  → 人工审核：edit（原稿 144 字符超过 persona.max_length=140，approve 会被 422 拦下）
+  → PublishService → POST /2/tweets        （1 次）
+  → published_post + agent_run = published
+  → GET /2/tweets?ids=…  ×2                （两次快照，observed_at 不同）
+  → GET /api/admin/feedback                （真实数据上生成报告）
+  → 下一次 Agent Run                        （读到了结构化的 Feedback Context）
+```
+
+**真实 X 请求账：`POST /2/tweets = 1`、`POST /2/media = 0`、**
+`GET /2/tweets?ids= = 3`、`GET /2/tweets/search/recent = 5`、`GET /2/users/me = 1`。
+没有重试、没有循环、没有自动发布。帖子保持公开，没有删除。
+
+### S2. 结果
+
+| 判据 | 结果 |
+|---|---|
+| 真实帖子发布成功 | ✅ `x_post_id=2105998097302028593` |
+| 数据库有 `published_post` | ✅ 1 行，`status=published` |
+| X GET 读到 metrics | ✅ 200，四个公开计数真实返回 |
+| 至少 2 条 snapshot | ✅ 2 条，同 `x_post_id` 不同 `observed_at` 共存 |
+| `FeedbackReport` 生成 | ✅ `available=true` |
+| n 被正确标成 `insufficient_sample` | ✅ 唯一信号就是它，无比较、无建议 |
+| 下一次 Agent 读到 Feedback Context | ✅ 真实快照 id 已进 checkpoint |
+| 没有自动调参 / 自动发布 | ✅ 见 S4 |
+
+### S3. 真机验证发现并修掉的缺陷（D1）
+
+`app/services/x_service.py::fetch_public_metrics` 原本写的是
+`impressions=metrics.get("impression_count")`，注释断言"v1 从未请求这两项，
+恒为 None"。**真机证明这个假设是错的**：`GET /2/tweets?ids=&tweet.fields=public_metrics`
+照样返回 `impression_count: 0` / `bookmark_count: 0`，于是快照里落下两个 0。
+
+后果不是"多读了两个数"：`report.py` 只有在**全部**观察的 impressions 都是 None 时
+才写"曝光量为未知，因此互动率无法计算（不是零互动率）"。落成 0 会让这句最该说的话
+消失，报告转而暗示"测出来是 0 曝光"——正是工作单第十节禁的东西。
+
+修法是 v1 不读这两项；补了 3 条测试，其中
+`test_impressions_and_bookmarks_are_ignored_even_when_x_returns_them` 补上的正是
+原来漏掉的情形（原测试只覆盖"键不存在"，真机是"键存在且为 0"）。
+另外加了一条
+`test_the_real_chain_from_published_post_to_feedback_signal`
+（`published_post → snapshot → FeedbackSignal`，不依赖 X，CI 可跑）——
+缺陷正是从"每一段都有单测、但没人把它们串起来"这个缝里漏过去的。
+
+### S4. 四层仍然独立（真机上再验一次）
+
+- `{{FEEDBACK}}` 只出现在 `prompts/agent/candidates.txt`（Writer）一个模板里，
+  angles / critic / revise 都没有；
+- `feedback_context` 在 `app/` 里的出现点只有：state 的键声明、prompt 渲染、
+  `candidates.py` 的解析与传入、checkpointer 的 serde 登记、admin 的只读视图——
+  **没有任何写 `trend_score` / `style_recipe` / `StyleProfile` / 观点分 / 预算 /
+  Critic 阈值的路径**；
+- Writer 拿到的 379 字符里没有帖子正文、没有单帖计数、没有指令；
+  指令性标记命中 0。唯一出现的"因果"字样是局限句里那句用来**否认**因果的
+  "同时出现不等于谁导致了谁"；
+- 没有新节点、没有新 AgentAction、预算未动。
+
+### S5. 这次验证**不能**说明什么
+
+n=2，而且两次观察都落在 0-1h 档、计数全是 0。它证明的是
+**真实发布结果能够安全进入系统、并被 Agent 看见**，不是任何内容规律。
+因此本轮**没有**因为指标低而动过任何算法：`MIN_SAMPLES_FOR_COMPARISON` 没变，
+`persona.max_length` 没变，Writer 没动——尽管本轮两次运行的原稿都触发了 guardrail。
+按工作单第二十节，这是一次样本，只配证明数据链。
+
+### S6. 这次的验证后测试
+
+`pytest` **647 通过**（644 → 647，+3 条新测试）；`evals.selftest` 15；
+`evals.style.selftest` 22；`evals.viewpoint.selftest` 17；
+`evals.feedback.selftest` 12；`run_benchmark` 22/22（含 `G-022`）。
+前端本轮未改，未重跑。
 
 ---
 

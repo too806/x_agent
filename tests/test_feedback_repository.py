@@ -227,6 +227,50 @@ async def test_foreign_key_cascade_removes_snapshots_with_the_post(session_facto
         assert await count_post_metrics_snapshots(session) == 0
 
 
+async def test_the_real_chain_from_published_post_to_feedback_signal(session_factory):
+    """真实链路的最小回归：`published_post → snapshot → FeedbackSignal`（工作单第二十一节）。
+
+    这条链路上的每一段此前都有单测（仓库、映射、信号），但**没有一条测试把它们
+    串起来**——2026-10-02 的真机验证正是在这个接缝上发现了缺陷（`x_service` 从
+    真实响应里读走了 `impression_count`，落成 0，于是报告不再声明"曝光量未知"）。
+    这里用国产 fixture 走完整条链，**不碰 X**（工作单第二十一节：CI 不用真机）。
+    """
+    from app.feedback.profile import observations_from_rows
+    from app.feedback.report import build_feedback_context, build_report
+
+    post_id = await seed_post(session_factory)
+    for hours in (0.5, 3.0):
+        await _insert(
+            session_factory,
+            post_id,
+            observed_at=PUBLISHED_AT + timedelta(hours=hours),
+            likes=4,
+            hours=hours,
+        )
+
+    async with session_factory() as session:
+        rows = await list_post_metrics_snapshots(session, published_post_id=uuid.UUID(post_id))
+    observations = observations_from_rows(rows)
+
+    # 数据库行 → 观察：归属关系必须原样带过来
+    assert len(observations) == 2
+    assert {o.published_post_id for o in observations} == {post_id}
+    assert {o.x_post_id for o in observations} == {"1900"}
+    # 两条观察属于**同一条**帖子 → 上下文里 post_count 是 1，不是 2
+    report = build_report(observations)
+    context = build_feedback_context(report)
+    assert context.snapshot_count == 2
+    assert context.post_count == 1
+
+    # n=2 < 下限 → 只报样本量，不产出任何比较
+    assert [s.kind.value for s in report.signals] == ["insufficient_sample"]
+    # 每条信号的依据都指向真实存在的那两行
+    assert {sid for s in report.signals for sid in s.evidence} == {
+        o.snapshot_id for o in observations
+    }
+    assert any("曝光量为未知" in note for note in report.limitations)
+
+
 def test_snapshot_model_has_no_update_path():
     """只追加：模型上不该有任何"更新"用的时间戳列（updated_at）。
 

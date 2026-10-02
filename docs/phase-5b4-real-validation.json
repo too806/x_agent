@@ -1,0 +1,161 @@
+{
+  "phase": "5B.4",
+  "round": "Real-world Validation",
+  "date": "2026-10-02",
+  "note": "一次真实、人工确认的 X 发布，用来验证 真实发布结果 → 采集 → 归因 → 反馈信号 → Agent 可读 这条完整链路。只发 1 条。本文档不含任何凭据。",
+
+  "account": {
+    "username": "TCL7788",
+    "user_id": "1641511092022284288"
+  },
+
+  "publish": {
+    "run_id": "426edc13-35af-4918-a579-162df532abf3",
+    "x_post_id": "2105998097302028593",
+    "published_at": "2026-10-02T12:27:28.366634Z",
+    "http_result": {"status_code": 200, "outcome": "published"},
+    "published_post_row_id": "46b5b3a1-7fb0-4c27-bcc7-bab83a893f76",
+    "published_post_status": "published",
+    "agent_run_status_after": "published",
+    "last_error": null,
+    "agent_chosen_topic": "给 AI agent 发钱包：Catena Labs 的智能体银行与「智能体互相创造价值」的设想",
+    "guardrail": {"passed": false, "reasons": ["too_long"], "max_length": 140},
+    "draft_content_length": 144,
+    "review_action": "edit",
+    "review_original_content_length": 144,
+    "review_edited_content_length": 110,
+    "published_content_length": 110,
+    "published_x_weighted_length": 205,
+    "why_edited": "原稿 144 字符超过 config/persona.yaml 的 max_length=140。PublishService._preflight 在 len(content) > max_length 时返回 422 invalid 且不调用 X，所以 approve 原样发布走不通；按工作单第六节走 edit 路径，发布内容取 review.edited_content。人工编辑只删减并去掉正文里裸露的 fact-id（f12/f16/f17），不改判断。",
+    "post_still_public": true,
+    "post_deleted": false
+  },
+
+  "snapshots": [
+    {
+      "index": 1,
+      "snapshot_id": "0a96b1cd-0f12-4646-8563-74dd17930df5",
+      "observed_at": "2026-10-02T12:27:35.344332+00:00",
+      "first_metrics_observed_at": "2026-10-02T12:27:35.344332+00:00",
+      "hours_since_publish": 0.0019382494444444445,
+      "likes": 0, "replies": 0, "reposts": 0, "quotes": 0,
+      "impressions": 0,
+      "bookmarks": 0,
+      "note": "这条写在缺陷修复**之前**：当时的映射会从真实响应里读走 impression_count / bookmark_count（真机回的是 0），所以这两列落成了 0 而不是 NULL。快照只追加、不可改写，因此这行按原样保留，作为缺陷的实证。"
+    },
+    {
+      "index": 2,
+      "snapshot_id": "cc1fb657-59fe-4861-b8d9-b8195c6e0d4b",
+      "observed_at": "2026-10-02T12:29:12.198185+00:00",
+      "second_metrics_observed_at": "2026-10-02T12:29:12.198185+00:00",
+      "hours_since_publish": 0.0288420975,
+      "likes": 0, "replies": 0, "reposts": 0, "quotes": 0,
+      "impressions": null,
+      "bookmarks": null,
+      "note": "修复之后写的。这两列如实为 NULL。同一 x_post_id、不同 observed_at 两行共存，唯一约束没有覆盖、也没有报错（工作单第十二节）。"
+    }
+  ],
+
+  "snapshot_count": 2,
+
+  "raw_x_evidence": {
+    "endpoint": "GET /2/tweets?ids=2105998097302028593&tweet.fields=public_metrics",
+    "http_status": 200,
+    "public_metrics_returned": {
+      "like_count": 0, "reply_count": 0, "retweet_count": 0, "quote_count": 0,
+      "impression_count": 0, "bookmark_count": 0
+    },
+    "note": "这是 §16 的事实起点。四个公开计数确实是 X 返回的 0，不是任何人填的。同时它也暴露了本轮的缺陷：响应里**确实**带着 impression_count / bookmark_count（都是 0），而 v1 的假设是「只请求 public_metrics，所以这两项不会出现」。"
+  },
+
+  "feedback": {
+    "report_source": "GET /api/admin/feedback（读时现算）",
+    "available": true,
+    "sample_count": 2,
+    "snapshot_count": 2,
+    "post_count": 1,
+    "feedback_type": "insufficient_sample",
+    "signal_kinds": ["insufficient_sample"],
+    "comparative_signal_count": 0,
+    "comparison_group": null,
+    "confidence": null,
+    "evidence": ["0a96b1cd-0f12-4646-8563-74dd17930df5", "cc1fb657-59fe-4861-b8d9-b8195c6e0d4b"],
+    "recommendation_produced": false,
+    "best_style_claim_produced": false,
+    "limitations_omitted_note": "报告里**没有**出现「曝光量为未知，因此互动率无法计算（不是零互动率）」这句。原因就是快照 1 的 impressions=0 让 report.py 的 `all(impressions is None)` 判定为假。这是同一条缺陷的第二个后果，随快照只追加而留在这里，如实记录。"
+  },
+
+  "next_run_reads_feedback": {
+    "run_id": "204a0a2f-5507-48ef-b1ab-b3c9d0f73550",
+    "agent_chosen_topic": "（材料只有链接，没有可归纳的正文）",
+    "status": "waiting_for_review",
+    "published": false,
+    "feedback_context_available": true,
+    "feedback_sample_count": 2,
+    "feedback_signal_kinds": ["insufficient_sample"],
+    "source_snapshot_ids": ["0a96b1cd-0f12-4646-8563-74dd17930df5", "cc1fb657-59fe-4861-b8d9-b8195c6e0d4b"],
+    "writer_block_chars": 379,
+    "writer_block": "- 以下是你自己账号**过去已发布内容**被观察到的结果，只作背景参考，不是本次的写作要求。\n- 样本：2 条观察，覆盖 1 条已发布内容。\n- 最近一次观察时刻：2026-10-02T12:29:12.198185+00:00。\n- 当前可用的观察只有 2 条，低于比较下限 5，本期不产出任何分组比较或比率结论。这个下限是采集量的门槛，不是统计显著性判断。\n- 口径与局限：本报告只描述观察到的分布，不做任何因果结论；同时出现不等于谁导致了谁。；点赞、回复、转发、引用是四类不同的行为，本报告不把它们合成单一分数。；指标为公开计数；曝光与收藏从未采集，恒为未知，不按 0 计入。；没有对照组、没有实验设计；任何组间差异都可能来自内容之外的变量。；观察数 n=2，低于比较下限 5，本报告只报告样本量，不产出任何比较结论。；本次观察覆盖的时间档：0-1h。",
+    "instruction_marker_hits": [],
+    "note": "这段文本由 format_feedback_context 从真实 checkpoint 里的 FeedbackContext 渲染，是 Writer 实际拿到的东西。没有帖子正文、没有单帖计数、没有指令。唯一命中的「因果」字样是局限句里那句用来**否认**因果的「同时出现不等于谁导致了谁」。"
+  },
+
+  "layer_independence": {
+    "feedback_only_enters_the_writer": true,
+    "writer_prompt_template": "prompts/agent/candidates.txt:22 的 {{FEEDBACK}}",
+    "feedback_appears_in_no_other_prompt_template": true,
+    "writes_to_trend_score": false,
+    "writes_to_style_recipe": false,
+    "writes_to_style_profile": false,
+    "writes_to_viewpoint_score": false,
+    "writes_to_budget": false,
+    "writes_to_critic_thresholds": false,
+    "new_agent_actions": 0,
+    "new_graph_nodes": 0,
+    "auto_retry": false,
+    "auto_publish": false,
+    "auto_tuning": false
+  },
+
+  "x_requests_this_round": {
+    "POST /2/tweets": 1,
+    "POST /2/media": 0,
+    "GET /2/tweets?ids=": 3,
+    "GET /2/tweets/search/recent": 5,
+    "GET /2/users/me": 1,
+    "total": 10,
+    "note": "只统计本轮（2026-10-02 这次验证）产生的请求，不掺历史运行。POST /2/tweets 恰好 1 次，来自 PublishService 那一次调用，没有重试、没有循环。3 次 by-id GET = 两次采集脚本 + 一次手工原始核对。"
+  },
+
+  "defects_found_by_real_world_validation": [
+    {
+      "id": "D1",
+      "where": "app/services/x_service.py::fetch_public_metrics",
+      "what": "映射里写的是 `impressions=metrics.get(\"impression_count\")` / `bookmarks=metrics.get(\"bookmark_count\")`，注释断言「v1 从未请求这两项，恒为 None」。真机响应证明这个假设是错的：`GET /2/tweets?ids=&tweet.fields=public_metrics` 照样返回 `impression_count: 0` 与 `bookmark_count: 0`。于是快照里落下两个 0。",
+      "why_it_matters": "不是「多读了两个数」。report.py 只有在全部观察的 impressions 都是 None 时才写「曝光量为未知，因此互动率无法计算（不是零互动率）」。落成 0 会让这句最该说的话消失，报告转而暗示「测出来是 0 曝光」。工作单第十节禁的就是这个。",
+      "fix": "v1 不读这两项，直接置 None。",
+      "tests_added": [
+        "tests/test_x_api_metrics.py::test_impressions_and_bookmarks_are_ignored_even_when_x_returns_them",
+        "tests/test_x_api_metrics.py::test_a_zero_impression_count_does_not_silence_the_unknown_impressions_note",
+        "tests/test_feedback_repository.py::test_the_real_chain_from_published_post_to_feedback_signal"
+      ],
+      "test_gap_that_let_it_through": "原有的 test_missing_metric_keys_stay_none_not_zero 只覆盖了「键不存在」的情形，没有覆盖「键存在且是 0」——而后者才是真机的行为。"
+    }
+  ],
+
+  "known_limitations": [
+    "SQLite/静态检查不会发现 D1 这类缺陷：只有真实 X 的响应形状能证伪「这两项不会出现」的假设。",
+    "快照 1 的 impressions=0 只追加、不改写，因此本文档记录的那条帖子的报告至今仍不会输出「曝光量未知」这句。这是有意的：快照的价值就在于永不被改写。",
+    "只有 1 条真实帖子、2 次观察，n=2。它证明的是**数据链**通了，不能、也没有用来证明任何内容规律（工作单第二十节）。",
+    "两次观察都落在 0-1h 档，因为没有为等互动而等待。时间序列里更长的档位仍未在真实数据上出现。",
+    "真实计数全是 0（帖子刚发出、无互动），所以「非零计数能否正确搬运」仍未在真实数据上验证过；这一点由合成 fixture 覆盖。",
+    "本轮不做任何算法调整：不因为指标低而改 MIN_SAMPLES_FOR_COMPARISON，也不因为原稿超长而改 persona.max_length 或 Writer。"
+  ],
+
+  "observations_not_acted_on": [
+    "本轮两次运行的原稿都触发了 guardrail（run 1: too_long 144>140）。按工作单第四节，本轮不改 Writer / Planner / Budget。仅记录。",
+    "运行 2 的 Agent 自选话题退化成「（材料只有链接，没有可归纳的正文）」，与本轮目标无关，不在本轮范围内处理。"
+  ],
+
+  "secrets_recorded": false
+}

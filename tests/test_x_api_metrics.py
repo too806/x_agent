@@ -129,6 +129,63 @@ async def test_missing_metric_keys_stay_none_not_zero():
 
 
 @pytest.mark.asyncio
+async def test_impressions_and_bookmarks_are_ignored_even_when_x_returns_them():
+    """X **会**把这两项放进响应（真机上就是 0），v1 仍然不读。
+
+    真机验证发现的缺陷：原来的映射写的是 `metrics.get("impression_count")`，
+    并且注释断言"v1 从未请求这两项，所以恒为 None"。实际响应对
+    `GET /2/tweets?ids=&tweet.fields=public_metrics` 照样回 `impression_count: 0`，
+    于是快照里落下 0，而 `report.py` 只在 impressions 全为 None 时才声明
+    "曝光量为未知，因此互动率无法计算（不是零互动率）"——落 0 会让这句最该说的话
+    消失。工作单第十节：未知不能变成 0。
+    """
+    raw = {
+        "data": [
+            {
+                "id": "111",
+                "public_metrics": {
+                    "like_count": 5,
+                    "reply_count": 1,
+                    "retweet_count": 2,
+                    "quote_count": 0,
+                    # 真机响应里确实有这两项，且是 0
+                    "impression_count": 0,
+                    "bookmark_count": 0,
+                },
+            }
+        ]
+    }
+    observations, _ = await _service(raw).fetch_public_metrics(["111"])
+
+    obs = observations[0]
+    # 公开计数照读
+    assert (obs.likes, obs.replies, obs.reposts, obs.quote_count) == (5, 1, 2, 0)
+    # 这两项即使响应里有、即使是 0，也必须落成 None
+    assert obs.impressions is None
+    assert obs.bookmarks is None
+
+
+@pytest.mark.asyncio
+async def test_a_zero_impression_count_does_not_silence_the_unknown_impressions_note():
+    """端到端的一句：快照里没有 0 曝光 → 报告才会如实说"互动率算不出来"。"""
+    from app.feedback.profile import observations_from_rows
+    from app.feedback.report import build_report
+
+    class _Row:
+        id = "snap-1"
+        x_post_id = "111"
+        published_post_id = "post-1"
+        observed_at = datetime(2026, 10, 2, 12, 30, tzinfo=timezone.utc)
+        hours_since_publish = 0.05
+        likes, replies, reposts, quotes = 5, 1, 2, 0
+        impressions = None
+        bookmarks = None
+
+    report = build_report(observations_from_rows([_Row()]))
+    assert any("曝光量为未知" in note for note in report.limitations)
+
+
+@pytest.mark.asyncio
 async def test_ids_x_did_not_return_are_reported_not_fabricated():
     raw = {"data": [{"id": "111", "public_metrics": {"like_count": 3}}]}
     observations, missing = await _service(raw).fetch_public_metrics(["111", "999"])
