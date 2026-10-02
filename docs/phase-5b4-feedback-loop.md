@@ -741,9 +741,14 @@ C:\xuexi\py\2026_agent\X_Agent-phase-5b4\evals\__init__.py
 `evals.viewpoint.selftest`（17）**一条没动、一条没少**——这是"没有回归"的证据，
 不是"没跑"。
 
-**明确没有做的收口动作**：没有合并回 `master`、没有 push、没有删除 worktree、
-没有打 tag。工作单第四十三节只要求"在独立分支与 worktree 上做、`master` 不动"，
-这三点都满足。
+**Foundation 收口时明确没有做的动作**：没有合并回 `master`、没有 push、
+没有删除 worktree、没有打 tag。工作单第四十三节只要求"在独立分支与 worktree 上做、
+`master` 不动"，这三点都满足。
+
+> 后来由 **Final Integration & Baseline**（T 节）改变了其中一点：应当合并且已用
+> `--ff-only` 快进并入 `master`。R 节保留的是**当时**的事实，不覆写——
+> "开发期间 `master` 不动"与"收口时合并"是先后两件事。**至今仍然成立**的：
+> 没有 push、没有删除 worktree、没有打 tag。
 
 ---
 
