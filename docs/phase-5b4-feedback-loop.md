@@ -9,8 +9,10 @@
 **基线**：开工时 `master` HEAD `a6f67b7`（Phase 5B.3 COMPLETE：backend 555 通过 /
 frontend 61 通过）。
 
-**封版 HEAD**：`8e8d75f`（`master` 最终 HEAD）。其中 `2a73341` 是 5B.4 特性与
-真机验证并入 `master` 的快进点，`7f63078` / `8e8d75f` 是收口的两笔文档提交（T 节）。
+**封版 HEAD**：**本文件所在的 `master` 提交**（`git log --oneline -1` 即得；
+此处刻意不写字面哈希——文档每改一次哈希就变，写死必然过期）。
+可追溯的两个锚点：`2a73341` 是 5B.4 代码与真机验证并入 `master` 的快进点，
+**T2 的全部验证就是在它上面跑的**；其后的收口提交只动 `docs/`，不动代码（T 节）。
 
 **分支**：`feat/phase-5b4-feedback-loop`，**独立 worktree** `X_Agent-phase-5b4`
 （工作单第四十三节）。**开发期间**`master` 保持 `a6f67b7` 不动；收口时才快进合并。
@@ -850,8 +852,12 @@ merge 前 5B.4 branch   : 2a73341  feat: real-world validation of the feedback l
 merge-base 检查        : git merge-base --is-ancestor master <branch> → 通过
                           （merge-base = a6f67b7，即 master 自身；分支 3 ahead / 0 behind）
 合并方式               : git switch master && git merge --ff-only feat/phase-5b4-feedback-loop
-final HEAD             : 2a73341a0c0a7c7a521c79c100e54af9b1279b07
+合并后 HEAD（5B.4 代码封版点）: 2a73341a0c0a7c7a521c79c100e54af9b1279b07
+                               —— T2 的全部验证就是这个提交
 ```
+
+合并之后的三笔提交（`7f63078` / `8e8d75f` / 命名本文件的这一笔）**只改 `docs/`**，
+不改任何代码，因此 T2 的验证结果对最终 `master` 同样成立。
 
 没有用 `rebase` / `reset` / `squash` / `amend` / `force push`。是纯快进，
 所以三个提交（`11f5492` 特性 → `6a1974f` finalize → `2a73341` 真机验证）原样进历史。
