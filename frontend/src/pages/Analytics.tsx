@@ -9,9 +9,19 @@ import { IconRefresh } from '../components/ui/icons'
 import { useAsync } from '../hooks/useAsync'
 import { FEEDBACK_DISCLAIMER, signalHeadline } from '../utils/feedback'
 import { EMPTY, dateTime, duration } from '../utils/format'
+import {
+  LEARNING_DISCLAIMER,
+  comparisonHeadline,
+  comparisonStatement,
+  evidenceHeadline,
+  invalidComparisonLine,
+  limitationLines,
+  readinessHeadline,
+} from '../utils/learning'
 import type {
   AverageRunDuration,
   FeedbackOverview,
+  LearningOverview,
   PublishOutcomeDistribution,
   ReviewDecisionDistribution,
   TopicCount,
@@ -335,6 +345,176 @@ function FeedbackBlock({
   )
 }
 
+/**
+ * 反馈够不够可靠，可以作为未来学习材料（Phase 5C）。
+ *
+ * 这是这一页上**唯一**一块不是"观察了什么"、而是"这些观察够不够格"的内容，
+ * 所以它与 `FeedbackBlock` 并排但分开显示：上面那块答"看到了什么"，
+ * 这一块答"看到的这些，敢不敢拿去做未来的判断"。
+ *
+ * 刻意极简：状态 / 样本量 / 窗口 / 原因 / 成立的比较 / 证据。**没有图表**——
+ * 一个折线图会让 n=1 的数据看起来像一条趋势线，而这一层存在的意义恰恰是
+ * 在数据不够时明确地说"不够"。
+ *
+ * 三个状态必须长得不一样（同 `FeedbackBlock`）：请求失败 / 没有已发布内容 /
+ * 有数据。把"加载失败"显示成"还没有内容"会把一次故障说成一个关于数据的结论。
+ */
+function LearningBlock({
+  data,
+  loading,
+  error,
+  onRetry,
+}: {
+  data: LearningOverview | null
+  loading: boolean
+  error: ApiError | null
+  onRetry: () => void
+}) {
+  if (error && !data) {
+    return <ErrorState error={error} what="加载学习准备度失败。" onRetry={onRetry} />
+  }
+  if (!data) {
+    return loading ? <LoadingState message="正在加载学习准备度…" /> : null
+  }
+
+  if (!data.available) {
+    return (
+      <NotAvailable
+        what={
+          <>
+            <strong>还没有任何已发布内容可供观察</strong>
+            ：学习准备度回答的是"过去的反馈够不够可靠"，一条帖子都没有时这个问题
+            无从谈起。这里<strong>不会</strong>用 0 或"尚未评估"之类的字样顶上——
+            那看起来像评估过了、只是没结果。
+          </>
+        }
+        reason={data.reason}
+      />
+    )
+  }
+
+  const ready = data.readiness.learning_ready
+  const validComparisons = data.comparisons.filter((item) => item.valid)
+
+  return (
+    <div className="stack">
+      <div className={ready ? 'notice' : 'notice notice--warn'}>
+        <div className="notice__title">
+          {ready ? '这些反馈已可作为学习材料' : '这些反馈还不足以作为学习材料'}
+        </div>
+        {readinessHeadline(data)}
+        {/* 这一行是这一阶段的核心承诺，所以它单独显示，而不是藏在说明里。 */}
+        <div className="cell-muted">
+          本层<strong>不会</strong>自动修改 Prompt、写作结构、观点规则、阈值或预算：
+          {data.readiness.automatic_modification ? '（后端报告了 automatic_modification=true，这是异常）' : '自动修改恒为关闭。'}
+        </div>
+      </div>
+
+      <div className="kpi-grid">
+        <CountKpi
+          label="有读数的帖子"
+          value={data.readiness.sample_count}
+          sub={`已发布帖子共 ${data.post_count} 条 · 分析单位是帖子，不是快照`}
+        />
+        <CountKpi
+          label="比较组"
+          value={data.cohort_count}
+          sub="同维度、同取值、同观察窗口"
+        />
+        <CountKpi
+          label="成立的比较"
+          value={data.valid_comparison_count}
+          sub={`共尝试 ${data.comparisons.length} 组 · 不成立的组不给结论`}
+        />
+        <div className="kpi kpi--quiet">
+          <div className="kpi__label">观察窗口</div>
+          <div className="kpi__value kpi__value--none">{data.observation_window}</div>
+          <div className="kpi__sub">取自读数最多的那一档；不同窗口不放在一起比</div>
+        </div>
+      </div>
+
+      {data.readiness.checks.length > 0 ? (
+        <Block title="闸门的四条判据" hint="由代码判定，不经模型">
+          <ul className="stack stack--tight">
+            {data.readiness.checks.map((check) => (
+              <li key={check.name}>
+                <div className="meta__label">
+                  {check.name} · {check.passed ? '通过' : '未通过'}
+                </div>
+                <div className="cell-muted">{check.detail}</div>
+              </li>
+            ))}
+          </ul>
+        </Block>
+      ) : null}
+
+      {validComparisons.length > 0 ? (
+        <Block
+          title="观察到的差异"
+          hint={`${validComparisons.length} 组 · 只是观察，不是规则`}
+        >
+          <ul className="stack stack--tight">
+            {validComparisons.map((row, index) => (
+              <li key={index}>
+                <div className="meta__label">{comparisonHeadline(row)}</div>
+                <div>{comparisonStatement(row)}</div>
+              </li>
+            ))}
+          </ul>
+        </Block>
+      ) : (
+        <Block title="观察到的差异" hint="没有成立的比较">
+          {/* 不成立的比较也要显示原因，但要显示得**不像一个结论**：
+              不给中位数、不给方向，只说为什么没法比。 */}
+          <ul className="stack stack--tight">
+            {data.comparisons.slice(0, 6).map((row, index) => (
+              <li key={index} className="cell-muted">
+                {invalidComparisonLine(row)}
+              </li>
+            ))}
+            {data.comparisons.length > 6 ? (
+              <li className="cell-muted">另有 {data.comparisons.length - 6} 组未列出。</li>
+            ) : null}
+          </ul>
+        </Block>
+      )}
+
+      {data.evidence.length > 0 ? (
+        <Block title="依据" hint={`${data.evidence.length} 条 · 每条都能回到原始观察`}>
+          <ul className="stack stack--tight">
+            {data.evidence.map((item) => (
+              <li key={item.id}>
+                <div className="meta__label">{evidenceHeadline(item)}</div>
+                <div>{item.statement}</div>
+                {/* 可追溯性：一条没有出处的证据在这层里不该存在。 */}
+                <div className="cell-muted mono">
+                  {item.source_x_post_ids.length
+                    ? `x_post: ${item.source_x_post_ids.join(', ')}`
+                    : '没有可引用的 x_post_id（帖子尚未发布或未取到 id）'}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </Block>
+      ) : null}
+
+      {limitationLines(data).length > 0 ? (
+        <Block title="这份评估没有回答什么">
+          <ul className="stack stack--tight">
+            {limitationLines(data).map((note, index) => (
+              <li key={index} className="cell-muted">
+                {note}
+              </li>
+            ))}
+          </ul>
+        </Block>
+      ) : null}
+
+      <p className="cell-muted scope-note">{LEARNING_DISCLAIMER}</p>
+    </div>
+  )
+}
+
 /** 明细表的一行。范围那一列是全页最要紧的信息，所以它单独成列而不是塞进说明里。 */
 function ScopeRow({
   metric,
@@ -364,6 +544,10 @@ export function Analytics() {
   // 合成一个请求的话，反馈拿不到会让整页变成错误页——而这一页上其它每一块
   // 都还能用。日期窗口对它也无效：反馈是全库的，没有 window 参数。
   const feedback = useAsync(() => api.getFeedback(), [])
+  // 学习准备度是**第三个**接口，同样单独取、单独失败。它是控制台里最重的一次
+  // 读（按条读 checkpoint），所以更不能并进反馈那一块：反馈拿得到、准备度读不动
+  // 时，上面那些观察仍然应当显示出来。
+  const learning = useAsync(() => api.getLearning(), [])
 
   const decisions = data ? reviewRows(data.review_decisions) : []
   const outcomes = data ? publishRows(data.publish_outcomes) : []
@@ -580,6 +764,23 @@ export function Analytics() {
               error={feedback.error}
               onRetry={feedback.reload}
             />
+
+            {/* 学习准备度紧跟在反馈后面、但**单独成块**：上面答"看到了什么"，
+                这一块答"看到的这些够不够格拿去做未来的判断"。它是只读评估，
+                不触发任何调整，也不推进任何学习流程。 */}
+            <div className="block-gap">
+              <Block
+                title="学习准备度"
+                hint="只读评估 · 不修改任何设置 · 不是质量评分"
+              >
+                <LearningBlock
+                  data={learning.data}
+                  loading={learning.loading}
+                  error={learning.error}
+                  onRetry={learning.reload}
+                />
+              </Block>
+            </div>
           </section>
 
           <section className="section">

@@ -28,6 +28,7 @@ from app.schemas import (
     AdminRunDetail,
     AnalyticsResponse,
     FeedbackOverview,
+    LearningOverview,
     OverviewResponse,
     PublishedListPage,
     ReviewQueuePage,
@@ -163,6 +164,29 @@ def create_admin_router(runtime_dep) -> APIRouter:
         "没采过"与"采到了，结果是零"在处置上完全不同。
         """
         return await service.feedback()
+
+    @router.get("/learning", response_model=LearningOverview)
+    async def get_learning(
+        window: str | None = Query(
+            None,
+            description="观察窗口（0-1h / 1-6h / 6-24h / 24-72h / >72h）；不传则取读数最多的一档",
+        ),
+        service: AdminService = Depends(get_admin_service),
+    ) -> LearningOverview:
+        """反馈够不够可靠，可以作为未来学习材料（Phase 5C）。
+
+        只读，而且**不改任何东西**：这个接口回答的是一句话，不触发任何调整。
+        它返回的仍然是观察——每个分组都带着样本量、观察窗口与选取规则，
+        每条比较都带着它是怎么成立的（或为什么不成立）。
+
+        当前真实数据（1 条帖 / 2 条观察）下正确的输出是
+        `readiness.learning_ready=false` + `reason="insufficient_sample"`，
+        不是一个看起来中性的空报告。
+
+        这是控制台里唯一一个**按条读 checkpoint** 的接口（分组维度只存在于
+        checkpoint），所以它有读取上界并把到达上界这件事写进 `limitations`。
+        """
+        return await service.learning(window=window)
 
     @router.get("/analytics", response_model=AnalyticsResponse)
     async def get_analytics(

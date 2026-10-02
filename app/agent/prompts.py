@@ -208,6 +208,89 @@ def format_feedback_context(context: Any | None) -> str:
     return text
 
 
+#: 渲染给 Writer 的学习准备度摘要长度上限（字符）。理由同
+#: `MAX_FEEDBACK_CONTEXT_CHARS`：一屏塞不下的历史会诱导模型去抓最大的那个数。
+MAX_LEARNING_CONTEXT_CHARS = 1200
+
+#: 摘要里最多列出几条比较结论。字符上限之外再加一个条数上限：一条陈述的长度
+#: 是可变的，只靠字符截断会让"看到几条"随措辞变化。**确定性**优先。
+MAX_LEARNING_CONTEXT_COMPARISONS = 6
+
+
+def format_learning_context(report: Any | None) -> str:
+    """LearningReport 的文本块（Phase 5C 工作单第二十一至二十三节）。
+
+    ## 本阶段**没有**把它接进任何模板
+
+    这个函数是一段**接口**：写好了、有守卫、有测试，但 `prompts/agent/*.txt`
+    里没有 `{{LEARNING}}`，候选工具也不会去组装它（工作单第二十一节允许
+    Feedback Context 升级，第三十五节要求输入优先级不变）。原因很简单——
+    现在真实数据是 n=1，接进去只会让 Writer 每轮读到一段"目前还不能学"，
+    那不提供任何信息，只消耗上下文。
+
+    ## 它说的仍然是**观察**
+
+    输出的每一句都过 `assert_observational` 与 `assert_no_causal_claim`：
+    这里没有"应该怎么写"，只有"在当前样本里观察到什么差异"，外加一句
+    明确的"这不能用来指导写作"。守卫失败时丢掉整段并记一条 error，
+    姿态同 `format_feedback_context`——措辞问题不该让一次 Run 停下。
+    """
+    if report is None:
+        return (
+            "（本次没有可用的学习准备度观察：还没有足够的已发布内容被观察，"
+            "或该次读取没有产出报告。按上面的目标与证据自行写作。）"
+        )
+
+    readiness = getattr(report, "readiness", None)
+    if readiness is None or not getattr(report, "records", ()):
+        return (
+            "（本次没有可用的学习准备度观察：还没有任何已发布内容可供观察。"
+            "按上面的目标与证据自行写作。）"
+        )
+
+    verdict = "已具备" if readiness.learning_ready else "尚不具备"
+    lines = [
+        "- 以下是对**过去已发布内容**的跨帖观察汇总，只作背景参考："
+        "它不是写作要求，也不是事实断言，更不保证任何结果。",
+        f"- 学习准备度：{verdict}（原因：{readiness.reason}）。"
+        f"观察窗口 {readiness.observation_window}，"
+        f"有读数的帖子 {readiness.sample_count} 条。",
+    ]
+    comparisons = [c for c in getattr(report, "comparisons", ()) if c.valid]
+    for comparison in comparisons[:MAX_LEARNING_CONTEXT_COMPARISONS]:
+        lines.append(f"- {comparison.statement}")
+    if len(comparisons) > MAX_LEARNING_CONTEXT_COMPARISONS:
+        lines.append(
+            f"- （另有 {len(comparisons) - MAX_LEARNING_CONTEXT_COMPARISONS} 条"
+            "比较未列出。）"
+        )
+    if not comparisons:
+        # 措辞避开因果连词：这一段本身要过 `assert_no_causal_claim`，
+        # 而"因此"正是那张表里的一个词。
+        lines.append("- 当前样本不足以构成任何一组可比较的分组，没有差异可列。")
+    if readiness.limitations:
+        lines.append("- 口径与局限：" + "；".join(readiness.limitations))
+
+    text = "\n".join(lines)
+    if len(text) > MAX_LEARNING_CONTEXT_CHARS:
+        text = text[:MAX_LEARNING_CONTEXT_CHARS].rstrip() + "…（已达长度上限，此处截断）"
+
+    try:
+        from app.feedback.signals import assert_no_causal_claim, assert_observational
+
+        assert_observational(text, where="learning context prompt block")
+        assert_no_causal_claim(text, where="learning context prompt block")
+    except Exception:  # noqa: BLE001 - 见 docstring：措辞问题不该让运行失败
+        logger.error(
+            "learning context failed the observational guard; dropping it", exc_info=True
+        )
+        return (
+            "（本次的学习准备度摘要未通过观察性检查，已丢弃。"
+            "按上面的目标与证据自行写作。）"
+        )
+    return text
+
+
 def format_viewpoint(angle: Any | None) -> str:
     """一个观点的文本块，给 Writer 与 Critic 共用（Phase 5B.3）。
 

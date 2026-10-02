@@ -17,6 +17,7 @@ import type {
   AdminRunDetail,
   AnalyticsResponse,
   FeedbackOverview,
+  LearningOverview,
   OverviewResponse,
   PublishCall,
   PublishResolution,
@@ -227,6 +228,25 @@ export const api = {
    */
   getFeedback(): Promise<FeedbackOverview> {
     return request('/api/admin/feedback')
+  },
+
+  /**
+   * 过去反馈够不够可靠，可以作为未来学习材料（Phase 5C）。
+   *
+   * **只读，而且不改任何东西**：这个接口在后端只有 GET
+   * （`tests/test_learning_api.py` 断言四个写方法都返回 405），它也不触发任何
+   * 采集。它返回的仍然是观察——每个分组带着样本量、窗口与选取规则，
+   * 每条比较带着它是怎么成立的（或为什么不成立）。
+   *
+   * `window` 不传时由后端取读数最多的那一档。真实数据只有 `0-1h` 的观察，
+   * 所以默认就是它；把它写死在前端会让"数据变了、窗口没跟着变"变成一个
+   * 只在特定数据下才显形的 bug。
+   *
+   * 这是控制台里**最重**的一次读（它按条读 checkpoint），所以它只在这一个
+   * 页面与 Run Detail 的那一次单独请求里发生，绝不进别的聚合。
+   */
+  getLearning(window?: string): Promise<LearningOverview> {
+    return request(`/api/admin/learning${query({ window })}`)
   },
 
   // ---------- 写操作：一律复用 Phase 3/4a 的既有端点 ----------

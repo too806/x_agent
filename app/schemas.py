@@ -869,6 +869,115 @@ class FeedbackOverview(BaseModel):
     posts: list[FeedbackPostSummary] = []
 
 
+class LearningCohortRow(BaseModel):
+    """一个比较组（Phase 5C）。
+
+    `sample_count` / `observation_window` / `selection_rule` 三样随行下发：
+    没有它们，"n=7 的那组比 n=14 的那组高"这句话就无法被追问
+    （样本多少、看的是发布后多久、怎么选的组）。
+    """
+
+    dimension: str
+    value: str
+    observation_window: str
+    selection_rule: str
+    sample_count: int = 0
+    topics: list[str] = []
+    limitations: list[str] = []
+
+
+class LearningComparisonRow(BaseModel):
+    """一条**观察性**比较。`valid=False` 时没有任何结论，只有为什么不比。"""
+
+    dimension: str
+    metric: str
+    observation_window: str
+    group_a: str
+    group_b: str
+    sample_count_a: int = 0
+    sample_count_b: int = 0
+    median_a: float | None = None
+    median_b: float | None = None
+    #: `b.median - a.median`；不成立时是 null。它是方向提示，不是效果大小。
+    observed_difference: float | None = None
+    valid: bool = False
+    invalid_reason: str | None = None
+    statement: str = ""
+    limitations: list[str] = []
+
+
+class LearningEvidenceRow(BaseModel):
+    """一条学习证据。**它依旧是观察，不是指令。**
+
+    `confidence` 恒为 `null`（本仓库没有校准过的概率模型）。可追溯性靠
+    `source_snapshot_ids` / `source_post_ids` / `source_x_post_ids` 三串 id。
+    """
+
+    id: str
+    type: str
+    statement: str
+    sample_count: int = 0
+    comparison_group: str | None = None
+    observation_window: str | None = None
+    metric: str | None = None
+    dimension: str | None = None
+    source_snapshot_ids: list[str] = []
+    source_post_ids: list[str] = []
+    source_x_post_ids: list[str] = []
+    confidence: float | None = None
+    limitations: list[str] = []
+
+
+class LearningReadinessRow(BaseModel):
+    """确定性闸门的结果。
+
+    `learning_ready=True` **只**表示"可以作为未来学习材料"。`automatic_modification`
+    是一个**恒为 `false`** 的字段而不是一句约定：约定不会让测试红，字段会。
+    """
+
+    learning_ready: bool = False
+    reason: str
+    observation_window: str
+    sample_count: int = 0
+    post_count: int = 0
+    checks: list[dict] = []
+    automatic_modification: bool = False
+    limitations: list[str] = []
+
+
+class LearningOverview(BaseModel):
+    """学习准备度的一览（`GET /api/admin/learning`，Phase 5C）。
+
+    ## 这个接口**会**读 checkpoint，而且是接口里最重的一次读
+
+    分组维度（写作结构 / 开头方式 / 判断强度 / 反方意识 / 结论是否超出证据）
+    都只存在于 checkpoint。所以它：
+
+    - 有读取上界，到达上界时如实写进 `limitations`；
+    - 只在**这个**接口（与 Run Detail 那一次单独的请求）里发生，
+      **不进** `Analytics` 聚合热路径，也不进 `FeedbackOverview`。
+
+    ## 数据不足时返回**原因**，不返回一串 0
+
+    真实数据现在是 1 条帖 / 2 条观察，`learning_ready=false` +
+    `reason="insufficient_sample"` 就是**正确**的输出，而不是失败。
+    返回一个看起来中性的空报告会让"还不能学"变成"已经学过，没发现什么"。
+    """
+
+    available: bool
+    reason: str
+    observation_window: str
+    readiness: LearningReadinessRow
+    sample_count: int = 0
+    post_count: int = 0
+    cohort_count: int = 0
+    valid_comparison_count: int = 0
+    cohorts: list[LearningCohortRow] = []
+    comparisons: list[LearningComparisonRow] = []
+    evidence: list[LearningEvidenceRow] = []
+    limitations: list[str] = []
+
+
 class ReviewDecisionDistribution(BaseModel):
     approve: int = 0
     edit: int = 0

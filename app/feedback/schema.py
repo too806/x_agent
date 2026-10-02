@@ -196,6 +196,15 @@ class PostPerformanceProfile(BaseModel):
     #: 当时选中的观点的一句话摘要（不是完整对象）。
     selected_angle_claim: str | None = None
     selected_angle_confidence: float | None = None
+    #: 当时的判断强度（`ViewpointStance` 的枚举值）。同样是**当时记下来的**，
+    #: 不重算——观点评估需要证据与当下语境，重跑会得到另一个答案。
+    viewpoint_stance: str | None = None
+    #: 当时这条观点有没有反方视角（`bool(angle.counterpoints)`）。
+    #: `False` 与 `None` 含义相反：前者是"当时确实没有反方视角"（一条真实的观察），
+    #: 后者是"读不到当时的观点"（未知）。所以这里**没有** `bool(...)` 兜底。
+    counterpoint_awareness: bool | None = None
+    #: 当时的结论是否被判为超出证据（`Angle.scope_exceeds_evidence`）。
+    scope_exceeds_evidence: bool | None = None
     #: 当时采用的写作结构摘要。
     style_structure: str | None = None
     style_hook: str | None = None

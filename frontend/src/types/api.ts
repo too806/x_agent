@@ -672,3 +672,102 @@ export interface ReviewCallResult {
   guardrail_reasons: string[]
   error: string | null
 }
+
+// ---------------------------------------------------------------------------
+// 学习准备度（Phase 5C）
+//
+// 这一层回答的**只有一句**："我们过去的反馈，够不够可靠，可以作为未来的
+// 学习材料？" 它不回答"以后该怎么写"，所以这里没有任何建议、分数或排名字段——
+// 而且不该有。界面上因此也不给这些数字配解释性文案（"说明这么写更有效"之类）：
+// 一句不存在的数据配上解释，比没有这一块更糟。
+//
+// 三个类型对应三个不同的对象，不要合并：
+//
+//   LearningCohortRow     —— 一个比较组（同维度、同取值、同窗口的一批帖子）
+//   LearningComparisonRow —— 两个组在**一个指标**上的观察性比较
+//   LearningOverview      —— 上面两者的容器 + 确定性闸门的结果
+// ---------------------------------------------------------------------------
+
+/** 一个比较组。`selection_rule` 必须一起显示：没有它，`n=5` 无法被追问。 */
+export interface LearningCohortRow {
+  dimension: string
+  value: string
+  observation_window: string
+  selection_rule: string
+  sample_count: number
+  topics: string[]
+  limitations: string[]
+}
+
+/** 一条观察性比较。
+ *
+ * `valid === false` 时**没有任何结论**，只有 `invalid_reason`——界面必须照这个
+ * 分支显示，不能把两个中位数并排摆出来让人自己比：那正是这一层要防的事。
+ * `median_a` / `median_b` 可用 `null` 表示"这一组在该指标上没有读数"，
+ * 渲染走 `utils/learning.ts::medianLabel`，**不要**写 `?? 0`。
+ */
+export interface LearningComparisonRow {
+  dimension: string
+  metric: string
+  observation_window: string
+  group_a: string
+  group_b: string
+  sample_count_a: number
+  sample_count_b: number
+  median_a: number | null
+  median_b: number | null
+  observed_difference: number | null
+  valid: boolean
+  invalid_reason: string | null
+  statement: string
+  limitations: string[]
+}
+
+/** 一条学习证据。`confidence` 恒为 `null`——没有校准过的概率模型。 */
+export interface LearningEvidenceRow {
+  id: string
+  type: string
+  statement: string
+  sample_count: number
+  comparison_group: string | null
+  observation_window: string | null
+  metric: string | null
+  dimension: string | null
+  source_snapshot_ids: string[]
+  source_post_ids: string[]
+  source_x_post_ids: string[]
+  confidence: number | null
+  limitations: string[]
+}
+
+/** 确定性闸门的结果。
+ *
+ * `automatic_modification` **恒为 false**，而且它是后端下发的一个字段而不是
+ * 前端的约定：约定不会让测试红，字段会。界面照实显示它。
+ */
+export interface LearningReadinessRow {
+  learning_ready: boolean
+  reason: string
+  observation_window: string
+  sample_count: number
+  post_count: number
+  checks: Array<{ name: string; passed: boolean; detail: string }>
+  automatic_modification: boolean
+  limitations: string[]
+}
+
+/** 学习准备度一览（`GET /api/admin/learning`）。 */
+export interface LearningOverview {
+  available: boolean
+  reason: string
+  observation_window: string
+  readiness: LearningReadinessRow
+  sample_count: number
+  post_count: number
+  cohort_count: number
+  valid_comparison_count: number
+  cohorts: LearningCohortRow[]
+  comparisons: LearningComparisonRow[]
+  evidence: LearningEvidenceRow[]
+  limitations: string[]
+}

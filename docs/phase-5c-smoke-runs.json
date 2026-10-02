@@ -1,0 +1,332 @@
+{
+  "phase": "5C",
+  "note": "每次 smoke 一份记录，累积保存在 runs 里。",
+  "runs": [
+    {
+      "phase": "5C",
+      "generated_at": "2026-10-02T14:06:58.033924+00:00",
+      "note": "工作单第三十八节五条 smoke 的记录。Smoke 1 / 2 读真机库（只读），Smoke 3 / 4 / 5 在合成记录上跑闸门。本脚本不写数据库、不写 checkpoint、不发布任何内容；对 X 只有一次 best-effort 只读 GET。",
+      "smokes": {
+        "3_offline_cohorts_gate_true": {
+          "available": true,
+          "data": "合成",
+          "post_count": 10,
+          "window": "24-72h",
+          "cohort_count": 2,
+          "valid_comparison_count": 1,
+          "evidence_count": 1,
+          "evidence_kinds": [
+            "cohort_difference"
+          ],
+          "example_statement": "在 24-72h 观察窗口下，按开头方式分组，question（n=5）的点赞（注意力）中位数为 13（p25 12，p75 14），statement（n=5）为 38（p25 37，p75 39）；在当前样本中观察到「statement」更高。这是观察到的差异，不构成任何因果结论。",
+          "example_traceability": {
+            "snapshot_ids": [
+              "snap-01",
+              "snap-02",
+              "snap-03",
+              "snap-04",
+              "snap-05",
+              "snap-06",
+              "snap-07",
+              "snap-08",
+              "snap-09",
+              "snap-10"
+            ],
+            "post_ids": [
+              "post-01",
+              "post-02",
+              "post-03",
+              "post-04",
+              "post-05",
+              "post-06",
+              "post-07",
+              "post-08",
+              "post-09",
+              "post-10"
+            ],
+            "x_post_ids": [
+              "9000000000000000001",
+              "9000000000000000002",
+              "9000000000000000003",
+              "9000000000000000004",
+              "9000000000000000005",
+              "9000000000000000006",
+              "9000000000000000007",
+              "9000000000000000008",
+              "9000000000000000009",
+              "9000000000000000010"
+            ]
+          },
+          "readiness": {
+            "learning_ready": true,
+            "usable_for_future_learning": true,
+            "reason": "ready",
+            "observation_window": "24-72h",
+            "sample_count": 10,
+            "post_count": 10,
+            "automatic_modification": false,
+            "checks": [
+              {
+                "name": "sample_count",
+                "passed": true,
+                "detail": "窗口 24-72h 内有可用读数的帖子数 10，比较下限 5。"
+              },
+              {
+                "name": "window_consistent",
+                "passed": true,
+                "detail": "报告内所有记录都取自窗口 24-72h。"
+              },
+              {
+                "name": "metrics_present",
+                "passed": true,
+                "detail": "窗口内三类计数的可用读数分别为：attention=10、conversation=0、amplification=0（合计 10）。"
+              },
+              {
+                "name": "comparison_valid",
+                "passed": true,
+                "detail": "成立的可比较组：1 组。"
+              }
+            ],
+            "limitations": []
+          },
+          "no_apply_learning": {
+            "apply_learning_absent": true,
+            "scanned_modules": 7
+          },
+          "note": "闸门放行只表示'可以作为未来学习材料'；automatic_modification 仍为 False，而且学习层里没有 apply_learning()。"
+        },
+        "4_missing_metrics_gate_false": {
+          "available": true,
+          "data": "合成",
+          "post_count": 5,
+          "window": "24-72h",
+          "readings_by_metric": {
+            "attention": 2,
+            "conversation": 2,
+            "amplification": 1
+          },
+          "missing_attention_is_none": true,
+          "status_evidence_statement": "在 24-72h 观察窗口下，三类互动计数合计的可用读数少于比较下限 5。缺失一律记为未知、不按 0 计入，报告不产出任何比较。",
+          "readiness": {
+            "learning_ready": false,
+            "usable_for_future_learning": false,
+            "reason": "missing_metrics",
+            "observation_window": "24-72h",
+            "sample_count": 5,
+            "post_count": 5,
+            "automatic_modification": false,
+            "checks": [
+              {
+                "name": "sample_count",
+                "passed": true,
+                "detail": "窗口 24-72h 内有可用读数的帖子数 5，比较下限 5。"
+              },
+              {
+                "name": "window_consistent",
+                "passed": true,
+                "detail": "报告内所有记录都取自窗口 24-72h。"
+              },
+              {
+                "name": "metrics_present",
+                "passed": false,
+                "detail": "窗口内三类计数的可用读数分别为：attention=2、conversation=2、amplification=1（合计 5）。"
+              },
+              {
+                "name": "comparison_valid",
+                "passed": false,
+                "detail": "成立的可比较组：0 组。"
+              }
+            ],
+            "limitations": [
+              "三类互动计数里有读数的总量不足，无法支撑任何指标上的比较。"
+            ]
+          },
+          "note": "样本量够（5 条帖子）但三类读数都不足 → missing_metrics。缺失一律 None，不进任何分布，也不按 0 计入。"
+        },
+        "5_window_mismatch_gate_false": {
+          "available": true,
+          "data": "合成",
+          "windows_in_records": [
+            "24-72h",
+            "1-6h"
+          ],
+          "requested_window": "24-72h",
+          "sample_count_in_window": 5,
+          "cohort_count": 1,
+          "valid_comparison_count": 0,
+          "status_evidence_statement": "本次记录的观察跨越了不同窗口（要求的窗口是 24-72h）。窗口不一致时不直接比较，报告不产出任何差异结论。",
+          "readiness": {
+            "learning_ready": false,
+            "usable_for_future_learning": false,
+            "reason": "inconsistent_window",
+            "observation_window": "24-72h",
+            "sample_count": 5,
+            "post_count": 10,
+            "automatic_modification": false,
+            "checks": [
+              {
+                "name": "sample_count",
+                "passed": true,
+                "detail": "窗口 24-72h 内有可用读数的帖子数 5，比较下限 5。"
+              },
+              {
+                "name": "window_consistent",
+                "passed": false,
+                "detail": "报告内有 5 条记录取自 24-72h 之外的窗口，窗口不一致时不直接比较。"
+              },
+              {
+                "name": "metrics_present",
+                "passed": true,
+                "detail": "窗口内三类计数的可用读数分别为：attention=5、conversation=0、amplification=0（合计 5）。"
+              },
+              {
+                "name": "comparison_valid",
+                "passed": false,
+                "detail": "成立的可比较组：0 组。"
+              }
+            ],
+            "limitations": [
+              "有 5 条记录取自窗口 24-72h 之外；不同窗口的观察不放在一起比较，报告不产出任何差异结论。",
+              "样本量够了，但没有一组 cohort 同时满足比较成立的全部条件。"
+            ]
+          },
+          "note": "两个窗口的记录混在一起时，闸门的 window_consistent 先拒绝整份报告；报告里不会出现任何跨窗口的差异结论。"
+        },
+        "1_real_post_observation_chain": {
+          "available": true,
+          "data": "真机库（只读）",
+          "post_count": 1,
+          "snapshot_count": 2,
+          "window": "0-1h",
+          "assembly_limitations": [],
+          "assembly_sample_count": 1,
+          "chain": [
+            {
+              "published_post_id": "46b5b3a1-7fb0-4c27-bcc7-bab83a893f76",
+              "x_post_id": "2105998097302028593",
+              "published_at": "2026-10-02 12:27:28.366634+00:00",
+              "snapshot_count": 2,
+              "snapshot_ids": [
+                "0a96b1cd-0f12-4646-8563-74dd17930df5",
+                "cc1fb657-59fe-4861-b8d9-b8195c6e0d4b"
+              ],
+              "hours_since_publish": [
+                0.0019382494444444445,
+                0.0288420975
+              ],
+              "windows": [
+                "0-1h",
+                "0-1h"
+              ],
+              "in_window_snapshot_id": "cc1fb657-59fe-4861-b8d9-b8195c6e0d4b",
+              "performance": {
+                "attention": 0,
+                "conversation": 0,
+                "amplification": 0
+              },
+              "hook_type": "statistic",
+              "structure_type": "contrast",
+              "stance": "cautious",
+              "content_length": 110
+            }
+          ],
+          "note": "归因链 published_post → post_metrics_snapshot → SnapshotObservation → PerformanceVector 在真机上连通；本步只读。"
+        },
+        "2_real_data_gate_false": {
+          "available": true,
+          "data": "真机库（只读）",
+          "post_count": 1,
+          "snapshot_total": 2,
+          "window": "0-1h",
+          "valid_comparison_count": 0,
+          "status_evidence_statement": "在 0-1h 观察窗口下，有可用读数的已发布帖子只有 1 条，低于比较下限 5。报告只报告样本量，不产出任何 cohort 比较。这个下限是采集量的门槛，不是统计显著性判断。",
+          "status_evidence_traceability": {
+            "snapshot_ids": [
+              "cc1fb657-59fe-4861-b8d9-b8195c6e0d4b"
+            ],
+            "post_ids": [
+              "46b5b3a1-7fb0-4c27-bcc7-bab83a893f76"
+            ],
+            "x_post_ids": [
+              "2105998097302028593"
+            ]
+          },
+          "readiness": {
+            "learning_ready": false,
+            "usable_for_future_learning": false,
+            "reason": "insufficient_sample",
+            "observation_window": "0-1h",
+            "sample_count": 1,
+            "post_count": 1,
+            "automatic_modification": false,
+            "checks": [
+              {
+                "name": "sample_count",
+                "passed": false,
+                "detail": "窗口 0-1h 内有可用读数的帖子数 1，比较下限 5。"
+              },
+              {
+                "name": "window_consistent",
+                "passed": true,
+                "detail": "报告内所有记录都取自窗口 0-1h。"
+              },
+              {
+                "name": "metrics_present",
+                "passed": false,
+                "detail": "窗口内三类计数的可用读数分别为：attention=1、conversation=1、amplification=1（合计 3）。"
+              },
+              {
+                "name": "comparison_valid",
+                "passed": false,
+                "detail": "成立的可比较组：0 组。"
+              }
+            ],
+            "limitations": [
+              "有读数的帖子只有 1 条，低于下限 5；样本量不足时任何组间比较都不成立。",
+              "三类互动计数里有读数的总量不足，无法支撑任何指标上的比较。"
+            ]
+          },
+          "no_apply_learning": {
+            "apply_learning_absent": true,
+            "scanned_modules": 7
+          },
+          "note": "真实数据不足以产生任何比较结论，闸门给出 insufficient_sample；这是一条结论，不是一次失败。"
+        },
+        "x_readonly_get": {
+          "available": true,
+          "data": "真实 X（只读 GET）",
+          "requested_ids": [
+            "2105998097302028593"
+          ],
+          "returned": 1,
+          "not_returned": [],
+          "counts": [
+            {
+              "x_post_id": "2105998097302028593",
+              "likes": 0,
+              "replies": 0,
+              "reposts": 0,
+              "quotes": 0
+            }
+          ],
+          "note": "这些数字**没有**写进数据库；本脚本不产生新的观察行。"
+        }
+      },
+      "failed": {},
+      "x_requests": {
+        "total": 1,
+        "by_method": {
+          "GET": 1
+        },
+        "post_tweets": 0,
+        "requests": [
+          {
+            "method": "GET",
+            "path": "/2/tweets",
+            "ids": "2105998097302028593"
+          }
+        ]
+      }
+    }
+  ]
+}

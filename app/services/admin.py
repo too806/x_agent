@@ -38,6 +38,7 @@ from app.agent.labels import claim_scope_label, viewpoint_stance_label
 from app.agent.metrics import quality_metrics
 from app.feedback.runtime import FEEDBACK_SNAPSHOT_READ_LIMIT, load_feedback_report
 from app.feedback.schema import FeedbackContext
+from app.learning.runtime import load_learning_report
 from app.models.published_post import (
     STATUS_FAILED,
     STATUS_PUBLISHED,
@@ -84,6 +85,11 @@ from app.schemas import (
     FeedbackOverview,
     FeedbackPostSummary,
     FeedbackSignalRow,
+    LearningCohortRow,
+    LearningComparisonRow,
+    LearningEvidenceRow,
+    LearningOverview,
+    LearningReadinessRow,
     MetricAvailability,
     OverviewKpis,
     OverviewResponse,
@@ -157,6 +163,22 @@ X_PERFORMANCE_AVAILABLE_NOTE = (
 
 #: 反馈一览里最多列多少条帖子。同 GUARDRAIL_READ_LIMIT：一目览必须有上界。
 FEEDBACK_POSTS_LIMIT = 50
+
+#: 学习准备度一览的口径说明（Phase 5C）。**必须**说清两件事：
+#: 门槛是采集量而不是显著性；"可以作为学习材料"不等于"立即改 Agent"。
+LEARNING_AVAILABLE_NOTE = (
+    "Learning readiness compares cohorts of already-published posts at one fixed "
+    "observation window; the sample threshold is a collection-volume gate, not a "
+    "statistical significance test, and every comparison is an observation, never a "
+    "rule. learning_ready=true only means the feedback may serve as future learning "
+    "material; this build never modifies the Agent."
+)
+
+#: 一条已发布内容都读不到时的原因。返回原因，**不返回一串 0**。
+LEARNING_UNAVAILABLE_REASON = (
+    "No published post with an x_post_id and published_at exists yet, so there is "
+    "nothing to observe and no record, cohort or comparison was produced."
+)
 
 # publish 分发的口径说明。published_post 每个 Run 最多一行、失败重试复用同一行，
 # 所以这里统计的是"每个 Run 的当前结局"而不是"尝试次数"——一个失败后重试成功的
@@ -957,6 +979,108 @@ class AdminService:
             ],
             limitations=list(report.limitations),
             posts=_feedback_post_summaries(rows, posts_by_id),
+        )
+
+    # ---------- Learning readiness ----------
+
+    async def learning(self, *, window: str | None = None) -> LearningOverview:
+        """自己过去发布内容的**学习准备度**一览（Phase 5C）。
+
+        ## 它是控制台里唯一一个"聚合接口读 checkpoint"的地方
+
+        分组维度只存在于 checkpoint（见模块抬头那条边界）。所以这个接口
+        与别的聚合接口不同：它**按条**读每条已发布帖子的 checkpoint，代价随
+        帖子数增长，因此有读取上界 `LEARNING_POST_READ_LIMIT`，到达上界时
+        如实写进 `limitations`。它被刻意做成一个**独立**端点，而不是塞进
+        `/api/admin/analytics` 或 `/api/admin/feedback`：那会把一次重读变成
+        每次打开首页都要付的代价。
+
+        ## 读不到 checkpoint 不等于没有数据
+
+        `build_post_performance_profile` 读不到当时的决策时退化成 `None`
+        （并在 limitations 里说明），所以那些帖子仍然进入"样本量"的统计——
+        它们只是不进任何分组。把两者混成一个"没有数据"会让
+        "checkpoint 被回收了"看起来像"这个账号还没发过东西"。
+
+        ## 数据不足时返回原因，不返回零
+
+        `available=False` 只在**一条记录都没有**时出现。样本不足是
+        `available=True` + `readiness.learning_ready=False` + 明确的原因——
+        那是一个**结论**，不是一次失败。
+        """
+        async with self._session_factory() as session:
+            report = await load_learning_report(session, self._graph, window=window)
+
+        readiness = report.readiness
+        available = bool(report.records)
+        return LearningOverview(
+            available=available,
+            reason=LEARNING_AVAILABLE_NOTE if available else LEARNING_UNAVAILABLE_REASON,
+            observation_window=report.observation_window,
+            readiness=LearningReadinessRow(
+                learning_ready=readiness.learning_ready,
+                reason=readiness.reason,
+                observation_window=readiness.observation_window,
+                sample_count=readiness.sample_count,
+                post_count=readiness.post_count,
+                checks=[check.model_dump() for check in readiness.checks],
+                automatic_modification=readiness.automatic_modification,
+                limitations=list(readiness.limitations),
+            ),
+            sample_count=readiness.sample_count,
+            post_count=report.post_count,
+            cohort_count=len(report.cohorts),
+            valid_comparison_count=len(report.valid_comparisons),
+            cohorts=[
+                LearningCohortRow(
+                    dimension=cohort.dimension.value,
+                    value=cohort.value,
+                    observation_window=cohort.observation_window,
+                    selection_rule=cohort.selection_rule,
+                    sample_count=cohort.sample_count,
+                    topics=list(cohort.topics),
+                    limitations=list(cohort.limitations),
+                )
+                for cohort in report.cohorts
+            ],
+            comparisons=[
+                LearningComparisonRow(
+                    dimension=comparison.dimension.value,
+                    metric=comparison.metric.value,
+                    observation_window=comparison.observation_window,
+                    group_a=comparison.group_a.value,
+                    group_b=comparison.group_b.value,
+                    sample_count_a=comparison.group_a.sample_count,
+                    sample_count_b=comparison.group_b.sample_count,
+                    median_a=comparison.group_a.median,
+                    median_b=comparison.group_b.median,
+                    observed_difference=comparison.observed_difference,
+                    valid=comparison.valid,
+                    invalid_reason=comparison.invalid_reason,
+                    statement=comparison.statement,
+                    limitations=list(comparison.limitations),
+                )
+                for comparison in report.comparisons
+            ],
+            evidence=[
+                LearningEvidenceRow(
+                    id=item.id,
+                    type=item.type.value,
+                    statement=item.statement,
+                    sample_count=item.sample_count,
+                    comparison_group=item.comparison_group,
+                    observation_window=item.observation_window,
+                    metric=item.metric,
+                    dimension=item.dimension,
+                    source_snapshot_ids=list(item.source_snapshot_ids),
+                    source_post_ids=list(item.source_post_ids),
+                    source_x_post_ids=list(item.source_x_post_ids),
+                    confidence=item.confidence,
+                    limitations=list(item.limitations),
+                )
+                for item in report.evidence
+            ],
+            limitations=list(report.limitations),
         )
 
     # ---------- Analytics ----------

@@ -22,6 +22,7 @@ import {
   signalHeadline,
 } from '../utils/feedback'
 import { buildLifecycle } from '../utils/lifecycle'
+import { LEARNING_DISCLAIMER, compactReadiness } from '../utils/learning'
 import { traceSummary } from '../utils/trace'
 import {
   capNote,
@@ -272,6 +273,49 @@ function StyleSection({ detail }: { detail: AdminRunDetail }) {
           </div>
         </div>
       </details>
+    </DetailSection>
+  )
+}
+
+/**
+ * 这些反馈够不够可靠，可以作为未来学习材料（Phase 5C）。
+ *
+ * **这一块不属于这个 Run。** 它回答的是整个账号的问题——"我们过去的反馈够不够格"
+ * ——与这条 Run 是否成功、写了什么无关。放在这里是因为 Run Detail 是人唯一会逐条
+ * 细看内容的地方：看完一条帖子的表现，紧接着最自然的疑问就是"那这些数据算数吗"。
+ *
+ * 因此它**单独取** `/api/admin/learning`，不并进 Run Detail 的响应。理由有两条：
+ *
+ *   1. 并进去会让每一次打开抽屉都先装配完所有已发布帖子的 checkpoint 才能显示，
+ *      而这一块通常只是顺带看一眼——那就是拿最重的读去挡最常走的路；
+ *   2. 它是**旁注**，不是详情的一部分。它读不到时详情照样完整，所以这里不摆
+ *      `ErrorState`（一个侧栏请求失败配一整块错误提示，与它的分量不相称），
+ *      但也不装作一切正常——如实说它暂时读不到。
+ *
+ * 调用方按"有没有真的发出去"门控（与 `PerformanceSection` 同一条件），
+ * 所以这个组件只在需要时才挂载，请求也只在需要时才发。
+ */
+function LearningReadinessSection() {
+  const { data, loading, error } = useAsync(() => api.getLearning(), [])
+
+  return (
+    <DetailSection
+      title="学习准备度"
+      hint={data ? '全账号 · 不属于这个 Run · 只读评估' : undefined}
+    >
+      {error ? (
+        <div className="meta">
+          学习准备度暂时读不到（这是一次单独的只读请求，不影响上面的详情）。
+        </div>
+      ) : !data ? (
+        <div className="meta">{loading ? '正在评估…' : '暂时读不到学习准备度。'}</div>
+      ) : (
+        <>
+          {/* 一句话，永远带 n 与窗口：一个没有样本量的结论没法被判断为"样本太小"。 */}
+          <div>{compactReadiness(data)}</div>
+          <div className="meta">{LEARNING_DISCLAIMER}</div>
+        </>
+      )}
     </DetailSection>
   )
 }
@@ -849,6 +893,11 @@ export function DetailBody({ detail, onSettled }: { detail: AdminRunDetail; onSe
       <FeedbackSection detail={detail} />
 
       <PerformanceSection detail={detail} />
+
+      {/* 学习准备度紧跟在"这条帖子后来怎么样"之后：那是**一条帖子**的结果，
+          这一块是**全账号**的可靠性判断。门控与 `PerformanceSection` 相同
+          （没真的发出去的 Run 不谈"这些数据够不够格"——它连数据都还没有）。 */}
+      {detail.publish?.x_post_id ? <LearningReadinessSection /> : null}
 
       <DetailSection
         title="研究素材"

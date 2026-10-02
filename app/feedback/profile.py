@@ -107,6 +107,30 @@ def _enum_value(value: Any) -> str | None:
     return text or None
 
 
+def _counterpoint_awareness(angle: Any) -> bool | None:
+    """当时这条观点有没有反方视角。
+
+    角度缺失 → `None`；角度在但 `counterpoints` 为空列表 → `False`。
+    两者的区别是**真实的**：前者是"读不到当时怎么想"，后者是"当时确实没写
+    反方视角"。用 `bool(angle and angle.counterpoints)` 会把它们压成同一个值，
+    于是一条真实的观察会冒充成一条缺失，或者反过来。
+    """
+    if angle is None:
+        return None
+    counterpoints = getattr(angle, "counterpoints", None)
+    if counterpoints is None:
+        return None
+    return bool(counterpoints)
+
+
+def _scope_exceeds_evidence(angle: Any) -> bool | None:
+    """当时这条结论有没有被判为超出证据。读不到 → `None`（**不是 `False`**）。"""
+    if angle is None:
+        return None
+    value = getattr(angle, "scope_exceeds_evidence", None)
+    return None if value is None else bool(value)
+
+
 async def _read_checkpoint(graph: Any, run_id: str) -> tuple[Mapping[str, Any] | None, str | None]:
     """读一次 checkpoint。返回 `(state, 失败原因)`。
 
@@ -150,8 +174,10 @@ async def build_post_performance_profile(
     )
     observations = observations_from_rows(rows)
     if len(rows) >= read_limit:
+        # `list_post_metrics_snapshots` 是**正序** + limit，取到的是最早的那批。
+        # 文案必须跟着实际行为走：写成"最近的"会让人以为看到了最新状态。
         limitations.append(
-            f"该帖子的观察较多，本次只读了最近的 {read_limit} 条；"
+            f"该帖子的观察较多，本次只读了最早的 {read_limit} 条；"
             "下面的分布基于这个子集，不是全部历史。"
         )
     if not observations:
@@ -184,6 +210,9 @@ async def build_post_performance_profile(
         topic_trend_score=_trend_score_of(state, selected_topic),
         selected_angle_claim=getattr(angle, "claim", None) if angle else None,
         selected_angle_confidence=getattr(angle, "confidence", None) if angle else None,
+        viewpoint_stance=_enum_value(getattr(angle, "stance", None)),
+        counterpoint_awareness=_counterpoint_awareness(angle),
+        scope_exceeds_evidence=_scope_exceeds_evidence(angle),
         style_structure=_enum_value(getattr(recipe, "structure_type", None)) if recipe else None,
         style_hook=_enum_value(getattr(recipe, "hook_type", None)) if recipe else None,
         style_target_length=getattr(recipe, "effective_target_length", None) if recipe else None,
