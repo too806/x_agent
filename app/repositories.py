@@ -13,11 +13,13 @@ from app.models import (
     AgentDecision,
     AgentRun,
     Draft,
+    LearningProposalRecord,
     PostMetricsSnapshot,
     PublishedPost,
     ResearchItem,
     Review,
 )
+from app.models.learning_proposal import UQ_LEARNING_PROPOSAL_KEY
 from app.models.post_metrics_snapshot import UQ_X_POST_OBSERVED
 from app.models.style_profile import StyleProfile
 from app.models.published_post import (
@@ -1250,3 +1252,113 @@ async def latest_metrics_by_post(
     # 计数查询与最新查询用同一组 post_ids，理论上键集一致；用 `get` 兜底而不是
     # `[...]`，是因为这里够不到的东西应该表现为"少一条计数"，而不是让整页 500。
     return {row.published_post_id: (row, counts.get(row.published_post_id, 0)) for row in latest_rows}
+
+
+# ---------------------------------------------------------------------------
+# Phase 5D —— learning_proposal（只追加，而且只记"人做过的裁决"）
+# ---------------------------------------------------------------------------
+
+
+async def insert_learning_proposal_decision(
+    session: AsyncSession,
+    *,
+    proposal_key: str,
+    target: str,
+    current_value: str,
+    proposed_value: str,
+    rationale: str,
+    evidence_ids: Sequence[str],
+    limitations: Sequence[str],
+    sample_count: int,
+    observation_window: str,
+    status: str,
+    reviewed_at: datetime,
+    current_recipe_version: str | None = None,
+    proposed_recipe_version: str | None = None,
+    note: str | None = None,
+) -> LearningProposalRecord | None:
+    """记下**一次**人工裁决。返回 None 表示这条提案**已经被裁决过**。
+
+    用 `ON CONFLICT DO NOTHING` 按 `proposal_key` 去重，而不是先查后插：
+    同一个决定被提交两遍（双击、重试、两个标签页）不该产生两行相互矛盾的历史。
+    这也让"一条提案只能被裁决一次"成为**数据库层的事实**，而不只是接口层的约定
+    ——接口层的约定挡不住并发，唯一键挡得住。
+
+    没有任何 UPDATE 路径：改主意要等下一次观察产生一条新提案，而不是改写
+    已经写下的历史。审计记录的意义正在于它不能被后来的事改。
+
+    `evidence_ids` 为空的调用**不该发生**：没有证据的提案在生成阶段就被丢弃了。
+    这里不替调用方补一条默认值，也不抛异常——真出现了空列表，那说明写入路径
+    漏了一道校验，而那种事应该在测试里被发现，不是在运行期被一个兜底值掩盖。
+    """
+    stmt = (
+        pg_insert(LearningProposalRecord)
+        .values(
+            proposal_key=proposal_key,
+            target=target,
+            current_value=current_value,
+            proposed_value=proposed_value,
+            rationale=rationale,
+            evidence_ids=list(evidence_ids),
+            limitations=list(limitations),
+            sample_count=sample_count,
+            observation_window=observation_window,
+            current_recipe_version=current_recipe_version,
+            proposed_recipe_version=proposed_recipe_version,
+            status=status,
+            reviewed_at=reviewed_at,
+            note=note,
+        )
+        .on_conflict_do_nothing(constraint=UQ_LEARNING_PROPOSAL_KEY)
+        .returning(LearningProposalRecord.id)
+    )
+    result = await session.execute(stmt)
+    inserted_id = result.scalar_one_or_none()
+    await session.commit()
+    if inserted_id is None:
+        return None
+    return await session.get(LearningProposalRecord, inserted_id)
+
+
+async def get_learning_proposal_decision(
+    session: AsyncSession, proposal_key: str
+) -> LearningProposalRecord | None:
+    """按确定性 key 取那一条裁决。没裁决过 → None（**不是**一个 proposed 行）。"""
+    result = await session.execute(
+        select(LearningProposalRecord).where(
+            LearningProposalRecord.proposal_key == proposal_key
+        )
+    )
+    return result.scalars().first()
+
+
+async def list_learning_proposal_decisions(
+    session: AsyncSession,
+) -> list[LearningProposalRecord]:
+    """全部裁决，按**裁决时刻正序**（同一条提案只有一行，所以顺序是确定的）。
+
+    正序而不是倒序：读它的人要做的是"把裁决叠回现算出来的提案上"，
+    叠的顺序不该影响结果；而正序在调试时读起来就是一条时间线。
+    这条表会被反复全量读（提案总数是"最多 3 条 / 每个窗口"量级），
+    所以不分页、不传上界——真到了需要分页的规模，那是另一个阶段的事。
+    """
+    stmt = select(LearningProposalRecord).order_by(
+        LearningProposalRecord.reviewed_at.asc(), LearningProposalRecord.id.asc()
+    )
+    result = await session.execute(stmt)
+    return list(result.scalars().all())
+
+
+async def count_learning_proposal_decisions(
+    session: AsyncSession, *, status: str | None = None
+) -> int:
+    """裁决条数。`status` 给定时只数那一种（'approved' / 'rejected'）。
+
+    **不是**"提案总数"：未裁决的提案不落库，所以这个数字只回答
+    "人一共做过多少次裁决"。前端上"有几条提案"读的是现算结果。
+    """
+    stmt = select(func.count()).select_from(LearningProposalRecord)
+    if status is not None:
+        stmt = stmt.where(LearningProposalRecord.status == status)
+    result = await session.execute(stmt)
+    return int(result.scalar_one())

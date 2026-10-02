@@ -1,13 +1,20 @@
-"""运营控制台（Phase 4b）的只读 Admin API。
+"""运营控制台（Phase 4b）的 Admin API。
 
-**本模块只暴露 GET，一个写端点都没有。** 这不是暂时没做，是刻意的边界：
+**本模块只有两个写端点，而且都不改运行行为。**
 
-- 控制台展示的一切状态，其迁移路径继续由 Phase 3/4a 决定——审核走
+- 控制台展示的一切**运行状态**，其迁移路径继续由 Phase 3/4a 决定——审核走
   `POST /api/runs/{id}/review`，发布走 `POST /api/runs/{id}/publish`，
   裁决未知结果走 `POST /api/runs/{id}/publish/resolve`。前端调用这些既有端点，
   而不是在这里新增一套"控制台专用的写入"。
 - 两套写路径一定会漂移，而漂移的那一套多半会漏掉 Phase 4a 用条件 UPDATE 换来的
   并发与幂等保护。宁可让前端多调一个既有端点。
+
+唯一的例外是 Phase 5D 的 `POST /api/admin/learning/proposals/{id}/review`：
+它记的是**人对一条学习提案的裁决**，而这件事在 Phase 3/4a 的写路径里根本没有
+对应物——它不是"改变某次运行"，是"记下某次决定"。它写下的那一刻什么都不发生：
+不改 Prompt、不改 StyleRecipe、不改权重 / 阈值 / 预算、不发布。所以它不违反上面
+那条边界，反而是那条边界要求把它单独放出来：
+`app/services/admin.py` 到 `app/repositories.py` 的箭头只通向数据库。
 
 本模块同样**不写 SQL**：查询全部落在 `app/services/admin.py` → `app/repositories.py`。
 
@@ -29,12 +36,21 @@ from app.schemas import (
     AnalyticsResponse,
     FeedbackOverview,
     LearningOverview,
+    LearningProposalRow,
     OverviewResponse,
+    ProposalReviewDecision,
+    ProposalsOverview,
     PublishedListPage,
     ReviewQueuePage,
     RunListPage,
 )
-from app.services.admin import PAGE_SIZE_DEFAULT, PAGE_SIZE_MAX, AdminService
+from app.services.admin import (
+    PAGE_SIZE_DEFAULT,
+    PAGE_SIZE_MAX,
+    PROPOSAL_REVIEW_NOT_FOUND,
+    AdminService,
+    LearningProposalReviewError,
+)
 
 
 def create_admin_router(runtime_dep) -> APIRouter:
@@ -172,6 +188,7 @@ def create_admin_router(runtime_dep) -> APIRouter:
             description="观察窗口（0-1h / 1-6h / 6-24h / 24-72h / >72h）；不传则取读数最多的一档",
         ),
         service: AdminService = Depends(get_admin_service),
+        runtime=Depends(runtime_dep),
     ) -> LearningOverview:
         """反馈够不够可靠，可以作为未来学习材料（Phase 5C）。
 
@@ -185,8 +202,84 @@ def create_admin_router(runtime_dep) -> APIRouter:
 
         这是控制台里唯一一个**按条读 checkpoint** 的接口（分组维度只存在于
         checkpoint），所以它有读取上界并把到达上界这件事写进 `limitations`。
+
+        Phase 5D 起多带一个 `proposal_count`（提案条数）。它是**现算**的，
+        所以这个接口的成本并没有因为多这一个数字而变成两次报告——完整提案在
+        下面那个端点里。
         """
-        return await service.learning(window=window)
+        return await service.learning(
+            window=window, hard_max_length=runtime.persona.max_length
+        )
+
+    @router.get("/learning/proposals", response_model=ProposalsOverview)
+    async def list_learning_proposals(
+        window: str | None = Query(
+            None,
+            description="观察窗口（0-1h / 1-6h / 6-24h / 24-72h / >72h）；不传则取读数最多的一档",
+        ),
+        service: AdminService = Depends(get_admin_service),
+        runtime=Depends(runtime_dep),
+    ) -> ProposalsOverview:
+        """提案一览：**可以尝试什么**（Phase 5D）。
+
+        只读。它回答的是"如果将来要试，可以试哪几个方向"，而**不**执行其中
+        任何一个——本工程里没有 `apply`，没有自动改 Prompt / StyleRecipe /
+        权重 / 阈值 / 预算的路径，也没有自动发布。
+
+        三件事随每条提案一起下发，缺一条这条提案就不该被读：依据了哪几条
+        证据（`evidence_ids`）、依据了多少条**帖子**（`sample_count`）、
+        边界在哪（`limitations`）。`confidence` 恒为 `null`——本仓库没有
+        校准过的概率模型。
+
+        闸门关着时（`learning_ready=false`）返回**零条提案**加一句原因
+        （工作单第七节）。真实数据现在是 1 条帖 / 2 条观察，所以这就是当前的
+        正确输出，而不是一次失败。
+        """
+        return await service.learning_proposals(
+            window=window, hard_max_length=runtime.persona.max_length
+        )
+
+    @router.post("/learning/proposals/{proposal_id}/review", response_model=LearningProposalRow)
+    async def review_learning_proposal(
+        proposal_id: str,
+        decision: ProposalReviewDecision,
+        window: str | None = Query(
+            None, description="判定这条提案时使用的观察窗口，需与列表页一致"
+        ),
+        service: AdminService = Depends(get_admin_service),
+        runtime=Depends(runtime_dep),
+    ) -> LearningProposalRow:
+        """人工批准 / 否决一条提案（Phase 5D）。
+
+        **这是整个控制台里唯一的写端点。** 它写下的只有一条裁决（谁在什么时候
+        对哪条建议做了什么决定），而按下之后**什么都不会发生**：不会改 Prompt、
+        不会改 StyleRecipe、不会改任何权重或阈值、不会发布。批准的意义是
+        "记下来，作为下一阶段执行的数据"（工作单第十一、三十五节）。
+
+        两种拒绝：
+
+        - `404`：这条提案**在当前观察下不存在**。可能 id 写错了，也可能是它
+          依据的比较已经不成立。刻意不回退到库里存过的内容——那会批准一条
+          已经不成立的建议。
+        - `409`：这条提案已经被裁决过。裁决是不可改写的审计记录。
+
+        `proposal_id` 用 `str` 而不是 `uuid.UUID`：它是确定性的语义 key
+        （形如 `proposal:hook_type@24-72h`），不是数据库主键，写成 UUID 会在
+        路径校验阶段就被拒掉，而且拒得让人看不懂。
+        """
+        try:
+            return await service.review_learning_proposal(
+                proposal_id,
+                action=decision.action,
+                note=decision.note,
+                window=window,
+                hard_max_length=runtime.persona.max_length,
+            )
+        except LearningProposalReviewError as exc:
+            status_code = (
+                404 if exc.reason == PROPOSAL_REVIEW_NOT_FOUND else 409
+            )
+            raise HTTPException(status_code=status_code, detail=exc.detail) from exc
 
     @router.get("/analytics", response_model=AnalyticsResponse)
     async def get_analytics(

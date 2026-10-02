@@ -18,10 +18,26 @@ import {
   limitationLines,
   readinessHeadline,
 } from '../utils/learning'
+import {
+  PROPOSALS_DISCLAIMER,
+  REVIEW_ACTION_LABELS,
+  changeLine,
+  evidenceLine,
+  isReviewable,
+  isStale,
+  proposalHeadline,
+  proposalLimitations,
+  proposalsHeadline,
+  reviewOutcomeLine,
+  validationLine,
+  versionLine,
+} from '../utils/proposals'
 import type {
   AverageRunDuration,
   FeedbackOverview,
   LearningOverview,
+  LearningProposalRow,
+  ProposalsOverview,
   PublishOutcomeDistribution,
   ReviewDecisionDistribution,
   TopicCount,
@@ -515,6 +531,256 @@ function LearningBlock({
   )
 }
 
+/**
+ * 一条提案的行内视图。
+ *
+ * 工作单第三十一节点名的七样东西一样不少：目标 / 当前值 / 建议值 / 依据 / 样本 /
+ * 限制 / 状态。少任何一样，这条建议就会开始像一道命令——没有样本量的建议无法被
+ * 判断为"样本太小"，没有限制的建议读起来像一条规则。
+ *
+ * 两个按钮是**记录一个决定**，不是"执行"。批准之后界面上必须说清楚什么都没发生
+ * （`reviewOutcomeLine`），否则"批准"这个词本身就会让人以为系统动了。
+ */
+function ProposalRow({
+  row,
+  busy,
+  error,
+  onReview,
+}: {
+  row: LearningProposalRow
+  busy: boolean
+  error: string | null
+  onReview: (decision: 'approve' | 'reject') => void
+}) {
+  const [rejecting, setRejecting] = useState(false)
+  const [note, setNote] = useState('')
+  const invalid = validationLine(row)
+
+  return (
+    <li>
+      <div className="meta__label">{proposalHeadline(row)}</div>
+      <div>
+        <strong>{changeLine(row)}</strong>
+      </div>
+      <div className="cell-muted">{row.rationale}</div>
+      <div className="cell-muted">{evidenceLine(row)}</div>
+      <div className="cell-muted mono">配方版本：{versionLine(row)}</div>
+      {isStale(row) ? (
+        <div className="cell-muted">这条裁决已经过期：{row.stale_reason}</div>
+      ) : null}
+      {invalid ? <div className="notice notice--warn">{invalid}</div> : null}
+
+      {proposalLimitations(row).length > 0 ? (
+        <ul className="stack stack--tight">
+          {proposalLimitations(row).map((item, index) => (
+            <li key={index} className="cell-muted">
+              {item}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+
+      {row.review_note ? (
+        <div className="cell-muted">裁决备注：{row.review_note}</div>
+      ) : null}
+
+      {isReviewable(row) ? (
+        <div className="row-actions">
+          {rejecting ? (
+            <>
+              <input
+                type="text"
+                value={note}
+                onChange={(event) => setNote(event.target.value)}
+                placeholder="否决理由（必填）"
+                disabled={busy}
+              />
+              <button
+                type="button"
+                className="btn btn--danger"
+                disabled={busy || !note.trim()}
+                onClick={() => onReview('reject')}
+              >
+                确认否决
+              </button>
+              <button type="button" className="btn" disabled={busy} onClick={() => setRejecting(false)}>
+                取消
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="btn btn--primary"
+                disabled={busy}
+                onClick={() => onReview('approve')}
+              >
+                {REVIEW_ACTION_LABELS.approve}
+              </button>
+              <button
+                type="button"
+                className="btn btn--danger"
+                disabled={busy}
+                onClick={() => setRejecting(true)}
+              >
+                {REVIEW_ACTION_LABELS.reject}
+              </button>
+            </>
+          )}
+        </div>
+      ) : (
+        <div className="cell-muted">{reviewOutcomeLine(row)}</div>
+      )}
+
+      {error ? <div className="notice notice--warn">{error}</div> : null}
+    </li>
+  )
+}
+
+/**
+ * 提案块（Phase 5D）。
+ *
+ * 放在 `LearningBlock` **下面**而不是并进去：它回答的是另一个问题。
+ * 上面那块说"够不够可靠"，这块说"可靠的话可以试什么"。合成一块以后，
+ * "数据不够所以零条建议"会看起来像"这一层坏了"。
+ *
+ * 唯一的写操作就在这里。它按下的后果只有一条记录——本组件**不**触发任何
+ * 重新计算之外的动作，也没有第二个接口可调。
+ */
+function ProposalBlock({
+  data,
+  learning,
+  loading,
+  error,
+  onRetry,
+  onReviewed,
+}: {
+  data: ProposalsOverview | null
+  learning: LearningOverview | null
+  loading: boolean
+  error: ApiError | null
+  onRetry: () => void
+  onReviewed: () => void
+}) {
+  const [busyId, setBusyId] = useState<string | null>(null)
+  const [rowError, setRowError] = useState<{ id: string; message: string } | null>(null)
+
+  async function review(row: LearningProposalRow, decision: 'approve' | 'reject', note?: string) {
+    setBusyId(row.id)
+    setRowError(null)
+    try {
+      await api.reviewLearningProposal(
+        row.id,
+        decision === 'approve' ? { action: 'approve' } : { action: 'reject', note: note ?? '' },
+        data?.observation_window || undefined,
+      )
+      onReviewed()
+    } catch (caught) {
+      // 404 与 409 都不是"重试一下就好"：一个说明这条提案已经不存在了，
+      // 一个说明它已经被裁决过。两种都要让使用者去重新加载，而不是反复点。
+      const message =
+        caught instanceof ApiError ? describeReviewFailure(caught) : String(caught)
+      setRowError({ id: row.id, message })
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  if (error && !data) {
+    return <ErrorState error={error} what="加载学习提案失败。" onRetry={onRetry} />
+  }
+  if (!data) {
+    return loading ? <LoadingState message="正在加载学习提案…" /> : null
+  }
+
+  if (!data.available) {
+    return (
+      <NotAvailable
+        what={
+          <>
+            <strong>还没有任何已发布内容可供观察</strong>
+            ：提案回答的是"基于过去的反馈可以尝试什么"，一条帖子都没有时这个问题
+            无从谈起。这里<strong>不会</strong>用"暂无建议"顶上——那读起来像"看过了，
+            没有问题"。
+          </>
+        }
+        reason={data.reason}
+      />
+    )
+  }
+
+  return (
+    <div className="stack">
+      {/* 三种"零条"必须长得不一样：没有数据（上面已经返回了）/ 闸门关着 /
+          闸门开着但没有方向。把后两种渲染成"没有发现可以改进的地方"，就是把一个
+          "数据不够"的结论说成一个"看过了，没问题"的结论。 */}
+      <div className={data.learning_ready ? 'notice' : 'notice notice--warn'}>
+        <div className="notice__title">{proposalsHeadline(data)}</div>
+        {!data.learning_ready && learning ? (
+          <div className="cell-muted">
+            学习准备度给出的原因是：{learning.readiness.reason}。
+          </div>
+        ) : null}
+        {!data.learning_ready ? (
+          <div className="cell-muted">
+            所以这里没有提案——是因为<strong>数据还不够</strong>，不是因为"看过了，
+            没有问题"。这也是为什么下面没有可裁决的东西：闸门关着时，生成环节根本
+            不会产出建议，而不是产出了再被界面藏起来。
+          </div>
+        ) : null}
+      </div>
+
+      {data.proposals.length > 0 ? (
+        <ul className="stack stack--tight">
+          {data.proposals.map((row) => (
+            <ProposalRow
+              key={row.id}
+              row={row}
+              busy={busyId === row.id}
+              error={rowError?.id === row.id ? rowError.message : null}
+              onReview={(decision) => void review(row, decision, undefined)}
+            />
+          ))}
+        </ul>
+      ) : null}
+
+      {data.limitations.length > 0 ? (
+        <div>
+          <div className="meta__label">这份提案列表没有回答什么</div>
+          <ul className="stack stack--tight">
+            {data.limitations.map((note, index) => (
+              <li key={index} className="cell-muted">
+                {note}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      <p className="cell-muted scope-note">{PROPOSALS_DISCLAIMER}</p>
+    </div>
+  )
+}
+
+/**
+ * 裁决失败时说人话。
+ *
+ * 刻意**不**把后端原文透出去（`ApiError.message` 是英文的服务层文案）：
+ * 使用者需要知道的是"接下来该做什么"，而不是哪个约束叫什么名字。
+ */
+function describeReviewFailure(error: ApiError): string {
+  if (error.status === 404) {
+    return '这条提案在当前观察下已经不存在了（数据可能变了）。请重新加载列表。'
+  }
+  if (error.status === 409) {
+    return '这条提案已经被裁决过。裁决是不可改写的记录，不能覆盖。'
+  }
+  if (error.status === 422) {
+    return '这次裁决没有被接受：否决需要写明理由。'
+  }
+  return error.message
+}
+
 /** 明细表的一行。范围那一列是全页最要紧的信息，所以它单独成列而不是塞进说明里。 */
 function ScopeRow({
   metric,
@@ -548,6 +814,11 @@ export function Analytics() {
   // 读（按条读 checkpoint），所以更不能并进反馈那一块：反馈拿得到、准备度读不动
   // 时，上面那些观察仍然应当显示出来。
   const learning = useAsync(() => api.getLearning(), [])
+  // 提案是**第四个**接口（Phase 5D），同样单独取、单独失败。它比准备度更重一点
+  // ——准备度只算"够不够格"，提案还要真的比一遍。两个都不传 window：后端按读数
+  // 最多的那一档取，同一个决定，所以两边不会落到不同的窗口上。真要让它们错开，
+  // 裁决记录就会因为提案 id 变了而看起来集体"过期"。
+  const proposals = useAsync(() => api.getLearningProposals(), [])
 
   const decisions = data ? reviewRows(data.review_decisions) : []
   const outcomes = data ? publishRows(data.publish_outcomes) : []
@@ -778,6 +1049,29 @@ export function Analytics() {
                   loading={learning.loading}
                   error={learning.error}
                   onRetry={learning.reload}
+                />
+              </Block>
+            </div>
+
+            {/* 提案紧跟着准备度，但**单独成块**：上面那块答"够不够可靠"，这一块答
+                "可靠的话可以尝试什么"。合成一块以后，"数据不够所以零条建议"会看
+                起来像这一层坏了。这一块也是控制台里**唯一**能按下写操作的地方，
+                而那个写操作只记下一个决定——不改任何设置。 */}
+            <div className="block-gap">
+              <Block
+                title="可以尝试什么"
+                hint="只是建议，不是结论 · 批准不等于应用 · 本层不执行建议"
+              >
+                <ProposalBlock
+                  data={proposals.data}
+                  learning={learning.data}
+                  loading={proposals.loading}
+                  error={proposals.error}
+                  onRetry={proposals.reload}
+                  // 裁决之后只重新拉提案：裁决本身会改变列表的 reviewable 状态。
+                  // 不重拉准备度——它一个字段都不会因裁决而变，重拉只是再读一遍
+                  // checkpoint，而那是这一页最贵的一次读。
+                  onReviewed={proposals.reload}
                 />
               </Block>
             </div>

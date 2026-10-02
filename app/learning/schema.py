@@ -359,6 +359,129 @@ class LearningReadiness(BaseModel):
         return self.learning_ready
 
 
+class ProposalStatus(str, Enum):
+    """一条学习提案的处置状态（Phase 5D）。
+
+    `APPROVED` **不等于**已应用。工作单第十一节：批准只是把它记成"下一阶段
+    真正执行的数据"，本阶段没有任何代码路径会因为一个 `approved` 去改生产。
+    所以这里没有 `APPLIED`，而且不该有——一个应用状态会让人以为系统真的动过。
+    """
+
+    #: 已生成、还没被人裁决。
+    PROPOSED = "proposed"
+    #: 人批准了。**只表示"可以拿去做实验"，不表示已经改了任何东西。**
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    #: 依据过期（窗口/样本前提已经不再成立）。本阶段只保留这个出口，不做自动过期。
+    EXPIRED = "expired"
+
+
+class ProposalTarget(str, Enum):
+    """允许被建议的**唯一**目标集合——封闭枚举（Phase 5D 工作单第六节）。
+
+    ## 每一项都必须能由一条观察维度推出来
+
+    工作单第八节要求提案必须引用 LearningEvidence，而证据只有六个 cohort 维度
+    可依。所以这里的成员与 `app/learning/proposal.py::DIMENSION_TARGETS` 的
+    像集**完全相等**——没有一项是"理论上允许但没有任何证据能推到"的死条目。
+    信息密度 / 结尾方式 / 语气虽然在第六节的允许空间里，但本仓库没有它们的
+    确定性观察维度，因此**不在本表内**；这条缺口写进每条提案的 limitations，
+    不假装没有。
+
+    ## 这里没有的东西同样重要
+
+    没有 **trend 权重**（趋势回答"外部世界在发生什么"，与"我们过去怎么写"是
+    两件事，工作单第十五节）、没有 **预算**、没有 **critic 阈值**、没有
+    **发布逻辑**、没有 **安全规则**、没有 **Guardrail**。它们不是"暂时没做"，
+    是**不允许**——`validate_proposal()` 会带着原因拒绝它们，见
+    `proposal.py::FORBIDDEN_TARGET_MARKERS`。
+    """
+
+    STYLE_STRUCTURE = "style_recipe.structure_type"
+    STYLE_HOOK = "style_recipe.hook_type"
+    STYLE_LENGTH = "style_recipe.target_length"
+    VIEWPOINT_STANCE = "viewpoint.stance"
+    VIEWPOINT_COUNTERPOINT = "viewpoint.counterpoint_awareness"
+
+
+class ProposalValidation(BaseModel):
+    """一次提案校验的结果（工作单第二十三节）。
+
+    做成**返回值**而不是异常：一条不合规的提案是一条正常的、需要被展示的结果
+    （"为什么这条不能提"），把它做成异常会让调用方只能 catch 一种错误类型，
+    而失败原因恰恰是要给人看的东西。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    valid: bool = False
+    #: 每一条不成立的原因；`valid=True` 时为空。
+    reasons: tuple[str, ...] = Field(default_factory=tuple)
+    #: 通过的判据名（封闭表，见 `proposal.py::VALIDATION_CHECKS`）。
+    passed_checks: tuple[str, ...] = Field(default_factory=tuple)
+
+
+class LearningProposal(BaseModel):
+    """一条学习提案：**"未来可以尝试什么"**（Phase 5D 工作单第四、五节）。
+
+    ## 它是建议尝试，不是已经证明
+
+        Observation  = 过去发生了什么        （5C 的 LearningEvidence）
+        Proposal     = 可以尝试什么          ← 本对象，且**只到这里**
+        Recommendation = 应该做什么          （本阶段没有，而且不该有）
+
+    所以 `rationale` 里不会出现"证明 / 导致 / 一定 / 保证"，也不会出现
+    "应该 / 下次写 / 模仿"。方向来自观察（哪一侧的中位数更高），而不是来自
+    一个"更好的做法"的判断——`limitations` 里必须带着"这是观察性比较、
+    没有因果推断"这句话。
+
+    ## 里里外外的三个恒假 / 恒空字段
+
+    - `confidence` **恒为 `None`**：没有校准过的概率模型，编一个数字就是捏造
+      （同 `LearningEvidence.confidence`）；
+    - `automatic_application` **恒为 `False`**，而且是字段不是约定——约定不会
+      让测试红，字段会（同 `LearningReadiness.automatic_modification`）；
+    - 没有 `apply()` / `execute()` 这样的方法，`app/learning/` 里也**没有**
+      `apply_learning()`（`evals/learning/selftest.py` 用 AST 扫描钉死）。
+
+    ## 三个数字一起出现，缺一个这条提案就不该被读
+
+        sample_count      这条提案依据了多少条**帖子**（不是快照）
+        evidence_ids      依据了哪几条 LearningEvidence（空 = 直接非法）
+        limitations       它的边界在哪（观测性比较 / 选题没被控制 / 离群点 …）
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    #: 机器名。**是 `str` 而不是 `ProposalTarget`**：允许集合之外的取值必须能被
+    #: 表示出来、再被 `validate_proposal()` 带着原因拒绝，而不是在构造时抛一个
+    #: 没有解释的 ValidationError。生成器只产出 `ProposalTarget` 的成员。
+    target: str
+    #: 观察上中位数**较低**的那一侧（当前做法的那一侧）。
+    current_value: str
+    #: 观察上中位数**较高**的那一侧（建议尝试的那一侧）。
+    proposed_value: str
+    rationale: str
+    #: 依据的证据 id；**空 = 非法**（工作单第八节）。
+    evidence_ids: tuple[str, ...] = Field(default_factory=tuple)
+    sample_count: int = 0
+    observation_window: str = ""
+    comparison_group: str | None = None
+    #: **恒为 `None`**。见类文档。
+    confidence: float | None = None
+    limitations: tuple[str, ...] = Field(default_factory=tuple)
+    status: ProposalStatus = ProposalStatus.PROPOSED
+    #: 指向 StyleRecipe 时才有（工作单第十三节）。本阶段**只记录，不切换**。
+    current_recipe_version: str | None = None
+    proposed_recipe_version: str | None = None
+    #: 该比较里被 IQR 栅栏标出的离群点数量（工作单第二十节）。
+    #: **只计数，不删除**——真实爆款本身就是数据。
+    outlier_count: int = 0
+    #: **恒为 `False`**。见类文档。
+    automatic_application: bool = False
+
+
 class LearningReport(BaseModel):
     """一次学习的完整产物：记录 + 分组 + 比较 + 证据 + 准入开关（工作单第三十九节）。
 
@@ -391,11 +514,15 @@ __all__ = [
     "CohortStats",
     "LearningEvidence",
     "LearningEvidenceKind",
+    "LearningProposal",
     "LearningReadiness",
     "LearningReport",
     "ObservedComparison",
     "PerformanceMetric",
     "PerformanceVector",
     "PostPerformanceRecord",
+    "ProposalStatus",
+    "ProposalTarget",
+    "ProposalValidation",
     "ReadinessCheck",
 ]

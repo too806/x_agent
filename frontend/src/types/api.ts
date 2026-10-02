@@ -766,8 +766,102 @@ export interface LearningOverview {
   post_count: number
   cohort_count: number
   valid_comparison_count: number
+  /**
+   * 提案条数（Phase 5D）。**恒为现算**，不是从库里查出来的计数。
+   *
+   * 闸门关着时它**必然是 0**——`learning_ready=false` ⇒ 零条提案。
+   * 不要把它渲染成"发现了 0 个问题"：它说的是"还不足以提出建议"。
+   */
+  proposal_count: number
   cohorts: LearningCohortRow[]
   comparisons: LearningComparisonRow[]
   evidence: LearningEvidenceRow[]
   limitations: string[]
 }
+
+// ---------------------------------------------------------------------------
+// Phase 5D：学习提案
+// ---------------------------------------------------------------------------
+//
+// 三个类型对应三个不同的对象，与前一组一样**不要合并**：
+//
+//   LearningProposalRow        —— 一条"可以尝试什么"的建议（不是"应该做什么"）
+//   LearningProposalValidation —— 这条建议自己过不过判据（后端算的，不是前端猜的）
+//   ProposalsOverview          —— 上面两者的容器 + 闸门与裁决计数
+//
+// 这一组有几个字段是**刻意缺席**的，补上任何一个都是在加一个本层没有的东西：
+// 没有 `score`、没有 `priority`、没有 `rank`、没有 `applied_at`。工作单第十七节
+// 明确不要 proposal_score；第三十五节明确本阶段不实现应用。
+// ---------------------------------------------------------------------------
+
+/** 一条提案的判据结果。`passed_checks` / `reasons` 都由后端判定，前端只显示。 */
+export interface LearningProposalValidationRow {
+  valid: boolean
+  reasons: string[]
+  passed_checks: string[]
+}
+
+/**
+ * 一条学习提案。`status` 的四个取值含义不同，不要合并显示：
+ *
+ * - `proposed` —— 还没人裁决过（**不在库里**，每次现算出来的）；
+ * - `approved` / `rejected` —— 人做过的决定（库里存着，不可改写）；
+ * - `expired` —— 曾经批准过，但配方版本已经往前走过了，这条建议不再对应当前配置。
+ *
+ * `automatic_application` **恒为 false**，且是后端下发的字段而不是前端的约定。
+ * `confidence` 恒为 `null`——没有校准过的概率模型。渲染走
+ * `utils/proposals.ts`，**不要**写 `?? 0`。
+ */
+export interface LearningProposalRow {
+  id: string
+  target: string
+  target_label: string
+  current_value: string
+  proposed_value: string
+  rationale: string
+  evidence_ids: string[]
+  sample_count: number
+  observation_window: string
+  comparison_group: string
+  confidence: number | null
+  limitations: string[]
+  status: string
+  current_recipe_version: string | null
+  proposed_recipe_version: string | null
+  outlier_count: number
+  automatic_application: boolean
+  validation: LearningProposalValidationRow
+  reviewable: boolean
+  reviewed_at: string | null
+  review_note: string | null
+  /** 只在"裁决过、但这次算不出来"时非空。见 `utils/proposals.ts::isStale`。 */
+  stale_reason: string | null
+}
+
+/** 提案一览（`GET /api/admin/learning/proposals`）。 */
+export interface ProposalsOverview {
+  available: boolean
+  reason: string
+  observation_window: string
+  learning_ready: boolean
+  /** 现算出来的提案条数。闸门关着时恒为 0。 */
+  proposal_count: number
+  /** 其中还没被裁决过的。 */
+  reviewable_count: number
+  /** 库里已存的裁决条数。可能大于 `proposal_count`（含已过期的历史裁决）。 */
+  decided_count: number
+  proposals: LearningProposalRow[]
+  limitations: string[]
+}
+
+/**
+ * 裁决一条提案的请求体。
+ *
+ * 写成**判别联合**而不是 `{ action: 'approve' | 'reject'; note?: string }`：
+ * 后端对两者要求不同（批准可以不写理由，否决必须写），而"否决没写理由"是
+ * 一个后端会 422 拦下的错误。用可选字段描述它，等于把这个错误从编译期
+ * 推到运行期——界面上就是一次"点了按钮才报错"。
+ */
+export type ProposalReviewDecision =
+  | { action: 'approve'; note?: string }
+  | { action: 'reject'; note: string }

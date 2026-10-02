@@ -28,9 +28,15 @@ CHECKPOINT_URL = to_libpq_url(TEST_URL)
 #: Phase 5B.4 的 post_metrics_snapshot 同理：它只挂在 published_post 上，
 #: 而 published_post 本身要等 agent_run 那条链被 CASCADE 到才会被清。
 #: 显式列进来，读快照的测试才不会看到上一个测试留下的观察。
+#:
+#: Phase 5D 的 learning_proposal 更彻底：它**不与任何表有外键关系**（一条裁决
+#: 引用的是证据 id 与配方版本号，不是行 id），所以 CASCADE 永远够不到它。
+#: 不显式清，上一个测试的裁决会让下一个测试看到一条"已经被人批准过"的提案，
+#: 而那个失败会看起来像提案生成出了问题。
 _ALL_TABLES = (
     "account, agent_run, research_item, draft, review, published_post, agent_decision, "
-    "tracked_account, style_sample, style_profile, post_metrics_snapshot"
+    "tracked_account, style_sample, style_profile, post_metrics_snapshot, "
+    "learning_proposal"
 )
 
 # 固定的"现在"。`SAMPLE_X_RESPONSE` 里的 `created_at` 是写死的，而 Phase 5B.1 的

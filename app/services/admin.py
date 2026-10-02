@@ -30,7 +30,7 @@
 import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -38,7 +38,12 @@ from app.agent.labels import claim_scope_label, viewpoint_stance_label
 from app.agent.metrics import quality_metrics
 from app.feedback.runtime import FEEDBACK_SNAPSHOT_READ_LIMIT, load_feedback_report
 from app.feedback.schema import FeedbackContext
+from app.learning.proposal import TARGET_LABELS, generate_proposals, proposal_id, validate_proposal
 from app.learning.runtime import load_learning_report
+from app.learning.schema import LearningProposal, LearningReport, ProposalStatus
+from app.models.learning_proposal import LearningProposalRecord
+from app.style.recipe import recipe_version
+from app.style.runtime import resolve_recipe
 from app.models.published_post import (
     STATUS_FAILED,
     STATUS_PUBLISHED,
@@ -62,8 +67,10 @@ from app.repositories import (
     get_published_post,
     get_review_for_run,
     get_runs_by_ids,
+    insert_learning_proposal_decision,
     latest_metrics_by_post,
     list_decisions,
+    list_learning_proposal_decisions,
     list_published_page,
     list_post_metrics_snapshots,
     list_published_posts_with_x_id,
@@ -89,6 +96,8 @@ from app.schemas import (
     LearningComparisonRow,
     LearningEvidenceRow,
     LearningOverview,
+    LearningProposalRow,
+    LearningProposalValidationRow,
     LearningReadinessRow,
     MetricAvailability,
     OverviewKpis,
@@ -98,6 +107,8 @@ from app.schemas import (
     PublishedRow,
     PublishOutcomeDistribution,
     PublishRecord,
+    PROPOSAL_ACTION_STATUS,
+    ProposalsOverview,
     ResolutionQueueItem,
     ResearchItemRecord,
     ReviewDecisionDistribution,
@@ -179,6 +190,45 @@ LEARNING_UNAVAILABLE_REASON = (
     "No published post with an x_post_id and published_at exists yet, so there is "
     "nothing to observe and no record, cohort or comparison was produced."
 )
+
+#: 提案一览的口径说明（Phase 5D）。**必须**说清三件事：提案是观察性比较推出来的、
+#: 每条都引用证据、批准只是记一次裁决而本阶段没有任何应用路径。
+PROPOSALS_AVAILABLE_NOTE = (
+    "Each proposal is derived from cohort comparisons in the learning report at one "
+    "fixed observation window, cites the evidence ids it rests on, and carries no "
+    "causal claim. Approving one records a human decision for a later phase only: "
+    "this build never modifies prompts, StyleRecipe, weights, thresholds or budget."
+)
+
+#: 闸门关着时的原因。**零条提案是一个结论，不是一次失败**（工作单第七节）。
+PROPOSALS_GATE_CLOSED_REASON = (
+    "learning_ready is false, so zero proposals are produced. The readiness gate is "
+    "a hard requirement rather than a ranking: insufficient data yields no suggestion "
+    "at all instead of a few plausible-looking ones."
+)
+
+#: 审核提案这条路径的错误码。**不带 HTTP 状态**：服务层不认识 HTTP，
+#: 由 app/api/admin.py 把 reason 映射成状态码。
+PROPOSAL_REVIEW_NOT_FOUND = "not_found"
+PROPOSAL_REVIEW_ALREADY_DECIDED = "already_reviewed"
+
+
+class LearningProposalReviewError(Exception):
+    """"这条提案现在不能裁决"——分两种，原因必须能区分。
+
+    - `not_found`：这条提案**在当前观察下不存在**。可能 id 写错了，也可能是
+      它依据的那条比较已经不成立（数据变了、窗口变了）。两种情形在处置上是
+      同一件事：现在拿不到这条提案，因此无从裁决。**绝不能**拿库里存过的
+      内容顶上——那会批准一条已经不成立的建议。
+    - `already_reviewed`：这条提案已经被裁决过。裁决是不可改写的审计记录，
+      第二次写入被唯一键挡住（同 post_metrics_snapshot 的幂等口径）。
+    """
+
+    def __init__(self, reason: str, detail: str) -> None:
+        self.reason = reason
+        self.detail = detail
+        super().__init__(detail)
+
 
 # publish 分发的口径说明。published_post 每个 Run 最多一行、失败重试复用同一行，
 # 所以这里统计的是"每个 Run 的当前结局"而不是"尝试次数"——一个失败后重试成功的
@@ -548,6 +598,173 @@ def observation_summary(
         impressions=latest.impressions,
         bookmarks=latest.bookmarks,
     )
+
+
+#: 一条裁决在当前观察下**不再被生成**时的说明。措辞刻意说清"下面显示的是当时的
+#: 内容"：不这么说，读者会以为这是刚算出来的提案。
+PROPOSAL_STALE_REASON = (
+    "This proposal is no longer produced by the current observation (the window's data "
+    "changed, or the comparison it rested on no longer holds). What is shown below is "
+    "the snapshot recorded at review time, not a freshly derived proposal."
+)
+
+#: 批准过的提案在当前配方已经不是当时那一版时的说明（工作单第三十二节）。
+PROPOSAL_EXPIRED_REASON = (
+    "The approved recipe version is no longer the current one (current_recipe_version "
+    "differs from the live recipe). The approval still stands as a record of what a "
+    "human decided at that time; it is shown as expired so it is not mistaken for a "
+    "decision that applies to the current recipe."
+)
+
+
+def _proposal_row(
+    proposal: LearningProposal,
+    record: LearningProposalRecord | None,
+    *,
+    live_recipe_version: str | None,
+    stale_reason: str | None = None,
+) -> LearningProposalRow:
+    """一条**现算出来的**提案 + 它可能有的裁决 → 一行响应。
+
+    `record` 为 `None`（没人裁决过）时状态就是 `proposed`，而且只有这一种情况
+    `reviewable=True`——裁决过的提案不再可裁决，未裁决但已不再生成的历史裁决
+    也没有对应的现算提案可以裁决。
+    """
+    status, expired_reason = (
+        _effective_status(record, live_recipe_version=live_recipe_version)
+        if record is not None
+        else (ProposalStatus.PROPOSED.value, None)
+    )
+    validation = validate_proposal(proposal)
+    return LearningProposalRow(
+        id=proposal.id,
+        target=proposal.target,
+        target_label=TARGET_LABELS.get(proposal.target, proposal.target),
+        current_value=proposal.current_value,
+        proposed_value=proposal.proposed_value,
+        rationale=proposal.rationale,
+        evidence_ids=list(proposal.evidence_ids),
+        sample_count=proposal.sample_count,
+        observation_window=proposal.observation_window,
+        comparison_group=proposal.comparison_group,
+        # 恒为 None（没有校准过的概率模型）。原样搬运，绝不在这里补一个数。
+        confidence=proposal.confidence,
+        limitations=[*proposal.limitations, *([expired_reason] if expired_reason else [])],
+        status=status,
+        current_recipe_version=proposal.current_recipe_version,
+        proposed_recipe_version=proposal.proposed_recipe_version,
+        outlier_count=proposal.outlier_count,
+        automatic_application=proposal.automatic_application,
+        validation=LearningProposalValidationRow(
+            valid=validation.valid,
+            reasons=list(validation.reasons),
+            passed_checks=list(validation.passed_checks),
+        ),
+        reviewable=record is None,
+        reviewed_at=record.reviewed_at if record is not None else None,
+        review_note=record.note if record is not None else None,
+        stale_reason=stale_reason,
+    )
+
+
+def _proposal_row_from_record(
+    record: LearningProposalRecord, *, live_recipe_version: str | None
+) -> LearningProposalRow:
+    """一条**只剩裁决**的提案（现在算不出来了）→ 一行响应。
+
+    内容全部来自库里那一行，**一个字段都不现算**：现算出来的取值属于另一条提案，
+    混进来就会变成"显示的是 A、依据的是 B"。`validation` 给空结果并说明理由——
+    没有现算的对象，就没有可校验的东西，编一份看起来通过的校验结果是更糟的选择。
+    """
+    status, expired_reason = _effective_status(record, live_recipe_version=live_recipe_version)
+    return LearningProposalRow(
+        id=record.proposal_key,
+        target=record.target,
+        target_label=TARGET_LABELS.get(record.target, record.target),
+        current_value=record.current_value,
+        proposed_value=record.proposed_value,
+        rationale=record.rationale,
+        evidence_ids=list(record.evidence_ids),
+        sample_count=record.sample_count,
+        observation_window=record.observation_window,
+        comparison_group=None,
+        confidence=None,
+        limitations=[
+            *record.limitations,
+            PROPOSAL_STALE_REASON,
+            *([expired_reason] if expired_reason else []),
+        ],
+        status=status,
+        current_recipe_version=record.current_recipe_version,
+        proposed_recipe_version=record.proposed_recipe_version,
+        outlier_count=0,
+        automatic_application=False,
+        validation=LearningProposalValidationRow(
+            valid=False,
+            reasons=[
+                "这条提案在当前观察下不再被生成，因此没有可校验的现算对象；"
+                "上面显示的是裁决时的快照。"
+            ],
+            passed_checks=[],
+        ),
+        reviewable=False,
+        reviewed_at=record.reviewed_at,
+        review_note=record.note,
+        stale_reason=PROPOSAL_STALE_REASON,
+    )
+
+
+def _merge_proposals(
+    proposals: Sequence[LearningProposal],
+    records: Sequence[LearningProposalRecord],
+    *,
+    live_recipe_version: str | None,
+) -> list[LearningProposalRow]:
+    """现算的提案 ∪ 已存的裁决，按**现算顺序在前、历史裁决在后**排列。
+
+    顺序刻意稳定：现算那一段的顺序由 `generate_proposals` 的固定维度顺序决定，
+    历史那一段按 `reviewed_at` 正序（库查询已排好）。不按状态或时间重排——
+    那会引入一个没有依据的优先级，而"先看哪条"正是这个界面最容易被误读的地方。
+
+    同一个 key 只出现一次：现算的那条带上它的裁决，库里的记录不再单独列一遍。
+    """
+    by_key = {record.proposal_key: record for record in records}
+    rows = [
+        _proposal_row(
+            proposal,
+            by_key.get(proposal.id),
+            live_recipe_version=live_recipe_version,
+        )
+        for proposal in proposals
+    ]
+    derived = {proposal.id for proposal in proposals}
+    rows.extend(
+        _proposal_row_from_record(record, live_recipe_version=live_recipe_version)
+        for record in records
+        if record.proposal_key not in derived
+    )
+    return rows
+
+
+def _effective_status(
+    record: LearningProposalRecord, *, live_recipe_version: str | None
+) -> tuple[str, str | None]:
+    """裁决状态在**读的时候**要不要显示成 `expired`。
+
+    只有 `approved` 会过期，理由不是"批准比较容易坏"，而是过期说的是
+    "这条批准指的是**哪一版配方**"——一个被否决的方向不会因为配方换版而变得
+    不再被否决，那件事没有"过期"可言。
+
+    比不出结果时**不过期**：库里没记版本（目标不在 StyleRecipe 上、或当时取不到
+    基准配方）时无从判断，此时把一条批准说成过期就是编造。宁可显示 `approved`。
+    """
+    if record.status != ProposalStatus.APPROVED.value:
+        return record.status, None
+    if not record.current_recipe_version or not live_recipe_version:
+        return record.status, None
+    if record.current_recipe_version == live_recipe_version:
+        return record.status, None
+    return ProposalStatus.EXPIRED.value, PROPOSAL_EXPIRED_REASON
 
 
 class AdminService:
@@ -983,8 +1200,10 @@ class AdminService:
 
     # ---------- Learning readiness ----------
 
-    async def learning(self, *, window: str | None = None) -> LearningOverview:
-        """自己过去发布内容的**学习准备度**一览（Phase 5C）。
+    async def learning(
+        self, *, window: str | None = None, hard_max_length: int | None = None
+    ) -> LearningOverview:
+        """自己过去发布内容的**学习准备度**一览（Phase 5C / 5D）。
 
         ## 它是控制台里唯一一个"聚合接口读 checkpoint"的地方
 
@@ -1007,10 +1226,22 @@ class AdminService:
         `available=False` 只在**一条记录都没有**时出现。样本不足是
         `available=True` + `readiness.learning_ready=False` + 明确的原因——
         那是一个**结论**，不是一次失败。
+
+        ## Phase 5D 起多带一个 `proposal_count`
+
+        这个字段是**现算的条数**，不是一次查询：它来自与 `GET
+        /api/admin/learning/proposals` 完全相同的那一步生成。只报一个数字而不是
+        把提案整个塞进这里，是为了让 5C 的响应形状保持不变，也让"提案有多重"
+        这件事留在它自己的端点里（那个端点还要读一次 checkpoint）。
+
+        闸门关着时它**必然是 0**（工作单第七节），而且那不是"没算出来"——
+        是"算过了，结论就是零条"。
         """
         async with self._session_factory() as session:
             report = await load_learning_report(session, self._graph, window=window)
+        base_recipe = await self._base_recipe(hard_max_length=hard_max_length)
 
+        proposals = generate_proposals(report, base_recipe=base_recipe)
         readiness = report.readiness
         available = bool(report.records)
         return LearningOverview(
@@ -1031,6 +1262,7 @@ class AdminService:
             post_count=report.post_count,
             cohort_count=len(report.cohorts),
             valid_comparison_count=len(report.valid_comparisons),
+            proposal_count=len(proposals),
             cohorts=[
                 LearningCohortRow(
                     dimension=cohort.dimension.value,
@@ -1082,6 +1314,151 @@ class AdminService:
             ],
             limitations=list(report.limitations),
         )
+
+    # ---------- Learning proposals ----------
+
+    async def _base_recipe(self, *, hard_max_length: int | None = None):
+        """当前生产会用到的 StyleRecipe。
+
+        **走 `resolve_recipe` 而不是自己拼一个**：提案里的
+        `current_recipe_version` 要能与"运行期实际拿到的那一版"对上，如果这里
+        另写一条构造路径，两边的指纹迟早会分叉，而分叉的表现是版本号看起来
+        对不上——那正是版本号要回答的问题。
+
+        `hard_max_length`（平台正文上限）由 API 层从 persona 递进来，与
+        `review_queue` 的做法一致：`app/style/` 是离线语料层，它不该 import
+        `app/agent/`。不传表示"这一层不知道平台约束"，此时版本指纹里那一格
+        是空——与运行期不传时完全一致。
+        """
+        return await resolve_recipe(self._session_factory, hard_max_length=hard_max_length)
+
+    async def learning_proposals(
+        self, *, window: str | None = None, hard_max_length: int | None = None
+    ) -> ProposalsOverview:
+        """提案一览（`GET /api/admin/learning/proposals`，Phase 5D）。
+
+        ## 现算 + 叠加已存裁决
+
+        提案本身是纯函数派生的，所以这里**先算一遍**；然后把它与库里已存的裁决
+        按确定性 key 叠起来。三件事因此同时成立：
+
+        - 没人裁决过的提案照常出现，状态 `proposed`（不落库）；
+        - 裁决过的提案显示**人做过的决定**，而不是"还没决定"；
+        - 当时裁决过、现在算不出来的提案**仍然列出来**（`stale_reason` 说明原因）。
+
+        第三条是这个设计唯一会让人意外的地方，但反过来做更糟：一条批准过、
+        后来数据变了的历史裁决如果从界面上消失，读的人会以为"从来没人批准过
+        什么"。
+
+        ## 闸门关着时是零条，而不是少几条
+
+        `learning_ready=false` ⇒ 生成阶段就返回空（工作单第七节）。这里不再做
+        第二次过滤——下游过滤是"可能会忘"的那种保护。
+        """
+        report, proposals, records = await self._proposal_snapshot(
+            window=window, hard_max_length=hard_max_length
+        )
+        live_version = recipe_version(
+            await self._base_recipe(hard_max_length=hard_max_length)
+        )
+        rows = _merge_proposals(proposals, records, live_recipe_version=live_version)
+        available = bool(report.records) or bool(records)
+
+        if not available:
+            reason = LEARNING_UNAVAILABLE_REASON
+        elif not report.readiness.learning_ready:
+            reason = PROPOSALS_GATE_CLOSED_REASON
+        else:
+            reason = PROPOSALS_AVAILABLE_NOTE
+
+        return ProposalsOverview(
+            available=available,
+            reason=reason,
+            observation_window=report.observation_window,
+            learning_ready=report.readiness.learning_ready,
+            proposal_count=len(proposals),
+            reviewable_count=sum(1 for row in rows if row.reviewable),
+            decided_count=len(records),
+            proposals=rows,
+            limitations=list(report.limitations),
+        )
+
+    async def review_learning_proposal(
+        self,
+        proposal_id: str,
+        *,
+        action: str,
+        note: str | None = None,
+        window: str | None = None,
+        hard_max_length: int | None = None,
+    ) -> LearningProposalRow:
+        """记下人对一条提案的裁决（`POST .../proposals/{id}/review`）。
+
+        ## 只能裁决**现在成立**的提案
+
+        先按 id 现算一遍，算不出来就拒绝（`not_found`）。刻意**不**回退到库里
+        存过的内容：能回退的话，一条已经不再成立的提案照样能被"批准"，而那条
+        批准在事后读起来与一条正常批准毫无区别。这是本章唯一的写路径，
+        它宁可拒答，也不给一个会夸大自己依据的答案。
+
+        ## 写入之后什么都不发生
+
+        这正是工作单第十一、三十五节要的：批准**只**记一条裁决，供下一阶段
+        参考。本模块不 import 任何能改 Prompt / StyleRecipe / 权重 / 阈值 /
+        预算的东西——`app/services/admin.py` 到 `app/repositories.py` 的箭头
+        只通向数据库。
+        """
+        _, proposals, _ = await self._proposal_snapshot(
+            window=window, hard_max_length=hard_max_length
+        )
+        proposal = next((item for item in proposals if item.id == proposal_id), None)
+        if proposal is None:
+            raise LearningProposalReviewError(
+                PROPOSAL_REVIEW_NOT_FOUND,
+                f"proposal {proposal_id!r} is not produced by the current observation "
+                "and cannot be reviewed",
+            )
+
+        status = PROPOSAL_ACTION_STATUS[action]
+        async with self._session_factory() as session:
+            record = await insert_learning_proposal_decision(
+                session,
+                proposal_key=proposal.id,
+                target=proposal.target,
+                current_value=proposal.current_value,
+                proposed_value=proposal.proposed_value,
+                rationale=proposal.rationale,
+                evidence_ids=proposal.evidence_ids,
+                limitations=proposal.limitations,
+                sample_count=proposal.sample_count,
+                observation_window=proposal.observation_window,
+                current_recipe_version=proposal.current_recipe_version,
+                proposed_recipe_version=proposal.proposed_recipe_version,
+                status=status,
+                reviewed_at=_now(),
+                note=note,
+            )
+        if record is None:
+            raise LearningProposalReviewError(
+                PROPOSAL_REVIEW_ALREADY_DECIDED,
+                f"proposal {proposal_id!r} was already reviewed",
+            )
+
+        live_version = recipe_version(
+            await self._base_recipe(hard_max_length=hard_max_length)
+        )
+        return _proposal_row(proposal, record, live_recipe_version=live_version)
+
+    async def _proposal_snapshot(
+        self, *, window: str | None, hard_max_length: int | None
+    ) -> tuple[LearningReport, tuple[LearningProposal, ...], list[LearningProposalRecord]]:
+        """报告 + 现算提案 + 已存裁决。三个接口共用的那一步。"""
+        async with self._session_factory() as session:
+            report = await load_learning_report(session, self._graph, window=window)
+            records = await list_learning_proposal_decisions(session)
+        base_recipe = await self._base_recipe(hard_max_length=hard_max_length)
+        proposals = generate_proposals(report, base_recipe=base_recipe)
+        return report, proposals, records
 
     # ---------- Analytics ----------
 

@@ -18,7 +18,10 @@ import type {
   AnalyticsResponse,
   FeedbackOverview,
   LearningOverview,
+  LearningProposalRow,
   OverviewResponse,
+  ProposalReviewDecision,
+  ProposalsOverview,
   PublishCall,
   PublishResolution,
   PublishResponse,
@@ -247,6 +250,45 @@ export const api = {
    */
   getLearning(window?: string): Promise<LearningOverview> {
     return request(`/api/admin/learning${query({ window })}`)
+  },
+
+  /**
+   * 可以尝试什么（Phase 5D）。**只读**。
+   *
+   * 与 `getLearning` 的关系：那个接口回答"够不够可靠"，这个回答"可靠的话可以试
+   * 什么方向"。提案是**现算**的，不是从库里读的；库里只存人对提案的裁决，
+   * 所以没人裁决过的提案不会出现在数据库里，但一定出现在这里。
+   *
+   * `window` 必须与 `getLearning` 用同一个：窗口不同，算出来的提案就不是同一批，
+   * 而裁决记录是按提案的确定性 id 存的，错配会让裁决看起来"过期了"。
+   */
+  getLearningProposals(window?: string): Promise<ProposalsOverview> {
+    return request(`/api/admin/learning/proposals${query({ window })}`)
+  },
+
+  /**
+   * 裁决一条提案：批准或否决。**控制台里唯一的写端点。**
+   *
+   * 按下之后**什么都不会发生**：不改 Prompt、不改 StyleRecipe、不改权重 / 阈值 /
+   * 预算、不发布。它写下的只有一条裁决（谁在什么时候对哪条建议做了什么决定），
+   * 供下一阶段参考。"批准"不等于"已应用"。
+   *
+   * 两种情况是业务上的正常结果，但**这里都当异常抛出**，因为界面需要区分它们
+   * 并给出不同的提示：
+   *
+   * - `404`：这条提案在当前观察下已经不存在了（数据变了）。不要重试，
+   *   应当提示"重新加载列表"；
+   * - `409`：已经被裁决过了。裁决是不可改写的审计记录，不是可以覆盖的开关。
+   */
+  async reviewLearningProposal(
+    proposalId: string,
+    decision: ProposalReviewDecision,
+    window?: string,
+  ): Promise<LearningProposalRow> {
+    return request(
+      `/api/admin/learning/proposals/${encodeURIComponent(proposalId)}/review${query({ window })}`,
+      { method: 'POST', body: decision },
+    )
   },
 
   // ---------- 写操作：一律复用 Phase 3/4a 的既有端点 ----------

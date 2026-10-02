@@ -291,6 +291,97 @@ def format_learning_context(report: Any | None) -> str:
     return text
 
 
+#: 提案预览的长度上限与条数上限。**条数上限比提案总量还小**（生成阶段最多 3 条，
+#: 见 `app/learning/proposal.py::MAX_PROPOSALS`）：一个只给人看的预览没有理由
+#: 比"系统最多愿意提几条"还长，而两个上限都在这里写死，是为了让输出长度
+#: 与措辞无关——确定性优先（同 `MAX_LEARNING_CONTEXT_COMPARISONS`）。
+MAX_PROPOSAL_PREVIEW_CHARS = 1200
+MAX_PROPOSAL_PREVIEW_ITEMS = 3
+
+
+def format_proposal_preview(
+    proposals: Any | None, *, learning_ready: bool = False
+) -> str:
+    """提案的文本预览（Phase 5D 工作单第二十五节）。
+
+    ## 本阶段**没有**把它接进任何模板，而且**接不进去**
+
+    这个函数是一段**接口**：写好了、有守卫、有测试，但 `prompts/agent/*.txt`
+    里**没有** `{{PROPOSALS}}`，候选工具也不会去组装它。它的三个合法用途是：
+
+        提案预览（人看的） / 人工审核时对照 / 离线评测
+
+    它**不是**给 Writer 的输入。一条"可以尝试把开头方式改成 question"的建议
+    一旦进入写作 prompt，就等于系统绕过了人工审核去改变自己的行为——而那正是
+    工作单第一条禁止的事。所以这里连函数名都叫 `preview`：它产出的是**给人
+    看的文本**，不是给模型看的指令。
+
+    ## 闸门关着时它说"零条"，不说"没有提案"
+
+    两者不同：`learning_ready=False` 是"算过了，不该提"；没有提案是"这次没算出
+    可提的东西"。输出里必须能区分，否则读者会把"数据还不够"读成"看过了，没
+    发现什么"。
+
+    ## 措辞走的是与提案生成**同一套**守卫
+
+    输出的每一句都过 `assert_observational` 与 `assert_no_causal_claim`，
+    并且逐条写出样本量与局限。守卫失败时丢掉整段并记一条 error——姿态同
+    `format_feedback_context`：措辞问题不该让一次 Run 停下。
+    """
+    items = tuple(proposals or ())
+    if not learning_ready:
+        return (
+            "（学习闸门当前未开，本次不产生任何提案。"
+            "这不是「没算出东西」，是「数据还不够可靠，因此不提建议」。）"
+        )
+    if not items:
+        return "（学习闸门已开，但本次没有产生任何提案：没有可成立的分组比较。）"
+
+    lines = [
+        "- 以下是对**过去已发布内容**的跨帖观察推出的一些**可以尝试的方向**："
+        "它不是写作要求，不是事实断言，也不保证任何结果；"
+        "系统不会自动采用其中任何一条。"
+    ]
+    for proposal in items[:MAX_PROPOSAL_PREVIEW_ITEMS]:
+        target = getattr(proposal, "target", "")
+        current = getattr(proposal, "current_value", "")
+        proposed = getattr(proposal, "proposed_value", "")
+        sample = getattr(proposal, "sample_count", 0)
+        window = getattr(proposal, "observation_window", "")
+        evidence = len(getattr(proposal, "evidence_ids", ()) or ())
+        lines.append(
+            f"- 目标 {target}：当前 {current}，值得尝试 {proposed}"
+            f"（依据 {evidence} 条证据 / {sample} 条帖子 / 窗口 {window}）。"
+        )
+        limitations = getattr(proposal, "limitations", ()) or ()
+        if limitations:
+            # 去掉每条末尾的句号再拼：模板里的局限句自带"。"，直接 join 会出现
+            # "…结论。；点赞…"这种读起来像排版事故的东西。
+            lines.append(
+                "  - 局限：" + "；".join(item.rstrip("。") for item in limitations) + "。"
+            )
+    if len(items) > MAX_PROPOSAL_PREVIEW_ITEMS:
+        lines.append(
+            f"- （另有 {len(items) - MAX_PROPOSAL_PREVIEW_ITEMS} 条提案未列出。）"
+        )
+
+    text = "\n".join(lines)
+    if len(text) > MAX_PROPOSAL_PREVIEW_CHARS:
+        text = text[:MAX_PROPOSAL_PREVIEW_CHARS].rstrip() + "…（已达长度上限，此处截断）"
+
+    try:
+        from app.feedback.signals import assert_no_causal_claim, assert_observational
+
+        assert_observational(text, where="proposal preview prompt block")
+        assert_no_causal_claim(text, where="proposal preview prompt block")
+    except Exception:  # noqa: BLE001 - 见 docstring：措辞问题不该让运行失败
+        logger.error(
+            "proposal preview failed the observational guard; dropping it", exc_info=True
+        )
+        return "（本次的提案预览未通过观察性检查，已丢弃。）"
+    return text
+
+
 def format_viewpoint(angle: Any | None) -> str:
     """一个观点的文本块，给 Writer 与 Critic 共用（Phase 5B.3）。
 

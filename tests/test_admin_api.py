@@ -935,18 +935,55 @@ async def test_published_empty_state(session_factory):
 # ---------------------------------------------------------------------------
 
 
-async def test_admin_api_exposes_no_write_endpoints(session_factory):
-    """控制台只有 GET。这条测试守的是架构边界，不是某个功能。
+#: 控制台上**允许**存在的写端点。这是一张**封闭白名单**：往控制台加任何一条写路径
+#: 都会让下面那条测试红，逼着人回来重新想一遍——它守的是架构边界，不是某个功能。
+#:
+#: 目前只有一条，而且它不改变任何一次运行的行为：
+#:
+#:     POST /api/admin/learning/proposals/{proposal_id}/review
+#:
+#: 它记的是**人对一条学习提案的裁决**（Phase 5D）。这个动作在 Phase 3/4a 的
+#: 写路径里没有对应物——它不是"改变某次运行"，是"记下某次决定"。写下之后
+#: 什么都不发生：不改 Prompt / StyleRecipe / 权重 / 阈值 / 预算，也不发布。
+#:
+#: **真正改变运行状态的迁移路径仍然只有 Phase 3/4a 那三条**，前端必须继续复用
+#: 它们（review / publish / publish-resolve），否则就会绕过 Phase 4a 用条件
+#: UPDATE 换来的并发与幂等保护。
+ADMIN_ALLOWED_WRITE_PATHS = {"/api/admin/learning/proposals/{proposal_id}/review"}
 
-    前端必须复用既有的 review / publish 端点，那样才不可能绕过 Phase 4a 用条件
-    UPDATE 换来的并发与幂等保护。将来若要给控制台加写端点，这条会先红，
-    逼着人回来重新想一遍。
+
+async def test_admin_api_writes_are_limited_to_the_proposal_review(session_factory):
+    """控制台的写端点只有"记一条裁决"，**没有**任何 Run 状态迁移。
+
+    这条测试守的是架构边界，不是某个功能。它有三层：
+
+    1. `/api/admin` 下**只有**白名单里那一条路径不是纯 GET；
+    2. 那条路径只暴露 POST（不是 PUT / PATCH / DELETE——裁决是**追加**，
+       不是改写，DELETE 一个审计记录这件事本身就不该存在）；
+    3. 任何管理端写路径都**不许**落在 `/api/runs/` 下：那里是运行状态迁移，
+       控制台一旦长出自己的第二套，就会漏掉条件 UPDATE 的并发与幂等保护。
     """
     from app.main import app
 
     schema = app.openapi()
-    admin_paths = {path: ops for path, ops in schema["paths"].items() if path.startswith("/api/admin")}
-
+    admin_paths = {
+        path: ops for path, ops in schema["paths"].items() if path.startswith("/api/admin")
+    }
     assert admin_paths, "admin routes are not mounted"
-    for path, operations in admin_paths.items():
-        assert set(operations) == {"get"}, f"{path} exposes non-GET methods: {set(operations)}"
+
+    writes = {
+        path: {method for method in operations if method != "get"}
+        for path, operations in admin_paths.items()
+        if set(operations) != {"get"}
+    }
+    assert set(writes) == ADMIN_ALLOWED_WRITE_PATHS, (
+        "控制台的写端点与白名单不一致；新增写路径前请先想清楚它改的是什么："
+        f"{sorted(set(writes) ^ ADMIN_ALLOWED_WRITE_PATHS)}"
+    )
+    for path, methods in writes.items():
+        assert methods == {"post"}, f"{path} exposes unexpected write methods: {methods}"
+
+    for path in ADMIN_ALLOWED_WRITE_PATHS:
+        assert "/api/runs/" not in path, (
+            f"{path} 是 Run 状态迁移路径；控制台不得新增这类写端点"
+        )

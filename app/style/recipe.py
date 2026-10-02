@@ -23,6 +23,7 @@ prompt 前取一次，写进 state，Critic 与 revise 再读同一个对象。
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 
 from app.style.config import StyleConfig, load_style_config
@@ -352,4 +353,75 @@ def _as_hook(value: str) -> HookType:
         return HookType.UNCLASSIFIED
 
 
-__all__ = ["CORPUS_PROFILE_REF_PREFIX", "EvidenceSignals", "build_recipe", "evidence_signals"]
+#: 版本号的前缀。进位时机见 `recipe_version` 的文档。
+RECIPE_VERSION_PREFIX = "sr1"
+
+#: 参与版本指纹的**决策字段**，顺序写死（顺序变了指纹就变了，所以它是一份契约）。
+#:
+#: 刻意**不含** `reasons` 与 `profile_ref`：那两样是**依据**，不是决策。
+#: 同一组参数配不同的依据说明，仍然是同一个 recipe——把依据也算进去，会让
+#: "改了一句解释"变成"换了一版配方"，而版本号正是用来回答"决策变没变"的。
+_RECIPE_VERSION_FIELDS: tuple[str, ...] = (
+    "structure_type",
+    "hook_type",
+    "observed_target_length",
+    "hard_max_length",
+    "density",
+    "stance_strength",
+    "evidence_requirement",
+    "tone",
+    "ending_type",
+)
+
+
+def recipe_version(recipe: StyleRecipe | None) -> str | None:
+    """一个 StyleRecipe 的**最小版本标识**（Phase 5D 工作单第十三节）。
+
+    ## 为什么需要一个版本号，而不是直接比对象
+
+    提案要说"当前的配方版本是 X、建议的配方版本是 Y"。没有版本号，这句话只能
+    写成两串参数并排，而"这两个是不是同一版"就得靠人逐字看。
+
+    ## 它的定义只有一句
+
+        同一组决策字段 → 同一个版本号；任何一个字段变了 → 另一个版本号。
+
+    算法是确定性的（`blake2b`，取前 6 字节十六进制）且**与库无关**：同样的
+    参数在任何机器、任何次运行都得到同一个版本号。所以它可以进数据库、
+    进提案、进报告，而不需要一个配置中心或一张版本表。
+
+    ## 它不是"配方好不好"的评分
+
+    版本号不含任何质量含义，只回答"是不是同一组参数"。`None` 表示**没有配方**
+    （还没算过 Profile / 语料为空），**不是**一个空版本——把"没有"和"有一版
+    中性配方"压成同一个值，会让提案声称一个并不存在的基准。
+    """
+    if recipe is None:
+        return None
+    payload = "|".join(
+        _version_field(getattr(recipe, name, None)) for name in _RECIPE_VERSION_FIELDS
+    )
+    digest = hashlib.blake2b(payload.encode("utf-8"), digest_size=6).hexdigest()
+    return f"{RECIPE_VERSION_PREFIX}-{digest}"
+
+
+def _version_field(value: object) -> str:
+    """一个字段进指纹前的规范化：枚举取 `value`，`None` 取空串。
+
+    `None` 与空串折成同一个记号是**可以的**：这里是给参数做的指纹，不是给人
+    看的展示——两种"没有值"在参数意义上确实一样。展示层要区分它们时读的是
+    字段本身，不是这个指纹。
+    """
+    if value is None:
+        return ""
+    return str(getattr(value, "value", value))
+
+
+__all__ = [
+    "CORPUS_PROFILE_REF_PREFIX",
+    "RECIPE_VERSION_PREFIX",
+    "EvidenceSignals",
+    "build_recipe",
+    "evidence_signals",
+    "recipe_version",
+]

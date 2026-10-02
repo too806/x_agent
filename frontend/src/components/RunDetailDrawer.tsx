@@ -23,6 +23,7 @@ import {
 } from '../utils/feedback'
 import { buildLifecycle } from '../utils/lifecycle'
 import { LEARNING_DISCLAIMER, compactReadiness } from '../utils/learning'
+import { proposalsHeadline } from '../utils/proposals'
 import { traceSummary } from '../utils/trace'
 import {
   capNote,
@@ -313,6 +314,22 @@ function LearningReadinessSection() {
         <>
           {/* 一句话，永远带 n 与窗口：一个没有样本量的结论没法被判断为"样本太小"。 */}
           <div>{compactReadiness(data)}</div>
+          {/* 提案条数（Phase 5D）**来自同一个响应**（`proposal_count`），所以这里
+              不另发一次请求：这个抽屉每打开一次都要拉一次准备度，再加一次同样重的
+              比较读取，就是拿最重的读去挡最常走的路。标题走**同一个**函数，
+              免得两处各写一句、迟早互相矛盾。
+
+              只报条数，不在这里裁决——裁决要看清证据、样本与边界，那是 Analytics
+              那一块才能给的全部上下文。 */}
+          <div>
+            {proposalsHeadline({
+              available: data.available,
+              reason: data.reason,
+              observation_window: data.observation_window,
+              learning_ready: data.readiness.learning_ready,
+              proposal_count: data.proposal_count,
+            })}
+          </div>
           <div className="meta">{LEARNING_DISCLAIMER}</div>
         </>
       )}

@@ -972,10 +972,153 @@ class LearningOverview(BaseModel):
     post_count: int = 0
     cohort_count: int = 0
     valid_comparison_count: int = 0
+    #: Phase 5D：现算出来的提案条数。闸门关着时**必然是 0**——那是"算过了，
+    #: 结论就是零条"，不是"没算"。完整提案在
+    #: `GET /api/admin/learning/proposals`（那个端点会再做一次同样的生成）。
+    proposal_count: int = 0
     cohorts: list[LearningCohortRow] = []
     comparisons: list[LearningComparisonRow] = []
     evidence: list[LearningEvidenceRow] = []
     limitations: list[str] = []
+
+
+class LearningProposalValidationRow(BaseModel):
+    """一条提案逐项校验的结果（Phase 5D）。
+
+    `valid=False` 的提案**不会**出现在接口返回里（生成阶段就丢了），所以这里
+    下发的永远是 `valid=True`。留着 `reasons` 是因为展示层要显示"它过了哪几关"
+    ——一份提案最该被追问的正是这个，而"它没问题"是一句无法追问的话。
+    """
+
+    valid: bool = False
+    reasons: list[str] = []
+    passed_checks: list[str] = []
+
+
+class LearningProposalRow(BaseModel):
+    """一条学习提案（`GET /api/admin/learning/proposals`，Phase 5D）。
+
+    ## 它是"可以尝试什么"，不是"应该做什么"
+
+    工作单第十节把三件事分得很开：
+
+        Observation   = 过去发生了什么        （5B.4 / 5C）
+        Proposal      = 可以尝试什么          （本行）
+        Recommendation = 应该做什么           （**本阶段不存在**）
+
+    所以这里没有 priority / score / ranking。给提案排序需要一个没人校准过的
+    权重，而那个排序会被当成"该先做哪个"的依据。
+
+    ## 状态是**读出来的**，不全是存下来的
+
+        proposed   现算出来的、还没人裁决过           → 不落库
+        approved   人批准过                           → 落库
+        rejected   人否决过                           → 落库
+        expired    approved，但配方已经不是当时那版   → **读时判断**，不落库
+
+    `approved` **不等于**已应用（工作单第十一、三十二节）。本阶段没有任何
+    应用路径：`automatic_application` 是一个**恒为 false** 的字段而不是一句
+    约定——约定不会让测试红，字段会。
+
+    ## `confidence` 恒为 null
+
+    本仓库没有校准过的概率模型。编一个数字出来就是捏造，而且那个数字会被读成
+    "这条建议有多可信"。
+    """
+
+    id: str
+    target: str
+    #: 目标的人读名（"开头方式"）。与 `target` 一起下发：机器值进日志，
+    #: 人读名进界面，两边都别去猜对方的那一份。
+    target_label: str
+    current_value: str
+    proposed_value: str
+    rationale: str
+    evidence_ids: list[str] = []
+    sample_count: int = 0
+    observation_window: str
+    comparison_group: str | None = None
+    confidence: float | None = None
+    limitations: list[str] = []
+    status: str
+    current_recipe_version: str | None = None
+    proposed_recipe_version: str | None = None
+    #: 被排除在比较之外的极端值个数（工作单第二十节）。爆款**没有**被删除，
+    #: 只是被标出来——所以这个数字随行下发。
+    outlier_count: int = 0
+    automatic_application: bool = False
+    validation: LearningProposalValidationRow
+    #: 还能不能被裁决。已经裁决过、或这条提案在当前观察下已不再生成时为 false。
+    reviewable: bool = False
+    #: 裁决时刻与人工批注。未裁决时都是 null。
+    reviewed_at: datetime | None = None
+    review_note: str | None = None
+    #: 这条提案在当前观察下**不再被生成**时的说明（数据变了 / 窗口变了）。
+    #: 只有在库里存着裁决、而现算结果里已经没有它时才有值。
+    stale_reason: str | None = None
+
+
+class ProposalsOverview(BaseModel):
+    """提案一览（`GET /api/admin/learning/proposals`，Phase 5D）。
+
+    ## 闸门是硬的：`learning_ready=false` ⇒ `proposal_count=0`
+
+    `learning_ready=false` 时这里返回**零条提案**加一句原因，而不是几条
+    "看起来还行"的建议（工作单第七节）。这不是"少给几条"——数据不够可靠时，
+    正确的输出就是不提建议。
+
+    ## `available` 与 `learning_ready` 是两件事
+
+    `available=false` 只在**一条记录都没有**时出现（5C 的口径）；
+    样本不足是 `available=true` + `learning_ready=false` + 原因——
+    那是一个**结论**，不是一次失败。
+    """
+
+    available: bool
+    reason: str
+    observation_window: str
+    learning_ready: bool = False
+    #: 现算出来的提案条数（最多 3，工作单第二十二节）。
+    proposal_count: int = 0
+    #: 其中还没被裁决过的条数。前端据此决定"有没有待办"。
+    reviewable_count: int = 0
+    #: 已裁决过的条数（含现算出来的与已经不再生成的历史裁决）。
+    decided_count: int = 0
+    #: 现算的提案 + 只剩历史裁决的提案。**长度可能大于 `proposal_count`**：
+    #: 当时裁决过、现在算不出来的提案仍然列出来（`stale_reason` 说明原因），
+    #: 因为一条批准过又从界面上消失的历史裁决，会被读成"从来没人批准过什么"。
+    proposals: list[LearningProposalRow] = []
+    limitations: list[str] = []
+
+
+# 提案裁决：与 ReviewDecision 同一套判别联合模式，HTTP 层只认这两种动作。
+# 刻意**没有** "apply" / "expire"：前者本阶段不存在，后者是读时判断而非一次写入。
+class ApproveProposalDecision(BaseModel):
+    """批准一条提案**作为未来的尝试方向**。批准不改变任何一次运行的行为。"""
+
+    action: Literal["approve"]
+    note: str | None = Field(default=None, max_length=1000)
+
+
+class RejectProposalDecision(BaseModel):
+    """否决一条提案。必须写理由——同 ReviewDecision 里 reject 要 reason 的道理：
+    一条没有理由的否决，过两个月没人说得清当初为什么否。"""
+
+    action: Literal["reject"]
+    note: str = Field(min_length=1, max_length=1000)
+
+    @field_validator("note")
+    @classmethod
+    def _normalize_note(cls, value: str) -> str:
+        return _strip_not_blank(value)
+
+
+ProposalReviewDecision = Annotated[
+    ApproveProposalDecision | RejectProposalDecision, Field(discriminator="action")
+]
+
+#: 提案裁决动作 → 落库的状态。**没有 apply**：这里每个值都只是"记下来"。
+PROPOSAL_ACTION_STATUS = {"approve": "approved", "reject": "rejected"}
 
 
 class ReviewDecisionDistribution(BaseModel):
