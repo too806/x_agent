@@ -856,8 +856,9 @@ merge-base 检查        : git merge-base --is-ancestor master <branch> → 通�
                                —— T2 的全部验证就是这个提交
 ```
 
-合并之后的三笔提交（`7f63078` / `8e8d75f` / 命名本文件的这一笔）**只改 `docs/`**，
-不改任何代码，因此 T2 的验证结果对最终 `master` 同样成立。
+**合并点之后的所有提交都只改 `docs/`**，不改任何代码（可用
+`git diff --stat 2a73341..HEAD -- . ':(exclude)docs'` 验证为空），
+因此 T2 的验证结果对最终 `master` 同样成立。
 
 没有用 `rebase` / `reset` / `squash` / `amend` / `force push`。是纯快进，
 所以三个提交（`11f5492` 特性 → `6a1974f` finalize → `2a73341` 真机验证）原样进历史。
