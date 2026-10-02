@@ -785,6 +785,209 @@ def check_ready_reports_still_never_tell_the_writer_what_to_do() -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# 七、Phase 5D：提案层与这一层的关系
+# ---------------------------------------------------------------------------
+#
+# 提案基准（`evals/learning/proposals.py`）自查它那八类；这里补的是**跨层**的
+# 那几条——提案基准再怎么全，也答不了"提案引用的证据是不是真的来自这份报告"
+# 和"提案层有没有偷偷写库"，因为那要同时看两层。
+
+
+def check_the_proposal_benchmark_is_green() -> list[str]:
+    """提案基准的每一项检查都必须过。
+
+    把它的检查**跑一遍**，而不是 import 一下就算数：只 import 的话，
+    提案基准里一条永远抛错的检查会让这里绿着过去。
+    """
+    from evals.learning import proposals as proposal_benchmark  # noqa: PLC0415
+
+    _check(
+        tuple(proposal_benchmark.PROPOSAL_CATEGORIES)
+        == proposal_benchmark.PROPOSAL_CATEGORIES,
+        "提案基准的类别清单不是元组",
+    )
+    _check(
+        len(proposal_benchmark.PROPOSAL_CATEGORIES) == 8,
+        f"工作单第二十六节点名八类，实际 "
+        f"{len(proposal_benchmark.PROPOSAL_CATEGORIES)} 类",
+    )
+    notes: list[str] = []
+    for name, check in proposal_benchmark.CHECKS:
+        check()  # 抛错就是失败，异常类型由 run_selftest 统一呈现
+        notes.append(name)
+    return [f"提案基准 {len(notes)} 项全过，覆盖 8 类场景"]
+
+
+def check_every_proposal_traces_back_to_its_evidence() -> list[str]:
+    """工作单第八节：提案引用的每一条证据，都必须是**这份报告**里真有的。
+
+    提案基准断言的是"提案自己前后一致"；这里断言的是"提案和你给它的那份报告
+    一致"——两者的差别正是"证据是不是编的"。
+
+    另外核一遍 `sample_count`：它必须是那几条证据对应比较的**帖子并集**。
+    照抄提案基准的算法没有意义，所以这里直接用 `report.evidence` 与
+    `report.comparisons` 重算。
+    """
+    from evals.learning import proposals as proposal_benchmark  # noqa: PLC0415
+    from app.learning.evidence import evidence_id  # noqa: PLC0415
+
+    checked = 0
+    for category in ("balanced_cohorts", "causal_language"):
+        report = build_learning_report(
+            fixtures.case_for(category).records, window=WINDOW
+        )
+        known = {item.id: item for item in report.evidence}
+        by_id = {
+            evidence_id(comparison): comparison
+            for comparison in report.comparisons
+            if comparison.valid
+        }
+        proposals = proposal_benchmark.generate_proposals(
+            report, base_recipe=proposal_benchmark.base_recipe()
+        )
+        for proposal in proposals:
+            checked += 1
+            _check(proposal.evidence_ids, f"{category}：提案 {proposal.id} 没有证据")
+            for item_id in proposal.evidence_ids:
+                _check(
+                    item_id in known,
+                    f"{category}：提案 {proposal.id} 引用了这份报告里没有的证据 "
+                    f"{item_id!r}",
+                )
+                _check(
+                    known[item_id].source_snapshot_ids,
+                    f"{category}：证据 {item_id} 本身没有来源快照",
+                )
+            post_ids: set[str] = set()
+            for item_id in proposal.evidence_ids:
+                comparison = by_id.get(item_id)
+                _check(
+                    comparison is not None,
+                    f"{category}：提案 {proposal.id} 的证据 {item_id!r} "
+                    "对不上一份成立的比较",
+                )
+                post_ids.update(comparison.group_a.post_ids)
+                post_ids.update(comparison.group_b.post_ids)
+            _check(
+                proposal.sample_count == len(post_ids),
+                f"{category}：提案 {proposal.id} 说 n={proposal.sample_count}，"
+                f"但证据涉及的帖子并集是 {len(post_ids)} 条",
+            )
+            _check(
+                proposal.sample_count <= report.readiness.sample_count,
+                f"{category}：提案的样本量超过了报告本身的样本量",
+            )
+    _check(checked > 0, "没有任何提案被核到，这条检查是空的")
+    return [f"{checked} 条提案的证据全部可追回报告，且样本量等于帖子并集"]
+
+
+def check_the_proposal_layer_reuses_the_same_threshold() -> list[str]:
+    """工作单第十八节：阈值只有**一个**，不许提案层自备一个更松的。
+
+    两半：两个模块里的常量必须是同一个对象；以及闸门关着的数据在提案层
+    仍然产出零条——后者若不做，"复用常量"完全可以只是共享了一个没人读的数字。
+    """
+    from app.learning import proposal as proposal_module  # noqa: PLC0415
+
+    _check(
+        proposal_module.MIN_SAMPLES_FOR_COMPARISON is MIN_SAMPLES_FOR_COMPARISON,
+        "提案层没有复用 5C 的 MIN_SAMPLES_FOR_COMPARISON，而是另立了一个",
+    )
+    _check(
+        MIN_SAMPLES_FOR_COMPARISON == 5,
+        f"阈值被改成了 {MIN_SAMPLES_FOR_COMPARISON}；工作单要求原样保留 5",
+    )
+    from evals.learning import proposals as proposal_benchmark  # noqa: PLC0415
+
+    for category in proposal_benchmark.GATE_CLOSED_CATEGORIES.values():
+        report = build_learning_report(fixtures.case_for(category).records, window=WINDOW)
+        proposals = proposal_benchmark.generate_proposals(
+            report, base_recipe=proposal_benchmark.base_recipe()
+        )
+        _check(
+            not proposals,
+            f"{category}：样本不足却产出了 {len(proposals)} 条提案",
+        )
+    return [
+        f"阈值是同一条常量（{MIN_SAMPLES_FOR_COMPARISON}）",
+        "反证：三类样本不足的数据在提案层都是零条",
+    ]
+
+
+#: `session` 这一类接收者上调用的、属于写操作的方法名。
+_SESSION_WRITES = frozenset(
+    {"add", "add_all", "commit", "delete", "execute", "flush", "merge", "rollback"}
+)
+#: SQLAlchemy 的写构造器；它们在代码里通常是以**裸名**被调用的
+#: （`from sqlalchemy.dialects.postgresql import insert`）。
+_SQL_WRITE_CALLS = frozenset({"insert", "update", "delete", "pg_insert", "upsert"})
+
+
+def _scan_for_writes(source: str, label: str) -> list[str]:
+    """从一段源码里找出"写库"的调用。
+
+    判定比"名字里带 update"严得多：`post_ids.update(x)` 是本地集合的更新，
+    与数据库毫无关系。所以只有当
+
+    * 接收者名字里带 `session`（`session.add(...)`、`self._session.execute(...)`），或
+    * 被调用的是一个裸名写构造器（`insert(...)`、`pg_insert(...)`）
+
+    时才算数。第一版把前者放宽成"任何 Name 接收者"，结果 `set.update()`
+    被当成了写库——一个会误报的守卫最后一定会被人关掉。
+    """
+    offenders: list[str] = []
+    for node in ast.walk(ast.parse(source, filename=label)):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if isinstance(func, ast.Name):
+            if func.id in _SQL_WRITE_CALLS:
+                offenders.append(f"{label}:{node.lineno} {func.id}()")
+            continue
+        if not isinstance(func, ast.Attribute) or func.attr not in _SESSION_WRITES:
+            continue
+        receiver = func.value
+        while isinstance(receiver, ast.Attribute):  # self._session.add(...)
+            receiver = receiver.value
+        if isinstance(receiver, ast.Name) and "session" in receiver.id.lower():
+            offenders.append(f"{label}:{node.lineno} {receiver.id}.{func.attr}()")
+    return offenders
+
+
+def check_the_learning_package_never_writes() -> list[str]:
+    """工作单第十六节：提案层**完全独立**——它不写任何东西。
+
+    用 AST 扫描写操作的**调用**，而不是搜字符串：搜字符串会把注释和文档里
+    提到的 `update()` 也算上，而 AST 只看真正被调用到的方法。
+
+    读取是允许的（`runtime.py` 要从库里读快照和裁决），写入不是。
+    """
+    # 反证：扫描器必须先证明**自己看得见**一次真的写。否则"没找到"
+    # 既可以解释成"代码干净"，也可以解释成"这个正则从来就没匹配过"。
+    planted = "async def f(session):\n    await session.add(row)\n    await session.commit()\n"
+    _check(
+        len(_scan_for_writes(planted, "(植入)")) == 2,
+        "扫描器看不见一次植入的写操作，这条检查是空的",
+    )
+    _check(
+        not _scan_for_writes("x = set()\nx.update([1])\n", "(反证)"),
+        "扫描器把本地集合的 update 当成了写库",
+    )
+
+    package = Path(runtime_module.__file__).resolve().parent
+    offenders: list[str] = []
+    for path in sorted(package.glob("*.py")):
+        offenders.extend(
+            _scan_for_writes(path.read_text(encoding="utf-8"), path.name)
+        )
+    _check(not offenders, f"学习层里出现了写操作：{offenders!r}")
+    return [
+        f"扫描 {len(list(package.glob('*.py')))} 个模块，没有任何写调用",
+        "反证：植入的 session.add/commit 会被抓到，集合的 update 不会误报",
+    ]
+
+
+# ---------------------------------------------------------------------------
 
 CHECKS: tuple[tuple[str, Any], ...] = (
     ("工作单点名的九类都在，且都有预期", check_the_nine_categories_are_all_present),
@@ -803,6 +1006,11 @@ CHECKS: tuple[tuple[str, Any], ...] = (
     ("不成立的比较摆出来，不静默丢弃", check_invalid_comparisons_are_shown_not_dropped),
     ("ready 也不告诉 Writer 该怎么做", check_ready_reports_still_never_tell_the_writer_what_to_do),
     ("学习层没有 apply_learning（AST 扫描）", check_learning_ready_still_cannot_modify_the_agent),
+    # --- Phase 5D ---
+    ("提案基准（第二十六节八类）全绿", check_the_proposal_benchmark_is_green),
+    ("每条提案都能追回报告里的证据（反证）", check_every_proposal_traces_back_to_its_evidence),
+    ("提案层复用同一个阈值，不自备一个（反证）", check_the_proposal_layer_reuses_the_same_threshold),
+    ("提案层不写任何东西（AST 扫描）", check_the_learning_package_never_writes),
 )
 
 
