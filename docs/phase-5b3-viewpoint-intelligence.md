@@ -5,6 +5,8 @@
 
 **基线**：`master`，HEAD `d91f517`（Phase 5B.2 COMPLETE：backend 482 通过 / frontend 46 通过）。
 
+**状态**：**Complete**。收口与最终 `master` HEAD 见 R 节（5B.3 特性提交为 `24a7f95`）。
+
 **结论**：完成。链路上缺的那一环补上了——
 
 ```
@@ -687,3 +689,55 @@ Viewpoint Intelligence 决定的是**"说什么判断"**，而不是"怎么表�
 管到哪一步为止、可能错在哪里。**这是本阶段的成功判据（§43）。**
 
 **Phase 5B.3 — Viewpoint Intelligence 完成，立即停止（§45）。**
+
+---
+
+## R. Final Integration & Baseline（收口记录）
+
+本节只记录"把已经写好的 5B.3 落进历史"这件事，**不新增任何业务能力**。
+
+**收口前实际状态（不是按之前的报告假设的）**：5B.3 的代码此前**没有提交**，
+它以 47 条工作区改动（27 改 + 20 增）的形式直接躺在 `master` 的工作树上；
+仓库里**不存在** 5B.3 分支，也没有 stash。`feat/phase-5b1-content-intelligence`
+早已在 `reflog HEAD@{5}` fast-forward 进 `master`，不是待合并分支。
+
+**落地方式（只 fast-forward，不重写历史）**：
+
+```bash
+git switch -c feat/phase-5b3-viewpoint-intelligence   # 从 d91f517 起
+# 提交 47 条改动 → 24a7f95
+git switch master
+git merge --ff-only feat/phase-5b3-viewpoint-intelligence   # d91f517..24a7f95
+```
+
+`master` 是 5B.3 分支的祖先，因此是严格 fast-forward；未做 rebase / reset /
+squash / amend / force push。
+
+**HEAD**
+
+```text
+merge 前 master        d91f51768a218b4c3a3f8f7c77170e156f3b0c06
+5B.3 分支              feat/phase-5b3-viewpoint-intelligence = 24a7f952be39119ee8e0dde4dde1cb06dc0a7783
+merge 后 master        24a7f952be39119ee8e0dde4dde1cb06dc0a7783   ← 承载 5B.3 特性代码
+```
+
+本文件自身的收口提交落在这个 HEAD 之上，因此 `master` 的最新提交以
+`git log -1 master` 为准；两笔提交之间不含任何业务代码差异。
+
+**备份与最终 bundle**（两者都不进 Git——`*.bundle` 与 `.integration-backup/` 已 ignore）
+
+```text
+.integration-backup/20261002-5b3-premerge.bundle   merge 前 --all，含 5B.3 分支
+X_Agent-2026-09-30-phase-5b3-final.bundle          最终 master，git bundle verify 通过
+```
+
+**验证在最终 `master` 上重跑（串行）**：后端 `pytest -q` 555 通过、
+`evals.selftest` 14、`run_benchmark --dataset` 21/21、`evals.style.selftest` 22、
+`evals.viewpoint.selftest` 17、前端 `node --test` 61、`tsc --noEmit` clean、
+`npm run build` 通过——与 P 节表格一致。**没有重跑真机 X smoke**（I 节记录仍是
+当时的真实观察）；`X POST = 0` 在本次收口里同样成立。
+
+**工作区**：`git status --porcelain -uall` 为空；`.env` / `dist/` / `node_modules/` /
+`*.zip` / `*.bundle` 均未被跟踪。
+
+**下一阶段**：**Feedback Loop**（未开始）。
