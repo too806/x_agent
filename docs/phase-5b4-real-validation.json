@@ -4,6 +4,46 @@
   "date": "2026-10-02",
   "note": "一次真实、人工确认的 X 发布，用来验证 真实发布结果 → 采集 → 归因 → 反馈信号 → Agent 可读 这条完整链路。只发 1 条。本文档不含任何凭据。",
 
+  "final_baseline": {
+    "date": "2026-10-02",
+    "phase_5b4_foundation": "Complete",
+    "real_world_validation": "Pass",
+    "master_before_merge": "a6f67b7",
+    "branch": "feat/phase-5b4-feedback-loop",
+    "branch_head": "2a73341",
+    "merge_method": "git merge --ff-only",
+    "final_head": "2a73341a0c0a7c7a521c79c100e54af9b1279b07",
+    "premerge_bundle": "X_Agent-2026-10-02-5b4-premerge.bundle (git bundle verify = pass, 10 refs, 仓库外)",
+    "final_bundle": "X_Agent-2026-10-02-phase-5b4-final.bundle (git bundle verify = pass, 仓库外)",
+    "summary": {
+      "published_post": 1,
+      "snapshot": 2,
+      "sample_count": 2,
+      "insufficient_sample": true,
+      "post_tweets_total_for_this_phase": 1,
+      "post_media_total_for_this_phase": 0
+    },
+    "final_master_verification": {
+      "pytest": "647 passed",
+      "evals_selftest": "15 passed / 0 failed",
+      "evals_run_benchmark_dataset": "22 passed / 0 failed (含 G-022)",
+      "evals_style_selftest": "22 passed / 0 failed",
+      "evals_viewpoint_selftest": "17 passed / 0 failed",
+      "evals_feedback_selftest": "12 passed / 0 failed",
+      "frontend_node_test": "75 pass / 0 fail",
+      "frontend_tsc_noEmit": "exit 0",
+      "frontend_build": "exit 0",
+      "second_real_publish_attempted": false,
+      "note": "全部在最终 master 上重新跑过，不是引用分支上的历史数字。"
+    },
+    "retained_limitations": [
+      "n=2：1 条帖子 / 2 次观察，只证明数据链，不证明任何内容规律。",
+      "没有内容规律结论：一条帖子 + 全 0 计数推导不出「什么内容更好」。",
+      "没有因果实验：只有自然产生的观察数据，无对照组、无 A/B，因果在构造上得不出。",
+      "真实历史帖子数量有限：库里只有 1 条已发布内容，反馈层目前几乎是空的。"
+    ]
+  },
+
   "account": {
     "username": "TCL7788",
     "user_id": "1641511092022284288"

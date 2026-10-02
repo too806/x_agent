@@ -6,14 +6,17 @@
 真实发布结果 → 数据采集 → 结果归因 → 可解释反馈信号 → Agent 可读取
 ```
 
-**基线**：`master`，HEAD `a6f67b7`（Phase 5B.3 COMPLETE：backend 555 通过 / frontend 61 通过）。
+**基线**：开工时 `master` HEAD `a6f67b7`（Phase 5B.3 COMPLETE：backend 555 通过 /
+frontend 61 通过）。**封版 HEAD**：`2a73341`——Final Integration & Baseline
+已以 `--ff-only` 并入 `master`（T 节）。
 
 **分支**：`feat/phase-5b4-feedback-loop`，**独立 worktree** `X_Agent-phase-5b4`
-（工作单第四十三节）。`master` 保持 `a6f67b7` 不动。
+（工作单第四十三节）。**开发期间**`master` 保持 `a6f67b7` 不动；收口时才快进合并。
 
-**状态**：Complete。Foundation 部分见 A–R 节；**Real-world Validation**（一次真实、
-人工确认的 X 发布，把整条链在真实数据上跑通）见
-`docs/phase-5b4-real-validation.json` 与 S 节。
+**状态**：**Complete**（Foundation = Complete，Real-world Validation = Pass）。
+Foundation 部分见 A–R 节；**Real-world Validation**（一次真实、人工确认的 X 发布，
+把整条链在真实数据上跑通）见 `docs/phase-5b4-real-validation.json` 与 S 节；
+合并与最终验证见 T 节。
 
 > 说明：I 节的 Smoke 1/2/4 在**当时**记 `blocked`——那时库里确实一条已发布帖子都没有。
 > 那块缺口后来由 Real-world Validation 补上了（S 节）。两节都保留，因为"当时没跑"
@@ -29,8 +32,10 @@ Viewpoint  = 当前证据下的判断
 Feedback   = 自己过去行为的真实结果        ← 本阶段新增，且只到这里
 ```
 
-**本阶段没有发布任何内容**：`POST /2/tweets = 0`。反馈采集只有
+**Foundation 阶段没有真实发布**：那时 `POST /2/tweets = 0`，反馈采集只有
 `GET /2/tweets?ids=…`，且真机上一次都没有发出（库里没有可采集的帖子）。
+这块缺口由后来的 Real-world Validation 补上——**本阶段总计真实
+`POST /2/tweets = 1`**（S 节），此后没有再发过第二条。
 
 ---
 
@@ -823,6 +828,145 @@ n=2，而且两次观察都落在 0-1h 档、计数全是 0。它证明的是
 `evals.style.selftest` 22；`evals.viewpoint.selftest` 17；
 `evals.feedback.selftest` 12；`run_benchmark` 22/22（含 `G-022`）。
 前端本轮未改，未重跑。
+
+---
+
+## T. Final Integration & Baseline（2026-10-02）
+
+本节只做收口：Git 合并、最终验证、文档封版、final bundle。**不新增任何业务能力**。
+
+### T1. 合并
+
+```
+merge 前 master        : a6f67b7  docs: finalize phase 5b.3
+merge 前 5B.4 branch   : 2a73341  feat: real-world validation of the feedback loop
+merge-base 检查        : git merge-base --is-ancestor master <branch> → 通过
+                          （merge-base = a6f67b7，即 master 自身；分支 3 ahead / 0 behind）
+合并方式               : git switch master && git merge --ff-only feat/phase-5b4-feedback-loop
+final HEAD             : 2a73341a0c0a7c7a521c79c100e54af9b1279b07
+```
+
+没有用 `rebase` / `reset` / `squash` / `amend` / `force push`。是纯快进，
+所以三个提交（`11f5492` 特性 → `6a1974f` finalize → `2a73341` 真机验证）原样进历史。
+
+合并前做过一次全量备份：`X_Agent-2026-10-02-5b4-premerge.bundle`（`git bundle verify`
+通过，10 个 ref，含 `refs/heads/master` 与 `refs/heads/feat/phase-5b4-feedback-loop`），
+放在仓库之外，不入版本。
+
+### T2. 在最终 master 上重新验证（全部串行，重新跑，不引用分支上的历史数字）
+
+开工前的环境前置：docker daemon 在跑（`xagent-postgres` healthy）、
+`import app` 落在 `C:\xuexi\py\2026_agent\X_Agent\app\__init__.py`（**主检出**，
+不是 worktree）、`alembic current` = `e5f1a9c4d20b (head)`。
+
+| 项目 | 结果 |
+|---|---|
+| `pytest -q` | **647 通过**（171.35s） |
+| `python -m evals.selftest` | **15 通过 / 0 失败** |
+| `python -m evals.run_benchmark --dataset` | **22 通过 / 0 未通过（共 22 条）**，含 `G-022` |
+| `python -m evals.style.selftest` | **22 通过 / 0 失败** |
+| `python -m evals.viewpoint.selftest` | **17 通过 / 0 失败** |
+| `python -m evals.feedback.selftest` | **12 通过 / 0 失败** |
+| `node --test "tests/**/*.test.ts"` | **75 pass / 0 fail** |
+| `npx tsc --noEmit` | exit 0，无输出 |
+| `npm run build` | exit 0（870 modules，`dist/` 产物只有那条既有的 >500 kB chunk 提醒） |
+
+与 5B.3 基线对照：`pytest` 555 → 647，`evals.selftest` 14 → 15，
+`run_benchmark` 21 → 22，`evals.feedback.selftest` 0 → 12，前端 61 → 75。
+`evals.style.selftest`（22）与 `evals.viewpoint.selftest`（17）**数值未变**——
+这是"没有回归"的证据。
+
+### T3. 真实数据在测试之后仍然完好
+
+测试跑在**另一个库** `xagent_test` 上（`tests/support.py:21`
+`TEST_URL = f"{_DB_BASE}/xagent_test"`），生产库是 `xagent`（同实例、端口 5433）。
+跑完全部测试后再查生产库：
+
+```
+published_post         = 1   （x_post_id=2105998097302028593, status=published）
+post_metrics_snapshot  = 2
+agent_run              = 141
+```
+
+两条快照**逐字段未变**：
+
+| # | observed_at | likes | replies | reposts | quotes | impressions | bookmarks |
+|---|---|---|---|---|---|---|---|
+| 1 | 2026-10-02T12:27:35Z | 0 | 0 | 0 | 0 | **0** | **0** |
+| 2 | 2026-10-02T12:29:12Z | 0 | 0 | 0 | 0 | NULL | NULL |
+
+**快照 1 被刻意保持原样**：那两个 0 是缺陷 D1 修复**之前**真实落库的审计事实。
+快照表只追加、没有更新路径，所以不回填——历史价值恰恰在于它永远不会被改写。
+修复之后写的快照 2 用的是新的 nullable 语义。于是同一张表里同时存在
+"修复前的物证"与"修复后的正确行为"，这正是我们要的。
+
+### T4. 没有再发第二条
+
+本次合并**没有**触发任何真实发布：没有调用 `POST /2/tweets`，
+没有 `POST /2/media`，没有重跑 `scripts/refresh_post_metrics.py` 去抓新 metrics。
+本阶段真实 X 请求总量仍停在 S1 记的那一笔：`POST /2/tweets = 1`。
+
+### T5. Metrics 语义（封版口径）
+
+```
+真实 API 没有这个字段        → NULL
+真实 API 返回了、但当前策略决定不读 → NULL（impressions / bookmarks 属此类）
+真实读取的公开计数为 0       → 就是 0（likes / replies / reposts / quotes）
+```
+
+`NULL ≠ 0`。任何一处 `or 0` 都会把"没观测到"变成"观测到零"，这是本阶段口径上
+最严重的一类错误。代码上的落点是 `app/services/x_service.py::fetch_public_metrics`
+（逐键 `.get()`、默认 `None`；`impressions` / `bookmarks` 直接写 `None`），
+测试上的落点是 `tests/test_feedback_metrics.py` 与 `tests/test_feedback_repository.py`。
+
+### T6. Feedback 的统计边界（封版口径）
+
+`MIN_SAMPLES_FOR_COMPARISON = 5`（`app/feedback/signals.py:50`）。
+当前真实数据是 `1 post / 2 snapshots`，`n=2 < 5` → 唯一信号
+`insufficient_sample`，`comparison_group` 与 `confidence` 都是 `None`。
+**没有**生成 style / topic / viewpoint 任何一类推荐，也**没有**产出
+"这种风格表现最好"这类比较结论。
+
+### T7. Agent 不会自动学习（封版再确认）
+
+`feedback_context` 只能作为**只读观察**进入 Writer 的 prompt：
+
+- `{{FEEDBACK}}` 只出现在 `prompts/agent/candidates.txt`（`grep -rl` 全 `prompts/` 只有这一个文件命中），angles / critic / revise 都没有；
+- `app/feedback/` 里对 `trend_score` / `style_recipe` 的引用全部是**读**
+  （`profile.py` 做归因时要记下"当时是怎么决定的"），没有一处写；
+- 不写 Trend / Style / Viewpoint / Budget / Critic 阈值 / Prompt；
+- 没有新节点、没有新 AgentAction、没有新的 `step_count` 消耗。
+
+四层定义没有合并：
+
+```
+Trend     = 当前外部世界
+Style     = 外部高质量语料
+Viewpoint = 当前证据下的判断
+Feedback  = 自己过去行为的真实结果
+```
+
+### T8. 真实 X 依赖不进 CI
+
+`pytest` 与 `evals` 都不需要网络：涉及 X 的测试用
+`httpx.MockTransport`（`tests/test_x_api_metrics.py` / `test_x_api_client.py` /
+`test_api.py`）或 `tests/fakes.py::FakeXApiClient`，token 是字面量 `"test-token"`，
+`tests/` 与 `evals/` 下没有任何 API key。真实发布与真实采集由
+`docs/phase-5b4-real-validation.json` 单独记录，不进 CI。
+
+### T9. working tree
+
+`git status --porcelain -uall` 为空。`.env` / `logs` / `dist` / `node_modules` /
+bundle / DB dump / scratch 均未被追踪。final bundle 放在仓库之外，不入版本。
+
+### T10. 本次**不能**说明什么（封版时仍然成立）
+
+- **n=2**：两次观察、1 条帖子。证明的是**数据链通了**，不是任何内容规律。
+- **没有内容规律结论**：一条帖子 + 两个 0 计数，推导不出"什么内容更好"。
+- **没有因果实验**：只有自然产生的观察数据，没有对照组、没有 A/B，所以因果在
+  构造上就不可能得出。
+- **真实历史帖子数量有限**：库里只有 1 条已发布内容，反馈层目前几乎是空的。
+  要让它有统计意义，需要长期、多次真实发布——那是下一个阶段的事，不是本阶段的。
 
 ---
 
