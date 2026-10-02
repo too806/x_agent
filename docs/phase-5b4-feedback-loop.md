@@ -7,8 +7,10 @@
 ```
 
 **基线**：开工时 `master` HEAD `a6f67b7`（Phase 5B.3 COMPLETE：backend 555 通过 /
-frontend 61 通过）。**封版 HEAD**：`2a73341`——Final Integration & Baseline
-已以 `--ff-only` 并入 `master`（T 节）。
+frontend 61 通过）。
+
+**封版 HEAD**：`8e8d75f`（`master` 最终 HEAD）。其中 `2a73341` 是 5B.4 特性与
+真机验证并入 `master` 的快进点，`7f63078` / `8e8d75f` 是收口的两笔文档提交（T 节）。
 
 **分支**：`feat/phase-5b4-feedback-loop`，**独立 worktree** `X_Agent-phase-5b4`
 （工作单第四十三节）。**开发期间**`master` 保持 `a6f67b7` 不动；收口时才快进合并。
