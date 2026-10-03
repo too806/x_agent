@@ -28,7 +28,11 @@ logger = logging.getLogger(__name__)
 # 5b：阅读契约（persona.voice）落地。candidates / revise / critic 三段 prompt
 # 与 persona 块都变了，所以已经产出的 5a 草稿与之后的 5b 草稿不是同一套写法，
 # 不能混在一张表里比较——那正是这个字段存在的理由。
-PROMPT_VERSION = "5b"
+#
+# 5c：治长度遵从。critic 第一次拿到**算好的**字数与硬上限（超上限升 P1），
+# revise 拿到"现在多少字、要砍多少"。5b 是"改了声音、没治长度"，两者在长度
+# 这个维度上本来就不同，所以必须分开记。
+PROMPT_VERSION = "5c"
 
 
 class AgentIncompleteError(RuntimeError):

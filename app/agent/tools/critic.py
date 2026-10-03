@@ -127,7 +127,9 @@ def make_critic_tool(llm_service: LLMService, persona: Persona):
             EVIDENCE=format_evidence(state.get("evidence_pack")),
             PERSONA=format_persona(persona),
             MAX_LENGTH=persona.max_length,
-            CANDIDATES=format_candidates(candidates),
+            # 字数由程序算好递进来（见 format_candidates 的说明）：Critic 判
+            # 「超上限」靠的是比较两个给定的数，不是目测中文字数。
+            CANDIDATES=format_candidates(candidates, max_length=persona.max_length),
             # 确定性 AI 味信号：由程序从正文算出，**按需重算、不入库、不进 state**。
             # 它只作为参考事实给模型，绝不混进 generic_ai_style 那个分数。
             AI_SIGNALS=format_ai_signals(candidates),

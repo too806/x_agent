@@ -589,11 +589,56 @@ def format_evidence(pack: EvidencePack) -> str:
     return "\n".join(lines)
 
 
-def format_candidates(candidates: list[Candidate]) -> str:
+def format_candidates(candidates: list[Candidate], *, max_length: int | None = None) -> str:
+    """候选清单。给了 `max_length` 就逐条附上**由程序算出**的字数。
+
+    字数必须是算出来的，不是让模型估的：中文的字符数模型目测不出来（真机上
+    `max_length=140` 写出过 188 字的稿子），而"比较两个给定的数"它做得可靠。
+    Critic 判「超上限」正是这样一个比较——把数算好递给它，这一条才判得动。
+
+    `max_length=None` 时输出与加这个参数之前**逐字相同**：这个函数目前只有
+    Critic 一个调用方，但保持默认路径不变，才不会波及盯住这段渲染的测试。
+    """
     if not candidates:
         return "（无候选）"
-    return "\n\n".join(
-        f"[{c.candidate_id}]（{c.label}，第 {c.revision} 稿）\n{c.content}" for c in candidates
+
+    def header(candidate: Candidate) -> str:
+        head = f"[{candidate.candidate_id}]（{candidate.label}，第 {candidate.revision} 稿"
+        if max_length is None:
+            return f"{head}）"
+        length = len(candidate.content or "")
+        note = f"，{length} 字"
+        if length > max_length:
+            note += f"，**超出上限 {length - max_length} 字**"
+        return f"{head}{note}）"
+
+    return "\n\n".join(f"{header(c)}\n{c.content}" for c in candidates)
+
+
+def format_length_headroom(content: str, max_length: int) -> str:
+    """改稿前把"现在多少字、要砍多少"算给模型看。
+
+    比只给一个绝对上限有用得多：模型数不准中文字数，但"把 188 砍掉 48"是一个
+    它做得到的任务。数字一律由这里算，不交给模型估。
+
+    未超长时的那一句是**防倒退**用的：不写，模型会顺手把一条已经合规的稿子
+    也压缩一遍，于是改稿这一步反而丢掉了事实。
+    """
+    length = len(content or "")
+    over = length - max_length
+    if over <= 0:
+        return (
+            f"原稿 {length} 字，已在 {max_length} 字以内。"
+            "**不要为了长度删内容**——这次改稿要解决的是别的意见，"
+            "把篇幅改短不是改进，丢掉事实是退步。"
+        )
+    percent = round(over / length * 100) if length else 0
+    return (
+        f"**原稿 {length} 字，超过上限 {max_length} 字 {over} 字（约 {percent}%）。"
+        f"这次改稿的第一件事就是砍掉至少 {over} 字。**\n"
+        "砍的顺序：先合并重复的铺垫和转折，再删掉可有可无的修饰与形容词，"
+        "最后才动句子结构。**不许删事实、不许删观点、不许改掉开头那个钩子**"
+        "——把事实删了换来的合格长度，比超长更糟。"
     )
 
 

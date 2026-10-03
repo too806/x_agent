@@ -25,6 +25,7 @@ from app.agent.persona import Persona
 from app.agent.prompts import (
     format_critics,
     format_evidence,
+    format_length_headroom,
     format_persona,
     format_style_recipe,
     format_viewpoint,
@@ -79,6 +80,9 @@ def make_revise_tool(llm_service: LLMService, persona: Persona):
             # 从 state 读，不重算：见 tools/__init__.py 的说明。
             STYLE=format_style_recipe(state.get("style_recipe")),
             MAX_LENGTH=persona.max_length,
+            # 把"现在多少字、要砍多少"算好递给模型：它数不准中文字数，
+            # 但"把 188 砍掉 48"是一个它做得到的任务。
+            LENGTH_HEADROOM=format_length_headroom(target.content, persona.max_length),
             CANDIDATE=target.content,
             LABEL=target.label,
             REVISION_TARGETS="；".join(critic.revision_targets) or "（Critic 未给出具体修改目标）",
