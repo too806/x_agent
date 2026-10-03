@@ -57,9 +57,8 @@ def agent_x_service(raw=None) -> XService:
 PERSONA = Persona(
     name="default",
     description="简洁专业",
-    tone="professional",
+    tone="conversational",
     style=["简洁"],
-    avoid=["夸大"],
     max_length=280,
 )
 

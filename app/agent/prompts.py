@@ -68,19 +68,49 @@ def render(template: str, **values: object) -> str:
     return out
 
 
+#: `Voice` 各段的显示标题，顺序即渲染顺序。
+#: 用字段名而不是在渲染函数里写 `if`，是为了加一段新契约时只改这张表。
+_VOICE_SECTIONS: tuple[tuple[str, str], ...] = (
+    ("structure", "结构"),
+    ("hook_rules", "开头"),
+    ("rhythm_rules", "节奏"),
+    ("plain_language", "说人话"),
+    ("allowed_devices", "允许的手法"),
+    ("fabrication_red_lines", "事实红线"),
+)
+
+
 def format_persona(persona: Persona) -> str:
     """persona 的文本块。
 
     与 Phase 2 的 generate 节点共用同一份实现（那边改为 import 本函数），
     否则 Agent 写出来的稿子和人工审核看到的人格设定可能不是同一套。
+
+    这一块会**同时**进入 writer（candidates / revise / generate）与 critic 的
+    prompt，因为它们共用 `{{PERSONA}}`。所以阅读契约只写在这里一次，写作端与
+    评审端看到的就是同一条线——这正是让 critic 站在新声音这一边、而不是继续给
+    「情绪化 / 标题党」扣分的最短路径。
+
+    `voice` 是可选的：旧 persona 没有这一段时，渲染结果与从前一致（只是不再有
+    「避免」一行）。
     """
-    return (
-        f"- 名称：{persona.name}\n"
-        f"- 描述：{persona.description}\n"
-        f"- 语气：{persona.tone}\n"
-        f"- 风格：{'；'.join(persona.style)}\n"
-        f"- 避免：{'；'.join(persona.avoid)}"
-    )
+    lines = [
+        f"- 名称：{persona.name}",
+        f"- 描述：{persona.description}",
+        f"- 语气：{persona.tone}",
+        f"- 风格：{'；'.join(persona.style)}",
+    ]
+    voice = persona.voice
+    if voice is not None:
+        # 每条独立成行，而不是用「；」挤成一段：契约是要被**照着写**的，
+        # 一段长句里夹着五六条规则时，模型只会抓住最后半条。
+        for field, title in _VOICE_SECTIONS:
+            items = getattr(voice, field)
+            if not items:
+                continue
+            lines.append(f"- {title}：")
+            lines.extend(f"  - {item}" for item in items)
+    return "\n".join(lines)
 
 
 def format_style_recipe(recipe: Any | None) -> str:
@@ -108,6 +138,12 @@ def format_style_recipe(recipe: Any | None) -> str:
         )
 
     lines = [
+        # 这段说的是**形状**（结构 / 长度 / 密度 / 证据要求），来自语料观察。
+        # 开头两行先把从属关系钉死：语气与段落节奏由上面的人格 / 阅读契约决定，
+        # recipe 不参与——否则同一个 prompt 里会同时出现"分析型"和"像跟朋友聊天"，
+        # 模型只能二选一，而选哪一条是随机的。
+        "- 以下是语料观察到的结构参数，只约束**形状**（结构 / 长度 / 密度 / 证据要求）。",
+        "- 与上面的「阅读契约」冲突时，**一律以阅读契约为准**：形状可以让步，声音不让。",
         f"- 结构：{_structure_label(recipe.structure_type)}",
         f"- 开头：{_hook_label(recipe.hook_type)}",
     ]
@@ -130,7 +166,14 @@ def format_style_recipe(recipe: Any | None) -> str:
     lines.append(f"- 信息密度：{_density_label(recipe.density)}")
     lines.append(f"- 立场强度：{_stance_label(recipe.stance_strength)}")
     lines.append(f"- 证据要求：{_evidence_label(recipe.evidence_requirement)}")
-    lines.append(f"- 语气：{_tone_label(recipe.tone)}")
+    # 语气这一行是**从属**的：它来自语料，而"用什么姿态说话"由阅读契约定。
+    # 标成"语料显示的语气倾向"并写明服从关系，模型才不会把语料的观察当成
+    # 一条必须执行的语气指令——那会把它拉回"分析型"的腔调。
+    lines.append(
+        f"- 语料显示的语气倾向：{_tone_label(recipe.tone)}"
+        "（**从属**：与上面的「阅读契约」冲突时以契约为准，"
+        "它不改变段落节奏与说话姿态）"
+    )
     lines.append(f"- 结尾：{_ending_label(recipe.ending_type)}")
 
     body = "\n".join(lines)

@@ -23,4 +23,7 @@ __all__ = ["__version__"]
 
 # 评估模型的版本。指标口径一旦变化就要进位，否则两份 evaluation JSON 会因为
 # 口径不同而被 compare.py 当成"Agent 变了"——那是这类工具最典型的假阳性。
-__version__ = "1.0.0"
+#
+# 1.1.0：`app/style/features.py` 新增 `CLICKBAIT_PHRASES` 与 `find_internal_refs`。
+# 该文件明写"改词表要同时进位这里"，两者必须是同一次进位。
+__version__ = "1.1.0"

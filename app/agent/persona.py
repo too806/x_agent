@@ -1,9 +1,28 @@
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.config import settings
+
+
+class Voice(BaseModel):
+    """阅读契约：这份内容「怎么说话」。
+
+    与 `StyleRecipe` 的分工是刻意的——recipe 说「写成什么形状」（结构 / 长度 /
+    密度，来自语料观察），voice 说「用一个什么姿态说话」（语气 / 节奏 / 张力）。
+    两者冲突时以 voice 为准：形状可以让步，声音不让。
+
+    每一项都是可选的（默认空列表）。所以给契约加一条新条款，只需要改
+    `config/persona.yaml`，不必动任何调用方。
+    """
+
+    structure: list[str] = Field(default_factory=list)
+    hook_rules: list[str] = Field(default_factory=list)
+    rhythm_rules: list[str] = Field(default_factory=list)
+    plain_language: list[str] = Field(default_factory=list)
+    allowed_devices: list[str] = Field(default_factory=list)
+    fabrication_red_lines: list[str] = Field(default_factory=list)
 
 
 class Persona(BaseModel):
@@ -11,8 +30,11 @@ class Persona(BaseModel):
     description: str
     tone: str
     style: list[str]
-    avoid: list[str]
     max_length: int
+    #: 阅读契约。`None` 表示这份 persona 没有声明声音（旧配置、或只想换上限）。
+    #: 刻意**没有**声明的字段就不能靠默认值悄悄补一套——渲染层遇到 `None` 就跳过，
+    #: 于是「没有契约」和「有契约」在 prompt 里长得不一样，能被看出来。
+    voice: Voice | None = None
 
 
 def load_persona(path: str | None = None) -> Persona:

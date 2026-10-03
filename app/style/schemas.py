@@ -19,7 +19,11 @@ from app.style.taxonomy import HookType, StructureType
 
 #: Profile 的算法版本。改了特征定义就要进位——否则新旧 Profile
 #: 会被当成同口径直接比较。
-FEATURE_VERSION = "1.0"
+#:
+#: 1.1：词表新增 `CLICKBAIT_PHRASES`，并加入内部编号泄漏的检测原语
+#: （`find_internal_refs`）。原语本身不进 `StyleProfile`，但它与套话词表
+#: 同属一份经验口径，跟着一起进位才不会让两份报告被误读成"稿子变了"。
+FEATURE_VERSION = "1.1"
 
 
 class DensityLevel(str, Enum):

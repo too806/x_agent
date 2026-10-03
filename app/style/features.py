@@ -85,6 +85,16 @@ FALSE_AUTHORITY: tuple[str, ...] = (
     "专家表示", "研究表明", "数据显示", "事实证明", "事实上",
 )
 
+#: 无歧义的**低质**点击诱饵标记。用于发布前的硬门禁（见 `app/style/gate.py`）。
+#:
+#: 刻意收得很窄，只收"除了骗点击没有第二种用法"的词。**不要**往里加
+#: 「居然」「没想到」「真相」「注意」这类：它们是张力词，写作规范明确允许，
+#: 收进来会把一条合格的稿子拦在门外。窄，是这张表唯一的价值。
+CLICKBAIT_PHRASES: tuple[str, ...] = (
+    "震惊", "不看后悔", "万万没想到", "速看", "惊呆", "慎入", "太可怕了",
+    "99% 的人都不知道", "99%的人都不知道", "99%的人不知道",
+)
+
 _SENTENCE_SPLIT = re.compile(r"[。！？!?；;…\n]+")
 #: 切句但**把句末标点留在句子里**。表层形态判的正是"这句以什么收尾"——
 #: 标点本身是被观察的对象，所以不能像 `_SENTENCE_SPLIT` 那样把它切掉。
@@ -157,8 +167,9 @@ _CALL_MARKERS: tuple[str, ...] = ("欢迎", "不妨", "你会", "你觉得", "�
 def split_sentences(text: str) -> list[str]:
     """切句。中英标点一起切，切成空串的段丢掉。
 
-    不引第三方分句器：本项目的正文是短帖（Persona.max_length = 280），
-    标点切分在这个尺度上足够，而多一个依赖就多一处版本风险。
+    不引第三方分句器：本项目的正文是短帖（`Persona.max_length` = 140，
+    X 对中文按 2 计权，140 字用满 280 权重），标点切分在这个尺度上足够，
+    而多一个依赖就多一处版本风险。
     """
     return [piece.strip() for piece in _SENTENCE_SPLIT.split(text or "") if piece.strip()]
 
@@ -453,3 +464,62 @@ def distribution(labels: Iterable[str]) -> dict[str, float]:
         counts[item] = counts.get(item, 0) + 1
     total = len(items)
     return {label: count / total for label, count in sorted(counts.items())}
+
+
+# ---------------------------------------------------------------------------
+# 内部编号泄漏（发布门禁用）
+# ---------------------------------------------------------------------------
+
+#: 括号形的内部事实编号：`（f4）`、`(f4)`、`[f12]`、`【f7】`。
+#:
+#: 这种形态**零假阳性**——中文里不会把"f + 数字"当一个正常的括号内容，
+#: 所以命中就一定算泄漏。它也是实测里覆盖绝大多数泄漏的那种形态。
+_BRACKETED_REF = re.compile(r"[（(【\[]\s*([fF]\d{1,3})\s*[）)】\]]")
+
+#: 裸形的内部编号：`f18只说加速进入`、`f28 把…`。
+#:
+#: 只认**小写** f：`F16`/`F35` 是战斗机、`F1` 是赛车，大写这一支直接排除。
+#: 即便如此，小写的 `f16 战机`、`f12 控制台` 仍是真实存在的误报，所以
+#: `find_internal_refs` **只在能交叉核对时才采信裸形**（见该函数）。
+_BARE_REF = re.compile(r"(?<![0-9A-Za-z])f\d{1,3}(?![0-9A-Za-z])")
+
+
+def find_internal_refs(text: str, *, fact_ids: Iterable[str] | None = None) -> list[str]:
+    """正文里泄漏的内部事实编号（去重保序，一律小写）。
+
+    两套形态，采信条件不同：
+
+    - **括号形**（`（f4）`）：总能算，因为它没有假阳性。
+    - **裸形**（`f18`）：**只在传入 `fact_ids` 时**才算，且命中项必须真的在
+      本轮证据里。`f16 战机` 这种误报靠这一步消掉——只有本轮证据真有 `f16`
+      才算泄漏。
+
+    `fact_ids is None` 时**不启用裸形**。V1 链路（`prompts/generate.txt`）没有
+    evidence_pack，也就没有可核对的编号，于是它只受括号形约束——这正是我们要的
+    保守方向：宁可漏掉一个裸形，也不要拦住一条把 `F-16` 当事实的正常稿子。
+    """
+    found: list[str] = []
+    for match in _BRACKETED_REF.finditer(text or ""):
+        found.append(match.group(1).lower())
+
+    if fact_ids is not None:
+        known = {str(fid).strip().lower() for fid in fact_ids}
+        for match in _BARE_REF.finditer(text or ""):
+            ref = match.group(0).lower()
+            if ref in known:
+                found.append(ref)
+
+    seen: set[str] = set()
+    unique: list[str] = []
+    for ref in found:
+        if ref not in seen:
+            seen.add(ref)
+            unique.append(ref)
+    return unique
+
+
+def find_clickbait(text: str) -> list[str]:
+    """命中的低质点击诱饵原文。与 `find_generic_phrases` 同口径（子串匹配）。"""
+    raw = text or ""
+    lowered = raw.lower()
+    return [phrase for phrase in CLICKBAIT_PHRASES if phrase.lower() in lowered]

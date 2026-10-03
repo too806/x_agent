@@ -13,9 +13,8 @@ from fakes import FakeLLMService, draft_json
 PERSONA = Persona(
     name="default",
     description="简洁专业",
-    tone="professional",
+    tone="conversational",
     style=["简洁", "准确"],
-    avoid=["夸大"],
     max_length=280,
 )
 
@@ -45,7 +44,7 @@ async def test_generate_node_validates_persists_and_injects_context(session_fact
     # 结构化输出：LLM 被要求 JSON 模式，且 prompt 注入了 persona 与研究材料
     call = llm.calls[0]
     assert call["json_mode"] is True
-    assert "professional" in call["prompt"]
+    assert "conversational" in call["prompt"]
     assert "research material here" in call["prompt"]
 
     # draft 已持久化（version=1，含 model_name / prompt_version）
@@ -55,7 +54,7 @@ async def test_generate_node_validates_persists_and_injects_context(session_fact
         d = drafts[0]
         assert d.content == "A concise post."
         assert d.version == 1
-        assert d.prompt_version == "1"
+        assert d.prompt_version == "2"
         assert d.model_name
 
 
@@ -95,6 +94,6 @@ def test_build_prompt_replaces_tokens():
     prompt = build_prompt("topicX", results, persona)
     assert "topicX" in prompt
     assert "fact one" in prompt
-    assert "professional" in prompt
+    assert "conversational" in prompt
     assert "280" in prompt
     assert "{{" not in prompt  # 所有占位符已替换

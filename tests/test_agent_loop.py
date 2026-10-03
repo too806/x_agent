@@ -134,7 +134,7 @@ async def test_goal_only_run_stops_at_human_review(session_factory):
             drafts = (await session.execute(select(Draft))).scalars().all()
             assert len(drafts) == 1
             assert drafts[0].content == out["draft_content"]
-            assert drafts[0].prompt_version == "5a"
+            assert drafts[0].prompt_version == "5b"
 
         # 6) Agent 还没有权限做人工审核：review 表此时是空的
         async with session_factory() as session:

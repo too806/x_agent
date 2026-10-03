@@ -22,9 +22,13 @@ from app.repositories import create_draft, record_decision_result, set_run_topic
 
 logger = logging.getLogger(__name__)
 
-# draft.prompt_version 的取值。与 V1 的 "1" 区分开：事后要能分清一条草稿是
+# draft.prompt_version 的取值。与 V1 的 "2" 区分开：事后要能分清一条草稿是
 # 老链路写的还是 Agent 写的，否则排查"这条怎么来的"时只能靠猜。
-PROMPT_VERSION = "5a"
+#
+# 5b：阅读契约（persona.voice）落地。candidates / revise / critic 三段 prompt
+# 与 persona 块都变了，所以已经产出的 5a 草稿与之后的 5b 草稿不是同一套写法，
+# 不能混在一张表里比较——那正是这个字段存在的理由。
+PROMPT_VERSION = "5b"
 
 
 class AgentIncompleteError(RuntimeError):

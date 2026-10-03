@@ -13,7 +13,9 @@ from app.services.llm import LLMError, LLMService
 
 logger = logging.getLogger(__name__)
 
-PROMPT_VERSION = "1"
+#: V1（goal 为空）的 prompt 版本。与 Agent 链路的 "5b" 区分开。
+#: 2：补上阅读契约（首句钩子 / 短段落 / 不说编号 / 不许编造）。
+PROMPT_VERSION = "2"
 
 
 def _format_research(results: list[ResearchResult]) -> str:

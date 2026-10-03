@@ -31,7 +31,9 @@ PostgreSQL 的事务管不到网络调用，X API v2 也没有幂等键。因此
 """
 import logging
 from dataclasses import dataclass
+from typing import Any
 
+from app.agent.viewpoint import evidence_index
 from app.diagnostics import describe as _describe
 from app.models.published_post import STATUS_FAILED, STATUS_PUBLISHED, STATUS_UNKNOWN
 from app.repositories import (
@@ -49,6 +51,7 @@ from app.repositories import (
     reopen_publish_for_retry,
 )
 from app.services.x_api import XApiConfigError, XApiError, XApiResponseError, XApiTransportError
+from app.style.gate import evaluate_content_gate
 
 logger = logging.getLogger(__name__)
 
@@ -171,7 +174,32 @@ class PublishService:
                 ),
             )
 
+        # 内容门禁：正文里泄漏内部事实编号、或出现低质点击诱饵词，一律不发。
+        # 与 guardrail 调的是**同一个函数**（`evaluate_content_gate`），所以
+        # 审核时看到的理由与这里拦下的理由不会漂开。区别只在于：guardrail 把
+        # 结论写进 reason 交给人工，这里直接 422。
+        #
+        # 门禁对 approve 与 edit **一视同仁**：人编辑过的正文也走同一道闸门。
+        # 否则"过不了门禁就手工编辑绕过"会成为默认操作，门禁也就形同虚设。
+        # 人的出口是把正文改到合规，而不是让系统忘掉这条规则。
+        violations = evaluate_content_gate(content, fact_ids=self._fact_ids_of(state))
+        if violations:
+            return PublishResult(
+                OUTCOME_INVALID,
+                detail="；".join(violation.detail for violation in violations),
+            )
+
         return content, str(draft.id)
+
+    @staticmethod
+    def _fact_ids_of(state: Any) -> frozenset[str] | None:
+        """从这次 Run 的 checkpoint 里取本轮事实编号，供门禁核对裸形编号。
+
+        取不到证据包（V1 链路、或 checkpoint 还没写）时返回 `None`——门禁据此
+        只启用零假阳性的括号形，而不是把一次核对不了当成"没有编号"。
+        """
+        pack = (getattr(state, "values", None) or {}).get("evidence_pack")
+        return evidence_index(pack).fact_ids or None
 
     # ---------- 阶段 3：按 X 的答复收尾 ----------
 
