@@ -606,6 +606,34 @@ async def test_review_queue_preview_is_truncated(session_factory):
     assert item["guardrail_passed"] is True
 
 
+async def test_review_queue_accepts_a_run_without_a_topic(session_factory):
+    """Agent 模式的 Run 在 Planner 选定主题之前，topic 就是 NULL —— 队列必须容得下它。
+
+    这不是构造出来的残缺数据：`finalize` 只在真的选到主题时才写 topic，所以
+    "人在等审核、主题还没定"是一个真实的中间态。（topic 在 Agent 选定之前是 NULL，
+    见 Phase 5A 设计文档。）
+
+    曾经这里整个接口 500：`ReviewQueueItem.topic` 声明成 `str`，一条 NULL 就让
+    `/api/admin/reviews` 和 `/api/admin/overview` 一起挂掉。这个测试守的是
+    "一条没有主题的待审内容不能把整页打挂"，以及"读不到就如实返回 NULL"。
+    """
+    run_id = await _make_goal_run(session_factory)
+    async with session_factory() as session:
+        await mark_run_waiting_for_review(session, run_id)
+
+    async with admin_api(session_factory) as api:
+        page = (await api.get("/api/admin/reviews")).json()
+        overview = (await api.get("/api/admin/overview")).json()
+
+    item = next(i for i in page["items"] if i["run_id"] == run_id)
+    assert item["topic"] is None
+    assert item["run_status"] == "waiting_for_review"
+
+    queued = next(i for i in overview["review_queue"] if i["run_id"] == run_id)
+    assert queued["topic"] is None
+    assert overview["review_queue_total"] == 1
+
+
 # ---------------------------------------------------------------------------
 # Analytics
 # ---------------------------------------------------------------------------

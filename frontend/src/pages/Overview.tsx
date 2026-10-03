@@ -370,8 +370,9 @@ export function Overview() {
                         {data.review_queue.map((item) => (
                           <tr key={item.run_id}>
                             <td className="table__topic">
-                              <span className="table__clamp" title={item.topic}>
-                                {item.topic}
+                              {/* Agent 还没选定主题时 topic 就是 null。如实显示 —，不猜。 */}
+                              <span className="table__clamp" title={item.topic ?? undefined}>
+                                {item.topic ?? <span className="cell-muted">{EMPTY}</span>}
                               </span>
                             </td>
                             <td className="cell-muted table__clamp" title={item.draft_preview ?? undefined}>

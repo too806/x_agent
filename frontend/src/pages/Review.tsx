@@ -150,7 +150,10 @@ export function Review() {
                   className={`queue-item${item.run_id === selected ? ' queue-item--active' : ''}`}
                   onClick={() => setSelected(item.run_id)}
                 >
-                  <div className="queue-item__title">{item.topic}</div>
+                  {/* Agent 还没选定主题时 topic 是 null：显示 —，不要留一片空白。 */}
+                  <div className="queue-item__title">
+                    {item.topic ?? <span className="cell-muted">{EMPTY}</span>}
+                  </div>
                   <div className="queue-item__meta">
                     {item.draft_preview ? (
                       <div className="table__clamp">{item.draft_preview}</div>

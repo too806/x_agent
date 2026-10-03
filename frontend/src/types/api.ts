@@ -179,7 +179,8 @@ export interface RunListPage {
 
 export interface ReviewQueueItem {
   run_id: string
-  topic: string
+  /** Agent 在选定主题之前 topic 就是 null —— 真实的中间态，不是脏数据。null 显示成 `—`。 */
+  topic: string | null
   run_status: RunStatus
   created_at: string
   draft_id: string | null

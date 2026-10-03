@@ -427,10 +427,13 @@ class ReviewQueueItem(BaseModel):
 
     guardrail_* 来自 LangGraph checkpoint（数据库里没有这一列），因此可能为
     None —— 表示"读不到"，不是"没通过"。UI 必须把 None 显示成 `—`。
+
+    topic 同理可能为 None：Agent 模式的 Run 在 Planner 选定主题之前 topic 就是
+    NULL，这是它的**真实初始状态**，不是脏数据。UI 同样显示成 `—`。
     """
 
     run_id: str
-    topic: str
+    topic: str | None = None
     run_status: str
     created_at: datetime
     draft_id: str | None = None

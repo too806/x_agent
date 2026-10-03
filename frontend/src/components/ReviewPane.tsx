@@ -130,7 +130,7 @@ export function ReviewPane({ runId, contentMaxLength, onDecided }: Props) {
     <div className="stack">
       <div className="card">
         <div className="card__body">
-          <h2 className="drawer__title">{data.topic}</h2>
+          <h2 className="drawer__title">{data.topic ?? EMPTY}</h2>
           <div className="row row--tight review-head">
             <StatusBadge status={data.run_status} kind="run" />
             <span className="cell-muted">创建于 {dateTime(data.created_at)}</span>
