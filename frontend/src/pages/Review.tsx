@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 
 import { api } from '../api/client'
 import { Pagination } from '../components/Pagination'
@@ -69,12 +70,41 @@ const DECISION_MESSAGES: Record<Decided['action'], string> = {
 }
 
 export function Review() {
-  const [page, setPage] = useState(1)
-  const [selected, setSelected] = useState<string | null>(null)
+  const [searchParams, setSearchParams] = useSearchParams()
+
+  // 翻页位置与当前选中的 Run 放在 URL 里，不放在组件 state 里。
+  // 审核是长时间坐着的活：刷新一下、从 Overview 的「审核 →」深链进来、
+  // 或者按一下后退，都应该回到同一条 Run，而不是莫名其妙跳回队列第一条。
+  const rawPage = Number(searchParams.get('page') ?? '1')
+  const page = Number.isFinite(rawPage) && rawPage >= 1 ? Math.floor(rawPage) : 1
+  const selected = searchParams.get('run')
 
   const queue = useAsync(() => api.listReviews(page), [page])
   const { refresh } = useConsole()
   const toast = useToast()
+
+  /**
+   * 写回 URL。用 `replace` 而不是 `push`：连续审十条会留下十条历史记录，
+   * 那时"后退"要按十次才出得去，比不能后退更烦人。真正的深链由 URL 本身承担
+   * ——它是可复制的，刷新和收藏都能回到原处。page=1 与 run 为空时删掉参数，
+   * 保持 URL 干净（`/review` 而不是 `/review?page=1&run=`）。
+   */
+  function writeParams(next: { page?: number; run?: string | null }) {
+    const params = new URLSearchParams(searchParams)
+    if (next.page !== undefined) {
+      if (next.page > 1) params.set('page', String(next.page))
+      else params.delete('page')
+    }
+    if (next.run !== undefined) {
+      if (next.run) params.set('run', next.run)
+      else params.delete('run')
+    }
+    setSearchParams(params, { replace: true })
+  }
+
+  // 两个 setter 的签名保持和原来的 useState 一致，下面用它们的地方不用改。
+  const setPage = (next: number) => writeParams({ page: next })
+  const setSelected = (next: string | null) => writeParams({ run: next })
 
   // `queue.data?.items` 而不写成 `?? []`：后者每次渲染都产生一个新数组，
   // 会让下面那个 effect 的依赖每次都变，等于每渲染必跑。
