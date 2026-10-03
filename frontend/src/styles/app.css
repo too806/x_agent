@@ -500,7 +500,7 @@ h4 {
 
 .kpi__label {
   color: var(--text-muted);
-  font-size: var(--text-sm);
+  font-size: var(--font-secondary);
 }
 
 .kpi__value {
@@ -513,7 +513,7 @@ h4 {
 .kpi__sub {
   margin-top: 2px;
   color: var(--text-faint);
-  font-size: var(--text-xs);
+  font-size: var(--font-caption);
 }
 
 /* 需要人立刻处理的 KPI 用左侧色条标出来。整块染色会削弱对比，
@@ -546,6 +546,56 @@ h4 {
   font-size: var(--text-base);
   font-weight: var(--weight-medium);
   line-height: var(--leading-tight);
+}
+
+/* ------------------------------------------------------------ KPI 分组 */
+/* 首屏有两类数字，重要程度不同，不能长得一样：一类是"系统一共做了多少"
+   （背景信息），一类是"现在有没有事要处理"（每天真正要看的东西）。
+   分组标题用一条细线收尾，把两组分开，不需要额外的卡片套卡片。 */
+.kpi-group + .kpi-group {
+  margin-top: var(--space-5);
+}
+
+.kpi-group__title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+  color: var(--text-muted);
+  font-size: var(--font-caption);
+  font-weight: var(--weight-semibold);
+}
+
+.kpi-group__title::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+/* 主要指标：几个大数，用最大字号。 */
+.kpi-grid--primary {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.kpi-grid--primary .kpi__value {
+  font-size: var(--text-2xl);
+}
+
+/* 发布状态：四个读数，紧凑一档。它们之间的差别在**颜色**上（未知=橙、
+   失败=红），不在字号上——放大反而会让四个数互相抢注意力。 */
+.kpi-grid--secondary {
+  gap: var(--space-2);
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+.kpi-grid--secondary .kpi {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius);
+}
+
+.kpi-grid--secondary .kpi__value {
+  font-size: var(--text-lg);
 }
 
 /* ============================================================ 状态徽标 */
@@ -857,7 +907,7 @@ h4 {
   gap: 6px;
   box-sizing: border-box;
   min-height: var(--control-h);
-  padding: 5px 12px;
+  padding: var(--control-pad-y) var(--control-pad-x);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius);
   background: var(--surface);
@@ -916,6 +966,25 @@ h4 {
   background: var(--danger-hover);
 }
 
+/* 警告动作：目前只有一个用例——裁决 publish_unknown（"标记为已发布"）。
+   用 --warn 琥珀而不是 --unknown 橙色：橙色是**状态**色，整站只给
+   publish_unknown 这一个状态用；按钮是动作，两者混用会让"橙色"这个信号
+   失去"这条是未知发布"的独占含义。 */
+.btn--warn {
+  background: var(--warn);
+  border-color: var(--warn);
+  color: #fff;
+}
+
+.btn--warn:hover:not(:disabled) {
+  background: var(--warn-text);
+  border-color: var(--warn-text);
+}
+
+.btn--warn:active:not(:disabled) {
+  background: var(--warn-text);
+}
+
 /* 无边框按钮：用于表格行内的"查看"、卡片头上的次级动作。 */
 .btn--ghost {
   border-color: transparent;
@@ -930,7 +999,7 @@ h4 {
 
 .btn--sm {
   min-height: var(--control-h-sm);
-  padding: 3px 9px;
+  padding: var(--control-pad-y-sm) var(--control-pad-x-sm);
   font-size: var(--text-sm);
 }
 
@@ -985,7 +1054,7 @@ h4 {
 }
 
 .segmented__item {
-  padding: 2px 9px;
+  padding: 2px var(--control-pad-x-sm);
   border: none;
   border-radius: var(--radius-sm);
   background: transparent;
@@ -1012,7 +1081,7 @@ h4 {
 .textarea {
   width: 100%;
   min-height: var(--control-h);
-  padding: 5px 10px;
+  padding: var(--control-pad-y) var(--control-pad-x-sm);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius);
   background: var(--surface);
@@ -1031,7 +1100,7 @@ h4 {
 .select--sm {
   width: auto;
   min-height: var(--control-h-sm);
-  padding: 2px 6px;
+  padding: 2px var(--control-pad-x-sm);
   font-size: var(--text-sm);
 }
 

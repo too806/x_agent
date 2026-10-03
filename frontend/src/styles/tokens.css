@@ -89,6 +89,9 @@
   --nav-text-faint: #78828f;
   --nav-hover-bg: #1b2129;
   --nav-active-bg: #232b35;
+  /* 当前项左侧的指示条。它是"你在哪一页"的主通道，颜色用 accent；
+     宽度用 3px 而不是 4px —— 再宽就从"指示"变成"装饰"了。 */
+  --nav-active-indicator: 3px;
 
   /* ------------------------------------------------------------------ 排版 */
   --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', 'PingFang SC',
@@ -102,9 +105,20 @@
   --text-sm: 12px; /* 辅助信息、时间、单位 */
   --text-base: 13px; /* 正文 */
   --text-md: 14px; /* 区块标题、按钮 */
-  --text-lg: 17px; /* 页面标题、抽屉标题 */
-  --text-xl: 22px; /* KPI 数字 */
+  --text-lg: 17px; /* 卡片/区块标题、抽屉标题 */
+  --text-xl: 22px; /* 页面标题、KPI 数字 */
   --text-2xl: 30px; /* 首层 KPI（系统健康）的数字 */
+
+  /* 语义层级：上面那组是"字号"，这组是"这个地方用哪一档"。
+     app.css 里按角色引用（`font-size: var(--font-section)`），不直接写字号——
+     这样"卡片标题多大"只有一个答案，改的时候也只改一处。
+     六级，从大到小，对应界面上真实存在的六种文字角色。 */
+  --font-page-title: var(--text-xl); /* 页面标题：顶栏 H1 */
+  --font-section: var(--text-lg); /* 区块 / 卡片标题：h2、抽屉标题 */
+  --font-body: var(--text-base); /* 正文：表格单元、段落 */
+  --font-secondary: var(--text-sm); /* 辅助：时间、单位、口径说明 */
+  --font-caption: var(--text-xs); /* 极小标注：表头、徽标计数 */
+  --font-mono-size: 12px; /* 等宽：ID、错误文本、计数 */
 
   --weight-normal: 400;
   --weight-medium: 500;
@@ -165,4 +179,12 @@
 
   --control-h: 30px;
   --control-h-sm: 24px;
+
+  /* 控件内边距。这几档不是 4 的倍数：控件的视觉大小由"文字 + 边框"共同决定，
+     纯几何的 4px 阶套上去会让按钮显得上下空、左右挤。它们是**刻意**的例外，
+     所以在这里统一登记，不再散落在 app.css 里各写各的。 */
+  --control-pad-y: 5px;
+  --control-pad-x: var(--space-3);
+  --control-pad-y-sm: 3px;
+  --control-pad-x-sm: 9px;
 }

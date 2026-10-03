@@ -9,6 +9,7 @@ import {
 } from 'recharts'
 
 import { EmptyState } from './States'
+import { CHART_COLORS, CHART_TICK } from '../styles/chartColors'
 import { shortDate } from '../utils/format'
 import type { TrendPoint } from '../types/api'
 
@@ -39,18 +40,14 @@ export function TrendChart({ points, emptyHint }: Props) {
     <div className="chart-box">
       <ResponsiveContainer width="100%" height="100%">
         <AreaChart data={points} margin={{ top: 8, right: 8, bottom: 0, left: -18 }}>
-          <CartesianGrid stroke="#e2e5ea" strokeDasharray="3 3" vertical={false} />
+          <CartesianGrid stroke={CHART_COLORS.grid} strokeDasharray="3 3" vertical={false} />
           <XAxis
             dataKey="date"
             tickFormatter={(value) => shortDate(String(value))}
-            tick={{ fontSize: 11, fill: '#667085' }}
+            tick={CHART_TICK}
             tickMargin={6}
           />
-          <YAxis
-            allowDecimals={false}
-            tick={{ fontSize: 11, fill: '#667085' }}
-            width={44}
-          />
+          <YAxis allowDecimals={false} tick={CHART_TICK} width={44} />
           <Tooltip
             labelFormatter={(label) => shortDate(String(label))}
             formatter={(value) => [String(value), '次数']}
@@ -58,9 +55,9 @@ export function TrendChart({ points, emptyHint }: Props) {
           <Area
             type="monotone"
             dataKey="count"
-            stroke="#2563eb"
+            stroke={CHART_COLORS.stroke}
             strokeWidth={2}
-            fill="#eff4ff"
+            fill={CHART_COLORS.fill}
           />
         </AreaChart>
       </ResponsiveContainer>
