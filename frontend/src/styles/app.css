@@ -1357,6 +1357,59 @@ h4 {
   color: var(--unknown-text);
 }
 
+/* 首屏的行动条：待裁决发布。
+   它比 notice 高一级——notice 说的是"有这么回事"，行动条说的是"现在去做"，
+   所以标题更大、单独成行、右侧有个明确的入口。颜色仍然是 unknown 橙，
+   因为那是 publish_unknown 的**状态**色，不是把它渲染成错误。 */
+.action-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  border-left-width: 4px;
+  border-radius: var(--radius);
+}
+
+.action-banner--unknown {
+  background: var(--unknown-soft);
+  border-color: var(--unknown);
+  color: var(--unknown-text);
+}
+
+.action-banner__icon {
+  flex: none;
+  display: inline-flex;
+  margin-top: 1px;
+  color: var(--unknown);
+}
+
+.action-banner__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.action-banner__title {
+  font-size: var(--text-md);
+  font-weight: var(--weight-bold);
+  line-height: var(--leading-tight);
+}
+
+.action-banner__text {
+  margin: var(--space-1) 0 0;
+}
+
+.action-banner__meta {
+  margin: var(--space-2) 0 0;
+  font-size: var(--font-secondary);
+}
+
+/* 入口居中于正文高度，而不是顶对齐：它对应的是整块内容，不是标题那一行。 */
+.action-banner__cta {
+  flex: none;
+  align-self: center;
+}
+
 .notice__title {
   display: flex;
   align-items: center;
@@ -1389,6 +1442,74 @@ h4 {
 .scope-note {
   color: var(--text-muted);
   font-size: var(--text-sm);
+}
+
+/* -------------------------------------------------------- 最近活动（流水） */
+/* 这一层的读法是"自上而下按时间扫一遍"，不是"逐列比较"，所以它是 feed
+   而不是表格。每行整体是一个按钮：键盘可达、有焦点环，不需要给 <tr> 补 role。 */
+.activity-feed {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.activity-feed__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-2) var(--space-4);
+  border: none;
+  border-top: 1px solid var(--border);
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  font-size: var(--text-base);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease);
+}
+
+/* 第一行不要分隔线：上面就是卡片标题，再来一条线会多出一道多余的横杠。 */
+.activity-feed li:first-child .activity-feed__row {
+  border-top: none;
+}
+
+.activity-feed__row:hover {
+  background: var(--surface-sunken);
+}
+
+.activity-feed__main {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex: 1;
+  min-width: 0;
+}
+
+.activity-feed__title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.activity-feed__status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex: none;
+}
+
+/* 时间是右对齐的锚点：一样宽的字形（tabular-nums）让五行时间能对齐成一列。
+   `margin-left: auto` 在窄屏折行后仍然把它按到右侧。 */
+.activity-feed__time {
+  flex: none;
+  margin-left: auto;
+  color: var(--text-muted);
+  font-size: var(--font-secondary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 /* 同一节里块与块之间的间隔。用一个类而不是给每个兄弟元素写 margin：
@@ -2747,6 +2868,29 @@ p.scope-note {
      结果小屏用户完全没有刷新入口。计数可以点进页面看，刷新不行。 */
   .topbar__stat {
     display: none;
+  }
+
+  /* 行动条折行：正文占满整行，入口按钮落到下一行、自己撑满宽度。
+     挤成一行会把"系统无法确认 X 是否已经创建帖子"折成三行窄柱子。 */
+  .action-banner {
+    flex-wrap: wrap;
+  }
+
+  .action-banner__cta {
+    width: 100%;
+    justify-content: center;
+  }
+
+  /* 流水行折行：主题与状态一排，时间自己占右边。 */
+  .activity-feed__row {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+
+  .activity-feed__main {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-1);
   }
 
   .workspace {

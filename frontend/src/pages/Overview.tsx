@@ -133,23 +133,29 @@ export function Overview() {
                 "不管就会更糟"的状态。它刻意**不长得像错误**——它不是失败，
                 失败至少是确定的；它是未知，两者的处置方式完全不同。 */}
             {attention ? (
-              <div className="notice notice--unknown">
-                <div className="notice__title">
-                  <IconAlert size={15} />
-                  {data.resolution_queue_total} 次发布尝试的结果未定，需要人工裁决
+              <div className="action-banner action-banner--unknown">
+                <span className="action-banner__icon" aria-hidden="true">
+                  <IconAlert size={16} />
+                </span>
+                <div className="action-banner__body">
+                  <div className="action-banner__title">
+                    有 {data.resolution_queue_total} 次发布结果未确定
+                  </div>
+                  <p className="action-banner__text">
+                    系统无法确认 X 是否已经创建帖子。为避免重复发布，请人工确认后再继续。
+                  </p>
+                  <p className="action-banner__meta">
+                    它们的发布状态是 <strong>{publishStatusLabel('publishing')}</strong> 或{' '}
+                    <strong>{publishStatusLabel('publish_unknown')}</strong>
+                    ，系统不会自动重试——自动重试可能发出第二条。裁决必须由人来做，而且不可撤销。
+                  </p>
                 </div>
-                <p>
-                  它们的发布状态是 <strong>{publishStatusLabel('publishing')}</strong> 或{' '}
-                  <strong>{publishStatusLabel('publish_unknown')}</strong>
-                  。系统<b>无法确认 X 上是否已经创建了帖子</b>，因此不会自动重试——
-                  自动重试可能发出第二条。
-                </p>
-                <p>裁决必须由人来做，而且不可撤销。</p>
-                <div className="notice__actions">
-                  <Link className="btn btn--sm btn--primary" to="/published?status=__unresolved__">
-                    去裁决
-                  </Link>
-                </div>
+                <Link
+                  className="btn btn--sm btn--primary action-banner__cta"
+                  to="/published?status=__unresolved__"
+                >
+                  立即处理 →
+                </Link>
               </div>
             ) : (
               <div className="notice notice--ok">
@@ -194,60 +200,73 @@ export function Overview() {
               <span className="section__hint">全量计数，不受上方窗口限制</span>
             </div>
 
-            <div className="kpi-grid">
-              <div className="kpi">
-                <div className="kpi__label">总运行数</div>
-                <div className="kpi__value">{data.kpis.total_runs}</div>
-                <div className="kpi__sub">历史累计，全部 Run</div>
-              </div>
-              <div
-                className={
-                  data.kpis.waiting_for_review > 0
-                    ? 'kpi kpi--attention'
-                    : 'kpi kpi--attention kpi--quiet'
-                }
-              >
-                <div className="kpi__label">待审核</div>
-                <div className="kpi__value">{data.kpis.waiting_for_review}</div>
-                <div className="kpi__sub">
-                  {data.kpis.waiting_for_review > 0 ? '正排在队列里等人决定' : '队列是空的'}
+            {/* 两组数字，重要程度不同，所以不并成一行六张等大的卡片。
+                上面一组是"累计做了多少"（背景），下面一组是"现在有没有事"
+                （每天真正要看的），后者只在有值时才有重量。 */}
+            <div className="kpi-group">
+              <div className="kpi-group__title">主要指标</div>
+              <div className="kpi-grid kpi-grid--primary">
+                <div className="kpi">
+                  <div className="kpi__label">总运行数</div>
+                  <div className="kpi__value">{data.kpis.total_runs}</div>
+                  <div className="kpi__sub">历史累计，全部 Run</div>
+                </div>
+                <div
+                  className={
+                    data.kpis.waiting_for_review > 0
+                      ? 'kpi kpi--attention'
+                      : 'kpi kpi--attention kpi--quiet'
+                  }
+                >
+                  <div className="kpi__label">待审核</div>
+                  <div className="kpi__value">{data.kpis.waiting_for_review}</div>
+                  <div className="kpi__sub">
+                    {data.kpis.waiting_for_review > 0 ? '正排在队列里等人决定' : '队列是空的'}
+                  </div>
+                </div>
+                <div className="kpi kpi--ok">
+                  <div className="kpi__label">已发布</div>
+                  <div className="kpi__value">{data.kpis.published}</div>
+                  <div className="kpi__sub">已在 X 上确认</div>
                 </div>
               </div>
-              <div className="kpi kpi--ok">
-                <div className="kpi__label">已发布</div>
-                <div className="kpi__value">{data.kpis.published}</div>
-                <div className="kpi__sub">已在 X 上确认</div>
-              </div>
-              {/* 发布失败与待审核同色（黄）：两者都是"需要处理、但确定"，处置方式
-                  明确。橙色那一条留给"结果未知"——它不是同一类问题，也不该长得像。 */}
-              <div
-                className={
-                  data.kpis.publish_failed > 0
-                    ? 'kpi kpi--attention'
-                    : 'kpi kpi--attention kpi--quiet'
-                }
-              >
-                <div className="kpi__label">发布失败</div>
-                <div className="kpi__value">{data.kpis.publish_failed}</div>
-                <div className="kpi__sub">
-                  {data.kpis.publish_failed > 0 ? '确定失败，重发是安全的' : '没有确定失败的发布'}
+            </div>
+
+            <div className="kpi-group">
+              <div className="kpi-group__title">发布状态</div>
+              <div className="kpi-grid kpi-grid--secondary">
+                <div className="kpi">
+                  <div className="kpi__label">发布中</div>
+                  <div className="kpi__value">{data.kpis.publishing}</div>
+                  <div className="kpi__sub">已发起，结果尚未记录</div>
                 </div>
-              </div>
-              <div
-                className={
-                  data.kpis.publish_unknown > 0
-                    ? 'kpi kpi--critical'
-                    : 'kpi kpi--critical kpi--quiet'
-                }
-              >
-                <div className="kpi__label">发布结果未知</div>
-                <div className="kpi__value">{data.kpis.publish_unknown}</div>
-                <div className="kpi__sub">可能已发出，也可能没有</div>
-              </div>
-              <div className="kpi">
-                <div className="kpi__label">发布中</div>
-                <div className="kpi__value">{data.kpis.publishing}</div>
-                <div className="kpi__sub">已发起，结果尚未记录</div>
+                {/* 发布失败与待审核同色（黄）：两者都是"需要处理、但确定"，
+                    处置方式明确。橙色那一条留给"结果未知"——它不是同一类问题，
+                    也不该长得像。 */}
+                <div
+                  className={
+                    data.kpis.publish_failed > 0
+                      ? 'kpi kpi--attention'
+                      : 'kpi kpi--attention kpi--quiet'
+                  }
+                >
+                  <div className="kpi__label">发布失败</div>
+                  <div className="kpi__value">{data.kpis.publish_failed}</div>
+                  <div className="kpi__sub">
+                    {data.kpis.publish_failed > 0 ? '确定失败，重发是安全的' : '没有确定失败的发布'}
+                  </div>
+                </div>
+                <div
+                  className={
+                    data.kpis.publish_unknown > 0
+                      ? 'kpi kpi--critical'
+                      : 'kpi kpi--critical kpi--quiet'
+                  }
+                >
+                  <div className="kpi__label">发布结果未知</div>
+                  <div className="kpi__value">{data.kpis.publish_unknown}</div>
+                  <div className="kpi__sub">可能已发出，也可能没有</div>
+                </div>
               </div>
             </div>
 
@@ -307,7 +326,11 @@ export function Overview() {
                       </thead>
                       <tbody>
                         {data.resolution_queue.map((item: ResolutionQueueItem) => (
-                          <tr key={item.run_id}>
+                          <tr
+                            key={item.run_id}
+                            className="table__row--clickable"
+                            onClick={() => setOpenRunId(item.run_id)}
+                          >
                             <td className="table__topic">
                               {/* 这一列没有 goal 可退：后端给裁决队列的下发里只有
                                   topic。它为空时如实显示 —，不猜。 */}
@@ -325,13 +348,16 @@ export function Overview() {
                               {item.detail ?? EMPTY}
                             </td>
                             <td className="table__actions">
-                              <button
-                                type="button"
-                                className="btn btn--sm"
-                                onClick={() => setOpenRunId(item.run_id)}
+                              {/* 主操作是"去干活"，不是"再读一遍"：点进去才是裁决发生的地方。
+                                  整行仍然可点（打开抽屉快速看一眼），所以这里要 stopPropagation，
+                                  否则一次点击会同时跳页和开抽屉。 */}
+                              <Link
+                                className="btn btn--sm btn--ghost"
+                                to="/published?status=__unresolved__"
+                                onClick={(event) => event.stopPropagation()}
                               >
-                                查看
-                              </button>
+                                裁决 →
+                              </Link>
                             </td>
                           </tr>
                         ))}
@@ -374,7 +400,11 @@ export function Overview() {
                       </thead>
                       <tbody>
                         {data.review_queue.map((item) => (
-                          <tr key={item.run_id}>
+                          <tr
+                            key={item.run_id}
+                            className="table__row--clickable"
+                            onClick={() => setOpenRunId(item.run_id)}
+                          >
                             <td className="table__topic">
                               {/* Agent 还没选定主题时 topic 就是 null。如实显示 —，不猜。 */}
                               <span className="table__clamp" title={item.topic ?? undefined}>
@@ -393,13 +423,14 @@ export function Overview() {
                               </span>
                             </td>
                             <td className="table__actions">
-                              <button
-                                type="button"
-                                className="btn btn--sm"
-                                onClick={() => setOpenRunId(item.run_id)}
+                              {/* `?run=` 让工作台直接落在那一条上，不用再去左栏找一遍。 */}
+                              <Link
+                                className="btn btn--sm btn--ghost"
+                                to={`/review?run=${encodeURIComponent(item.run_id)}`}
+                                onClick={(event) => event.stopPropagation()}
                               >
-                                查看
-                              </button>
+                                审核 →
+                              </Link>
                             </td>
                           </tr>
                         ))}
@@ -470,51 +501,37 @@ export function Overview() {
             />
           ) : null}
           {recent.data && recent.data.items.length > 0 ? (
-            <div className="table-wrap">
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>主题</th>
-                    <th>运行状态</th>
-                    <th>发布状态</th>
-                    <th>创建时间</th>
-                    <th>
-                      <span className="sr-only">操作</span>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {recent.data.items.map((row: RunSummary) => (
-                    <tr key={row.run_id}>
-                      <td className="table__topic">
-                        <span className="table__clamp" title={runTitle(row) ?? undefined}>
-                          {runTitle(row) ?? <span className="cell-muted">{EMPTY}</span>}
-                        </span>
-                      </td>
-                      <td>
+            /* 流水用 feed 而不是表格：这一层的读法是"自上而下按时间扫一遍"，
+               不是"逐列比较"。表格会让人横向比较五个字段，而这里没有任何
+               两个 Run 是拿来互相比较的。时间是右对齐的锚点，状态用徽标承载。 */
+            <ol className="activity-feed">
+              {recent.data.items.map((row: RunSummary) => (
+                <li key={row.run_id}>
+                  <button
+                    type="button"
+                    className="activity-feed__row"
+                    onClick={() => setOpenRunId(row.run_id)}
+                  >
+                    <span className="activity-feed__main">
+                      <span className="activity-feed__title" title={runTitle(row) ?? undefined}>
+                        {runTitle(row) ?? <span className="cell-muted">{EMPTY}</span>}
+                      </span>
+                      <span className="activity-feed__status">
                         <StatusBadge status={row.run_status} kind="run" />
-                      </td>
-                      <td>
                         <StatusBadge status={row.publish_status} kind="publish" />
-                      </td>
-                      <td className="cell-nowrap">
-                        <div className="table__time-abs">{dateTime(row.created_at)}</div>
-                        <div className="table__time-rel">{relativeTime(row.created_at)}</div>
-                      </td>
-                      <td className="table__actions">
-                        <button
-                          type="button"
-                          className="btn btn--sm"
-                          onClick={() => setOpenRunId(row.run_id)}
-                        >
-                          查看
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                      </span>
+                    </span>
+                    <time
+                      className="activity-feed__time"
+                      dateTime={row.created_at}
+                      title={dateTime(row.created_at)}
+                    >
+                      {relativeTime(row.created_at)}
+                    </time>
+                  </button>
+                </li>
+              ))}
+            </ol>
           ) : null}
         </div>
       </section>
