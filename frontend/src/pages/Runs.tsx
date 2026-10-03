@@ -10,18 +10,34 @@ import { useAsync } from '../hooks/useAsync'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
 import { usePageClamp } from '../hooks/usePageClamp'
 import { RUN_STATUSES } from '../types/api'
+import {
+  CUSTOM_RANGE_SEED_DAYS,
+  TIME_RANGES,
+  daysAgoDateString,
+  rangeStartDate,
+} from '../utils/dateRange'
 import { EMPTY, dateTime, relativeTime, runStatusLabel, runTitle, shortId } from '../utils/format'
+import type { TimeRangeValue } from '../utils/dateRange'
 
 const TOPIC_DEBOUNCE_MS = 400
 
+/**
+ * 筛选条件。
+ *
+ * `range` 是时间筛选的**唯一入口**，`from`/`to` 只在 `range === 'custom'` 时有意义。
+ * 把它们放在同一个对象里而不是用一个 `mode` 标志位加两个游离的 state，是为了
+ * "清除筛选"能一把还原——否则很容易出现"日期框清空了、下拉还停在最近 30 天"
+ * 这种自相矛盾的界面。
+ */
 interface Filters {
   status: string
   topic: string
+  range: TimeRangeValue
   from: string
   to: string
 }
 
-const NO_FILTERS: Filters = { status: '', topic: '', from: '', to: '' }
+const NO_FILTERS: Filters = { status: '', topic: '', range: '', from: '', to: '' }
 
 /**
  * `<input type="date">` 给的是本地日历日（`2026-09-25`）。后端要的是时刻。
@@ -69,26 +85,53 @@ export function Runs() {
 
   const debouncedTopic = useDebouncedValue(filters.topic, TOPIC_DEBOUNCE_MS)
 
+  // 真正发给后端的时间边界。预设只算左端、右端留空（"到现在"），只有自定义才读
+  // 那两个日期框。`rangeStartDate` 每次渲染重新算"今天"，所以页面跨过午夜也不会
+  // 停在昨天的窗口上——而它的返回值在一天之内是稳定的字符串，不会把 useAsync
+  // 的依赖搅成每渲染必跑。
+  const effectiveFrom = filters.range === 'custom' ? filters.from : rangeStartDate(filters.range)
+  const effectiveTo = filters.range === 'custom' ? filters.to : ''
+
   // 筛选条件一变就回到第 1 页。留在第 7 页会导致"筛选后一片空白"——那一页在新的
   // 结果集里根本不存在。
   useEffect(() => {
     setPage(1)
-  }, [filters.status, debouncedTopic, filters.from, filters.to])
+  }, [filters.status, debouncedTopic, effectiveFrom, effectiveTo])
 
   const { data, loading, error, reload } = useAsync(
     () =>
       api.listRuns({
         status: filters.status || undefined,
         topic: debouncedTopic || undefined,
-        dateFrom: localDateToIso(filters.from),
-        dateTo: localDateToIso(filters.to, 1),
+        dateFrom: localDateToIso(effectiveFrom),
+        dateTo: localDateToIso(effectiveTo, 1),
         page,
       }),
-    [filters.status, debouncedTopic, filters.from, filters.to, page],
+    [filters.status, debouncedTopic, effectiveFrom, effectiveTo, page],
   )
 
   const dirty =
-    filters.status !== '' || filters.topic !== '' || filters.from !== '' || filters.to !== ''
+    filters.status !== '' ||
+    filters.topic !== '' ||
+    filters.range !== '' ||
+    filters.from !== '' ||
+    filters.to !== ''
+
+  /**
+   * 切时间范围。
+   *
+   * 进「自定义区间」时给一个**看得见的**起点：从刚才那个预设的左端抄过来（之前是
+   * "全部时间"则回退 30 天）。不这么做的话，两个空日期框和「全部时间」的效果完全
+   * 一样，人会以为自己点错了；而悄悄在背后加一个窗口更糟——界面上必须看得到。
+   */
+  function setRange(next: TimeRangeValue) {
+    setFilters((current) => {
+      if (next !== 'custom') return { ...current, range: next }
+      if (current.from) return { ...current, range: next }
+      const seeded = rangeStartDate(current.range) || daysAgoDateString(CUSTOM_RANGE_SEED_DAYS)
+      return { ...current, range: next, from: seeded }
+    })
+  }
 
   // 抽屉里发布 / 裁决成功后，这一行可能就不再满足当前筛选（比如按 rejected 过滤，
   // 而它被改成了别的状态）。空的尾页要退回去，否则会看到一句"没有匹配的 Run"，
@@ -139,7 +182,26 @@ export function Runs() {
 
         <div className="card">
           <div className="card__body">
+            {/* 搜索框放第一个：这是实际用得最多的一个条件（"那次讲 XX 的跑了没"）。
+                时间筛选从两个常驻日期框收成一个下拉，只有真的选「自定义区间」才
+                展开日期——多数时候人只是想知道"最近跑过什么"。 */}
             <div className="filter-bar">
+              <div className="field field--grow">
+                <label className="field__label" htmlFor="run-topic">
+                  搜索主题
+                </label>
+                <input
+                  id="run-topic"
+                  className="input"
+                  type="search"
+                  placeholder="输入主题里的文字"
+                  value={filters.topic}
+                  onChange={(event) =>
+                    setFilters((current) => ({ ...current, topic: event.target.value }))
+                  }
+                />
+              </div>
+
               <div className="field">
                 <label className="field__label" htmlFor="run-status">
                   运行状态
@@ -163,51 +225,57 @@ export function Runs() {
                 </select>
               </div>
 
-              <div className="field field--grow">
-                <label className="field__label" htmlFor="run-topic">
-                  主题包含
+              <div className="field">
+                <label className="field__label" htmlFor="run-range">
+                  创建时间
                 </label>
-                <input
-                  id="run-topic"
-                  className="input"
-                  type="search"
-                  placeholder="搜索主题文字"
-                  value={filters.topic}
-                  onChange={(event) =>
-                    setFilters((current) => ({ ...current, topic: event.target.value }))
-                  }
-                />
+                <select
+                  id="run-range"
+                  className="select"
+                  value={filters.range}
+                  onChange={(event) => setRange(event.target.value as TimeRangeValue)}
+                >
+                  {TIME_RANGES.map((range) => (
+                    <option key={range.value} value={range.value}>
+                      {range.label}
+                    </option>
+                  ))}
+                </select>
               </div>
 
-              <div className="field">
-                <label className="field__label" htmlFor="run-from">
-                  创建时间从
-                </label>
-                <input
-                  id="run-from"
-                  className="input"
-                  type="date"
-                  value={filters.from}
-                  onChange={(event) =>
-                    setFilters((current) => ({ ...current, from: event.target.value }))
-                  }
-                />
-              </div>
+              {filters.range === 'custom' ? (
+                <>
+                  <div className="field">
+                    <label className="field__label" htmlFor="run-from">
+                      从
+                    </label>
+                    <input
+                      id="run-from"
+                      className="input"
+                      type="date"
+                      value={filters.from}
+                      onChange={(event) =>
+                        setFilters((current) => ({ ...current, from: event.target.value }))
+                      }
+                    />
+                  </div>
 
-              <div className="field">
-                <label className="field__label" htmlFor="run-to">
-                  创建时间到（含当天）
-                </label>
-                <input
-                  id="run-to"
-                  className="input"
-                  type="date"
-                  value={filters.to}
-                  onChange={(event) =>
-                    setFilters((current) => ({ ...current, to: event.target.value }))
-                  }
-                />
-              </div>
+                  <div className="field">
+                    <label className="field__label" htmlFor="run-to">
+                      到（含当天）
+                    </label>
+                    <input
+                      id="run-to"
+                      className="input"
+                      type="date"
+                      value={filters.to}
+                      onChange={(event) =>
+                        setFilters((current) => ({ ...current, to: event.target.value }))
+                      }
+                    />
+                  </div>
+                </>
+              ) : null}
 
               <div className="filter-bar__spacer" />
 
