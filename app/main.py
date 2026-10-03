@@ -80,9 +80,13 @@ class Runtime:
     graph: object
     session_factory: async_sessionmaker[AsyncSession]
     publish_service: PublishService
-    # persona 本来就在 build_runtime 里加载并交给 PublishService，这里只是把同一个
-    # 实例也留在 Runtime 上：控制台需要把"编辑稿最多多少字"原样显示出来，而这个
-    # 上限属于配置（config/persona.yaml），不该在界面上再抄一份。
+    # persona 是**写作目标**的来源（Graph 的依赖里传一份），也留在 Runtime 上：
+    # 控制台需要把"编辑稿写多长为宜"原样显示出来，而这个目标属于配置
+    # （config/persona.yaml），不该在界面上再抄一份。
+    #
+    # 它**不再是发布门禁**：以前 PublishService 也拿一份 persona 去做超长 422，
+    # 现在那道闸门撤了（见 app/services/publish.py 的 `_preflight`）。所以这里
+    # 只是显示用，`content_max_length` 是提示不是保证。
     #
     # 默认值是为了让已有的构造点（含测试）无需改动；生产路径显式传入。
     persona: Persona = field(default_factory=load_persona)
@@ -109,7 +113,6 @@ def build_runtime(checkpointer) -> Runtime:
             x_service=x_service,
             session_factory=session_factory,
             graph=graph,
-            persona=persona,
         ),
         persona=persona,
     )

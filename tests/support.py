@@ -91,11 +91,14 @@ async def runtime_with_checkpointer(
                 x_service=resolved_x_service,
                 session_factory=session_factory,
                 graph=graph,
-                persona=persona,
             ),
-            # 与 PublishService 用同一个 persona 实例：控制台下发的
-            # content_max_length 必须就是发布前校验会用的那个上限，否则测试里
-            # 两者会各说各话（280 vs config/persona.yaml 的 140）。
+            # 与 Graph 的依赖用同一个 persona 实例：控制台下发的
+            # content_max_length 就是这个写作目标，测试要能用一个和
+            # config/persona.yaml（140）不同的值（这里 280）验出"值是从
+            # runtime 传下去的"，而不是哪一层写死的。
+            #
+            # 它已经**不是**发布门禁了（`_preflight` 不再校验长度），所以这里
+            # 的 280 不再与"发得出去发不出去"绑定。
             persona=persona,
         )
 

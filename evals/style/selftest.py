@@ -66,12 +66,14 @@ def _profile():
     return compute_profile(corpus.SAMPLES)
 
 
-#: benchmark 用的发布硬上限。取 140 与 `config/persona.yaml` 同值——
-#: 这样"语料目标被平台压过"这条路径在离线基准里真的会被走到，
+#: benchmark 用的目标长度上限。取 140 与 `config/persona.yaml` 同值——
+#: 这样"语料目标被压过"这条路径在离线基准里真的会被走到，
 #: 而不会因为基准里恰好没设上限而永远测不到。
 #:
-#: 140 不是一个随便挑的数：X 对中文按 2 计权，140 字用满 280 权重，它既是
-#: 线上的硬上限，也是语料目标（约 155 字）**发不出去**的那条线。
+#: 名字里的 "hard" 指的是"基准里把一个硬顶压到 recipe 的目标上"，不再是"线上发
+#: 不出去"。140 与 config 同值的理由仍然成立（同一套压顶逻辑要能在基准里跑到）；
+#: 但"140 是平台的硬限制"这个说法已经过期——账号是 Premium，发布前的超长 422
+#: 也撤了（见 app/services/publish.py 的 `_preflight`）。这里压的是写作目标。
 BENCH_HARD_MAX_LENGTH = 140
 
 

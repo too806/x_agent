@@ -90,7 +90,12 @@ export function ReviewPane({ runId, contentMaxLength, onDecided }: Props) {
 
   const draftContent = data.draft?.content ?? ''
   const editedLength = codePointLength(editText)
-  const overLimit = editedLength > contentMaxLength
+  // 超出目标长度**只是提示，不拦提交**。`contentMaxLength` 是写作目标
+  // （config/persona.yaml 的 max_length），不是平台的硬限制——这个账号是 Premium，
+  // 发得比它长；后端那道超长 422 也已经撤掉（见 app/services/publish.py 的
+  // `_preflight`）。这里若还禁用"保存"，就会拦下一份后端明明收得下的稿子，
+  // 而审核者只会看到一个他绕不过的灰按钮。
+  const overTarget = editedLength > contentMaxLength
 
   function startEdit() {
     setMode('edit')
@@ -222,13 +227,14 @@ export function ReviewPane({ runId, contentMaxLength, onDecided }: Props) {
                   onChange={(event) => setEditText(event.target.value)}
                 />
                 <div className="row row--between counter-row">
-                  <span className={overLimit ? 'counter counter--over' : 'counter'}>
+                  <span className={overTarget ? 'counter counter--over' : 'counter'}>
                     {editedLength} / {contentMaxLength} 字
                   </span>
                   <span className="cell-muted counter-row__note">
-                    系统限制：{contentMaxLength} 字（按当前本地计数口径，按 Unicode 码点计，
-                    含 emoji 各算 1 个）。这<strong>不是</strong> X 的加权字数口径——后端按同一口径
-                    校验，超限会在提交时被拒绝，所以到上限就不再允许提交。
+                    目标长度：{contentMaxLength} 字（按当前本地计数口径，按 Unicode 码点计，
+                    含 emoji 各算 1 个）。这既<strong>不是</strong> X 的加权字数口径，也
+                    <strong>不是</strong>硬限制——超出目标照样能保存、能发布，只是通常意味着
+                    该压一压。
                   </span>
                 </div>
               </div>
@@ -312,7 +318,7 @@ export function ReviewPane({ runId, contentMaxLength, onDecided }: Props) {
               <button
                 type="button"
                 className="btn btn--primary"
-                disabled={submit.busy || overLimit || !editText.trim()}
+                disabled={submit.busy || !editText.trim()}
                 onClick={() => decide({ action: 'edit', content: editText })}
               >
                 {submit.busy ? '正在提交…' : '保存'}
@@ -320,10 +326,11 @@ export function ReviewPane({ runId, contentMaxLength, onDecided }: Props) {
               <button type="button" className="btn" onClick={cancelMode} disabled={submit.busy}>
                 取消
               </button>
-              {/* 计数器和"保存"按钮在一起：超限时按钮是灰的，原因必须在同一屏看得到。 */}
-              <span className={overLimit ? 'action-bar__hint counter--over' : 'action-bar__hint'}>
-                {overLimit
-                  ? `超出 ${editedLength - contentMaxLength} 字，无法保存`
+              {/* 计数器和"保存"按钮在一起：超出目标时按钮**照常可点**，但超了多少
+                  要在这里说清楚——不拦，不等于不用知道。 */}
+              <span className={overTarget ? 'action-bar__hint counter--over' : 'action-bar__hint'}>
+                {overTarget
+                  ? `超出目标 ${editedLength - contentMaxLength} 字，仍可保存`
                   : `已用 ${editedLength} / ${contentMaxLength} 字`}
               </span>
             </>
