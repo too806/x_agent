@@ -3,10 +3,21 @@ import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { IconAnalytics, IconOverview, IconPublished, IconRefresh, IconReview, IconRuns } from '../components/ui/icons'
 import { useConsole } from '../hooks/useConsole'
 
+/**
+ * 导航项。
+ *
+ * `label` 是侧栏上的**短标签**（总览 / 运行 / 审核 / 发布 / 分析），
+ * `name` 是完整名称，用于顶栏标题、`title` 与 `aria-label`。
+ *
+ * 两者分开是有意的：侧栏是每天扫过几十次的东西，五个短词比五个四字词快得多；
+ * 但"审核"这两个字在无障碍树里、在鼠标悬停时、在顶栏上仍然要是完整的
+ * "内容审核"——短标签只应该省掉眼睛重复读的力气，不该省掉理解所需的上下文。
+ */
 const NAV = [
   {
     to: '/',
-    label: '系统总览',
+    label: '总览',
+    name: '系统总览',
     end: true,
     title: '系统总览',
     blurb: '系统健康、核心指标与当前待办',
@@ -14,7 +25,8 @@ const NAV = [
   },
   {
     to: '/runs',
-    label: '运行记录',
+    label: '运行',
+    name: '运行记录',
     end: false,
     title: '运行记录',
     blurb: 'Agent 的每一次运行：研究、草稿、决策轨迹',
@@ -22,7 +34,8 @@ const NAV = [
   },
   {
     to: '/review',
-    label: '内容审核',
+    label: '审核',
+    name: '内容审核',
     end: false,
     title: '审核工作台',
     blurb: '逐条决定批准、编辑或拒绝',
@@ -30,7 +43,8 @@ const NAV = [
   },
   {
     to: '/published',
-    label: '发布记录',
+    label: '发布',
+    name: '发布记录',
     end: false,
     title: '发布记录',
     blurb: '发布到 X 的结果，以及需要人工裁决的未知状态',
@@ -38,7 +52,8 @@ const NAV = [
   },
   {
     to: '/analytics',
-    label: '数据分析',
+    label: '分析',
+    name: '数据分析',
     end: false,
     title: '数据分析',
     blurb: '窗口内的运行与发布分布',
@@ -73,8 +88,8 @@ export function AppLayout() {
 
       <aside className="sidebar">
         <div className="sidebar__brand">
-          <div className="sidebar__brand-name">X AI Content Agent</div>
-          <div className="sidebar__brand-meta">运营控制台</div>
+          <div className="sidebar__brand-name">X_Agent</div>
+          <div className="sidebar__brand-meta">AI Content Operations</div>
         </div>
 
         <nav className="sidebar__nav" aria-label="主导航">
@@ -87,6 +102,8 @@ export function AppLayout() {
                 : entry.to === '/published'
                   ? pendingResolutions
                   : 0
+            // 待裁决比待审核更急：前者可能是"一条帖子已经发出去了却没人知道"，
+            // 后者只是"等一个人做决定"。所以它用实心橙，是全站唯一的橙色。
             const alert = entry.to === '/published' && count > 0
             return (
               <NavLink
@@ -97,11 +114,13 @@ export function AppLayout() {
                 // 窄屏（≤1024）标签被 CSS 隐藏。`display: none` 会把文字从无障碍树里
                 // 一起拿掉，链接就只剩一个 aria-hidden 的图标——等于没有名字。
                 // aria-label 让它在任何屏宽下都有名字；title 顺带给鼠标用户一个提示。
-                aria-label={entry.label}
-                title={entry.label}
+                // 两者都用**完整名称**：短标签只省眼睛，不省上下文。
+                aria-label={entry.name}
+                title={entry.name}
               >
                 <entry.Icon className="nav-item__icon" size={16} />
                 <span className="nav-item__label">{entry.label}</span>
+                {/* 为 0 时不显示：一排永远存在的 "0" 只会让真正非零的那个更难被发现。 */}
                 {ready && count > 0 ? (
                   <span className={`nav-item__count${alert ? ' nav-item__count--alert' : ''}`}>
                     {count}
@@ -117,10 +136,19 @@ export function AppLayout() {
           })}
         </nav>
 
-        <div className="sidebar__foot">
+        {/* 「系统」区：不是导航，是"这个控制台当前的设定"。用一条线和大标题分开，
+            免得被误当成第六个页面。 */}
+        <div className="sidebar__system">
+          <div className="sidebar__system-title">系统</div>
           {/* 窗口是真实读到的值，不是写死的文案——它和首页的下拉框是同一份状态。 */}
-          <div>指标窗口 · 最近 {days} 天</div>
-          <div>Phase 4b.2 · 写操作走既有后端 API</div>
+          <div className="sidebar__system-row">
+            <span>指标窗口</span>
+            <span className="sidebar__system-value">最近 {days} 天</span>
+          </div>
+          <div className="sidebar__system-row">
+            <span>写操作</span>
+            <span className="sidebar__system-value">走既有后端 API</span>
+          </div>
         </div>
       </aside>
 
@@ -139,15 +167,19 @@ export function AppLayout() {
               待裁决
               <span className="topbar__stat-value">{ready ? pendingResolutions : '—'}</span>
             </span>
+            {/* 这一颗只刷**全局状态**：总览数字与待办计数。页面自己的列表由页面上的
+                「刷新列表」负责。两个按钮文案不同是刻意的——用户不应该需要猜
+                "这个刷新到底刷了什么"。 */}
             <button
               type="button"
-              className="icon-btn"
+              className="btn btn--sm btn--ghost topbar__refresh"
               onClick={refresh}
               disabled={loading}
-              aria-label="刷新数据"
-              title="刷新数据"
+              aria-label="刷新状态：重新读取总览数据与待办计数"
+              title="刷新状态（总览数据与待办计数）"
             >
-              <IconRefresh size={15} />
+              <IconRefresh size={14} />
+              刷新状态
             </button>
           </div>
         </header>

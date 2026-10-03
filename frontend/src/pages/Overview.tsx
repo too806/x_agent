@@ -108,9 +108,15 @@ export function Overview() {
                 </option>
               ))}
             </select>
-            <button type="button" className="btn btn--sm" onClick={refreshAll} disabled={loading}>
+            <button
+              type="button"
+              className="btn btn--sm"
+              onClick={refreshAll}
+              disabled={loading}
+              title="刷新本页全部数据（共享总览 + 最近活动）"
+            >
               <IconRefresh size={14} />
-              刷新
+              刷新列表
             </button>
           </div>
         </div>

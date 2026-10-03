@@ -858,9 +858,15 @@ export function Analytics() {
                 </option>
               ))}
             </select>
-            <button type="button" className="btn btn--sm" onClick={reload} disabled={loading}>
+            <button
+              type="button"
+              className="btn btn--sm"
+              onClick={reload}
+              disabled={loading}
+              title="刷新这一页的全部数据块"
+            >
               <IconRefresh size={14} />
-              刷新
+              刷新列表
             </button>
           </div>
         </div>

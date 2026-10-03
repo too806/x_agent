@@ -248,9 +248,15 @@ export function Published() {
           <h2 className="section__title">发布记录</h2>
           <div className="row row--tight">
             {data ? <span className="cell-muted">共 {data.page.total} 条</span> : null}
-            <button type="button" className="btn btn--sm" onClick={reload} disabled={loading}>
+            <button
+              type="button"
+              className="btn btn--sm"
+              onClick={reload}
+              disabled={loading}
+              title="刷新列表（保留当前筛选条件）"
+            >
               <IconRefresh size={14} />
-              刷新
+              刷新列表
             </button>
           </div>
         </div>
