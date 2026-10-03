@@ -17,6 +17,7 @@ import {
   runStatusLabel,
   runTitle,
 } from '../utils/format'
+import { UNRESOLVED_PUBLISHED_PATH } from '../utils/publishAction'
 import type { ReviewQueueItem, ResolutionQueueItem, RunSummary } from '../types/api'
 
 const WINDOWS = [7, 14, 30, 90]
@@ -152,7 +153,7 @@ export function Overview() {
                 </div>
                 <Link
                   className="btn btn--sm btn--primary action-banner__cta"
-                  to="/published?status=__unresolved__"
+                  to={UNRESOLVED_PUBLISHED_PATH}
                 >
                   立即处理 →
                 </Link>
@@ -299,7 +300,7 @@ export function Overview() {
                       发布结果未知或仍在进行，系统不会自行处置
                     </p>
                   </div>
-                  <Link to="/published?status=__unresolved__">
+                  <Link to={UNRESOLVED_PUBLISHED_PATH}>
                     {data.resolution_queue_total > data.resolution_queue.length
                       ? `查看全部 ${data.resolution_queue_total} 条 →`
                       : '打开发布记录 →'}
@@ -353,7 +354,7 @@ export function Overview() {
                                   否则一次点击会同时跳页和开抽屉。 */}
                               <Link
                                 className="btn btn--sm btn--ghost"
-                                to="/published?status=__unresolved__"
+                                to={UNRESOLVED_PUBLISHED_PATH}
                                 onClick={(event) => event.stopPropagation()}
                               >
                                 裁决 →

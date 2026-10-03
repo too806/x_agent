@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 
 import { api, xPostUrl } from '../api/client'
 import { ConfirmDialog } from './ConfirmDialog'
@@ -7,6 +8,12 @@ import { CopyButton } from './ui/CopyButton'
 import { IconExternal } from './ui/icons'
 import { useMutation } from '../hooks/useMutation'
 import { EMPTY, dateTime, publishStatusLabel } from '../utils/format'
+import {
+  FIRST_PUBLISH_LABEL,
+  REPUBLISH_LABEL,
+  UNRESOLVED_PUBLISHED_PATH,
+  publishActionView,
+} from '../utils/publishAction'
 import type { PublishCall, PublishRecord } from '../types/api'
 
 /**
@@ -210,7 +217,10 @@ export function PublishControl({ runId, body, isRetry = false, onSettled }: Publ
           // 让人看到"它在动"，而不是猜为什么点不动。
           disabled={publish.busy}
         >
-          {publish.busy ? '正在发布…' : isRetry ? '重新发布' : '发布到 X'}
+          {/* 按钮文案来自契约（首次发布 / 重发），不在这里另起一套说法：
+              "发布到 X" 和 "重新发布" 是同一个动作在两种上下文里的叫法，
+              分不清哪个是第一次、哪个是重来，就等于没提示。 */}
+          {publish.busy ? '正在发布…' : isRetry ? REPUBLISH_LABEL : FIRST_PUBLISH_LABEL}
         </button>
       </div>
 
@@ -222,7 +232,7 @@ export function PublishControl({ runId, body, isRetry = false, onSettled }: Publ
 
       {confirming ? (
         <ConfirmDialog
-          title={isRetry ? '重新发布到 X？' : '发布到 X？'}
+          title={isRetry ? '重新发布到 X？' : '首次发布到 X？'}
           confirmLabel={isRetry ? '重新发布' : '立即发布'}
           danger
           busy={publish.busy}
@@ -265,6 +275,79 @@ export function PublishControl({ runId, body, isRetry = false, onSettled }: Publ
         </ConfirmDialog>
       ) : null}
     </>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// 发布入口：由契约决定"这里该放什么"
+// ---------------------------------------------------------------------------
+
+interface PublishActionSlotProps {
+  runStatus: string | null | undefined
+  /**
+   * 当前有效的发布记录状态。三个取值含义不同，别传错：
+   *   - `'failed' | 'publishing' | 'publish_unknown' | 'published'` 有记录
+   *   - `null`      明确没有记录（可以首次发布）
+   *   - `undefined` 读不到（会落进 HIDDEN）
+   */
+  publishStatus: string | null | undefined
+  runId: string
+  /** 将要发出的正文，只在真的渲染发布按钮时用得上。 */
+  body?: string | null
+  onSettled: () => void
+}
+
+/**
+ * 发布入口。**所有分支判断都在 `utils/publishAction.ts` 里** —— 这里只照着那份
+ * 视图模型渲染，自己一个 if 都不写（包括"要不要渲染按钮"这件事本身）。
+ *
+ * 这是整个控制台唯一会向外发帖的地方，所以"什么时候有按钮、按钮叫什么"必须只有
+ * 一个答案。此前它散在抽屉的 `canPublish` 和发布记录页的一串三元表达式里，各自
+ * 看着都合理，但没有任何东西保证它们一致 —— 而这种不一致的代价是多一条推文。
+ *
+ * 没有入口时**不渲染**，而不是渲染一个禁用按钮：一个灰着的"发布"按钮会被读成
+ * "点一下就好了"，而这里的事实是"这个动作根本不该存在"。
+ */
+export function PublishActionSlot({
+  runStatus,
+  publishStatus,
+  runId,
+  body,
+  onSettled,
+}: PublishActionSlotProps) {
+  const view = publishActionView(runStatus, publishStatus)
+
+  if (view.showPublish) {
+    // 走既有的 PublishControl —— 它那套确认框、勾选框、risk 文案一个字都没动。
+    return (
+      <PublishControl
+        runId={runId}
+        body={body ?? null}
+        isRetry={view.isRetry}
+        onSettled={onSettled}
+      />
+    )
+  }
+
+  if (!view.note && !view.showResolve) return null
+
+  return (
+    <div className="detail-action">
+      {/* 色调也由契约给：橙色（`--unknown`）只属于 publish_unknown。
+          `publishing` / 状态读不到 / 资格不足一律中性，绝不借用橙色。 */}
+      {view.note ? (
+        <div className={view.noteTone === 'unknown' ? 'notice notice--unknown' : 'notice'}>
+          {view.note}
+        </div>
+      ) : null}
+
+      {/* 导航，不是发布动作：它不调 X，只是把人送到能处理这条未决记录的地方。 */}
+      {view.showResolve ? (
+        <Link className="btn btn--primary" to={UNRESOLVED_PUBLISHED_PATH}>
+          {view.resolveLabel} →
+        </Link>
+      ) : null}
+    </div>
   )
 }
 

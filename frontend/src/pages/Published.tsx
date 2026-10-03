@@ -15,9 +15,8 @@ import { usePageClamp } from '../hooks/usePageClamp'
 import { PUBLISH_STATUSES, isUnresolved } from '../types/api'
 import { NO_DATA, hoursSinceLabel, metricLabel } from '../utils/feedback'
 import { EMPTY, codePointLength, dateTime, publishStatusLabel } from '../utils/format'
+import { UNRESOLVED_FILTER } from '../utils/publishAction'
 import type { FeedbackPostSummary, PublishedRow } from '../types/api'
-
-const UNRESOLVED_FILTER = '__unresolved__'
 
 /**
  * 发布记录列表 + 裁决台。
@@ -36,6 +35,26 @@ const UNRESOLVED_FILTER = '__unresolved__'
  * Phase 5B.4 加的「最新观察」列是这张表里**唯一**一个例外，所以它单独标注时间
  * （"发布后 N 小时"）和来源（手工采集）：上面几列是发布那一刻的审计事实，
  * 那一列是后补的观察。两者不加区分地并排，人会拿今天的数字解释当时的行为。
+ *
+ * ---------------------------------------------------------------------------
+ * 为什么这一页**不**调用 `utils/publishAction.ts` 里的 `getPublishAction`
+ * ---------------------------------------------------------------------------
+ *
+ * 那套契约要两个输入：Run 状态与发布记录状态。`PublishedRow` **只有后者** ——
+ * 发布列表接口不返回 `run_status`（要它就得改后端 schema，超出这个契约的范围）。
+ * 拿 `null` 顶替 Run 状态会让契约把这一页的每一行都判成 HIDDEN，那是功能倒退：
+ * 明确的 `failed` 就没有重发入口了。
+ *
+ * 更要紧的是 `publishing` 这一行**必须留着裁决入口**。契约对 `publishing` 返回
+ * HIDDEN 是对的 —— 它管的是"要不要放一个会调 X 的按钮"，而 `publishing` 时第一个
+ * 请求可能还在飞，绝不能给发布按钮。但裁决入口是另一回事：后端
+ * `UNRESOLVED_STATUSES` 明确接受 `publishing`（见 `app/repositories.py` 里
+ * `confirm_published_manually` 的注释——"这两者都需要人去看，也都需要同一个出口"），
+ * 而且进程崩在中间时 `publishing` 会**永久卡住**，这是它唯一的出口。
+ * 两个入口一起收掉，那条记录在界面上就再也没救了。
+ *
+ * 所以分工是：抽屉（Run 审计视图）严格照契约走；这一页是**唯一的裁决台**，
+ * 继续按 `isUnresolved` 给未决行开裁决入口。两条规则管的是两个不同的问题。
  */
 
 /** 短于这个长度的正文直接整段显示，不给"展开全文"。 */

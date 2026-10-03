@@ -1,10 +1,8 @@
-import { Link } from 'react-router-dom'
-
 import { api, xPostUrl } from '../api/client'
 import { useAsync } from '../hooks/useAsync'
 import { useConsole } from '../hooks/useConsole'
 import { Drawer } from './Drawer'
-import { PublishControl } from './PublishAction'
+import { PublishActionSlot } from './PublishAction'
 import { ErrorState, LoadingState } from './States'
 import { StatusBadge } from './StatusBadge'
 import { CopyButton } from './ui/CopyButton'
@@ -33,7 +31,7 @@ import {
   scoreLabel,
   stanceSentence,
 } from '../utils/viewpoint'
-import { isUnresolved } from '../types/api'
+import { effectivePublishStatus } from '../utils/publishAction'
 import {
   EMPTY,
   criticOutcomeSummary,
@@ -823,11 +821,9 @@ function AgentTraceSection({ detail }: { detail: AdminRunDetail }) {
 export function DetailBody({ detail, onSettled }: { detail: AdminRunDetail; onSettled: () => void }) {
   const { draft, review, publish } = detail
 
-  // 可发布 = 审核已通过 且 没有在途/未知的发布记录。`failed` 是允许的：
-  // 明确的失败意味着"确定没发出去"，重发是安全的（后端也会把 Run 退回 approved/edited）。
-  const canPublish =
-    (detail.run_status === 'approved' || detail.run_status === 'edited') &&
-    (publish === null || publish.status === 'failed')
+  // "能不能发布"这件事从 2026-10 起由 `utils/publishAction.ts` 单一决定 —— 原来是这里的
+  // `canPublish` 加发布记录页的一串三元，两处各自看都对，但没有任何东西保证它们一致。
+  // 现在这里不再有本地判断：`<PublishActionSlot>` 自己问契约要答案。
 
   // 将要发出的正文。**必须与后端的取法一致**：approve 用原稿、其余（edit）用改写稿
   // （见 app/services/publish.py 里 `review.status == "approve" ? original_content : edited_content`）。
@@ -1019,25 +1015,19 @@ export function DetailBody({ detail, onSettled }: { detail: AdminRunDetail; onSe
             </div>
           )}
 
-          {/* 发布入口只在**确实可以发布**时出现：Run 已通过审核（approved / edited），
-              且没有在途或结果未知的发布记录。
+          {/* 发布入口的可见性由 `utils/publishAction.ts` 单一决定 —— 这里不再有自己的
+              条件判断。FIRST_PUBLISH / REPUBLISH → 发布按钮（走既有确认框）；
+              RESOLVE → 去裁决；HIDDEN → 什么都不渲染（或一句解释为什么没有）。
 
-              publishing / publish_unknown 一律不给按钮 —— Phase 4a 的整个设计就是让这
-              两种状态只能由人在 X 上亲眼确认后裁决（去 Published 页），任何"再发一次"
-              的快捷方式都会绕过那道判断，直接变成重复推文。 */}
-          {canPublish ? (
-            <div className="detail-action">
-              <PublishControl runId={detail.run_id} body={publishableBody} onSettled={onSettled} />
-            </div>
-          ) : null}
-
-          {isUnresolved(detail.publish_status) ? (
-            <div className="notice notice--unknown detail-action">
-              这个 Run 有一次<strong>结果未定的发布尝试</strong>。请先到 X 上确认账号，再到
-              <Link to="/published?status=__unresolved__">发布记录</Link>
-              页裁决 —— 这个抽屉不会代你发布。
-            </div>
-          ) : null}
+              `effectivePublishStatus` 把详情里那两个可能互相矛盾的字段收成一个：
+              后端保证它们一致，不一致就当作读不到，落进 HIDDEN。 */}
+          <PublishActionSlot
+            runStatus={detail.run_status}
+            publishStatus={effectivePublishStatus(detail.publish, detail.publish_status)}
+            runId={detail.run_id}
+            body={publishableBody}
+            onSettled={onSettled}
+          />
         </DetailSection>
       </DetailGroup>
 
