@@ -35,8 +35,13 @@ class RunState(TypedDict, total=False):
 
     V1：
     - run_id: agent_run 的主键（str），同时用作 LangGraph thread_id。
-    - topic: 本次运行的选题（V1 必填；Agent 运行时由 finalize 之后的镜像写入，
-      运行开始时为 None）。
+    - topic: 本次运行的选题，**只有 V1 链路（人直接把题目给进来）会往 state 里放
+      它**。Agent 模式不写这个字段：那边的题目由 `select_topic` 写进
+      `selected_topic`，最后由 finalize 落进 `agent_run.topic` 那一**列**
+      （`set_run_topic`）。所以 Agent 运行里 `state.get("topic")` 恒为 None——
+      各工具里 `state.get("goal") or state.get("topic")` 的右半边在可达路径上是
+      取不到的，留着是防御。两者是不同的东西：`topic` 是人的输入，
+      `selected_topic` 是 Agent 的选择。
     - research_results / research_item_ids: 研究材料与它们的库内 id。
     - draft_content / draft_id: 正文与 draft 表 id。
     - guardrail_passed / guardrail_reasons: 护栏结果。

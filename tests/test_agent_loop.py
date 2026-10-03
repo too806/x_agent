@@ -751,3 +751,30 @@ async def test_goal_and_topic_are_mutually_exclusive(session_factory):
             neither = await api.post("/api/runs", json={})
             assert both.status_code == 422
             assert neither.status_code == 422
+
+
+async def test_blank_topic_or_goal_is_rejected(session_factory):
+    """空白串不是"给了题目"。
+
+    `{"topic": ""}` 以前是**收下**的：空检索词一路走到 X，换回一个和输入毫无关系
+    的 400（空 query 属于参数非法）。错误发生在离原因很远的地方，而原因其实在
+    第一行就该被拦下。`goal` 同理——空任务不是任务。
+    """
+    async with runtime_with_checkpointer(session_factory) as runtime:
+        async with api_for(runtime) as api:
+            for payload in ({"topic": ""}, {"goal": ""}, {"topic": "   "}, {"goal": "   "}):
+                resp = await api.post("/api/runs", json=payload)
+                assert resp.status_code == 422, (payload, resp.text)
+                # 报错要指名道姓：传了 `{"topic": ""}` 却被告知"一个都没给"，
+                # 调用方只会更困惑。
+                field = next(iter(payload))
+                assert field in resp.text
+
+            # 非空仍然是好的，而且**不 trim**——"输入什么就存什么"
+            padded = " 英伟达为什么今天突然大涨 "
+            ok = await api.post("/api/runs", json={"topic": padded})
+            assert ok.status_code == 200
+
+    async with session_factory() as session:
+        runs = (await session.execute(select(AgentRun))).scalars().all()
+    assert [run.topic for run in runs] == [padded]

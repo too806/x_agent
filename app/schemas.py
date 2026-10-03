@@ -120,6 +120,11 @@ class RunRequest(BaseModel):
     两个都给是**有歧义**的：那时谁定题目？固定在 topic 上等于悄悄忽略了目标，
     交给 Agent 又等于忽略了调用方明确给的题目。有歧义的输入拒收（422），
     比猜一个更安全——猜错的表现是"运行结果和输入对不上"，很难查。
+
+    `topic` / `goal` **都是这一次运行**的输入，不是频道、不是全局配置：今天
+    `topic="英伟达为什么今天突然大涨"`、明天 `topic="纳斯达克最近为什么大跌"`，
+    就是两条互不相干的 Run。库里没有任何跨 Run 的题目状态（`agent_run.topic`
+    是行内一列），所以换领域不需要改配置，只需要再 POST 一次。
     """
 
     topic: str | None = None
@@ -127,6 +132,19 @@ class RunRequest(BaseModel):
 
     @model_validator(mode="after")
     def _exactly_one_of_topic_goal(self) -> "RunRequest":
+        # 空白串**不算给了**。`{"topic": ""}` 既不是"人已经决定写什么"，也不是一个
+        # 任务——放过它，这条 Run 会带着空检索词一路跑到 X，在那里换回一个和输入
+        # 毫无关系的 400（空 query 是参数非法），错误发生在离原因很远的地方。
+        #
+        # 单独报错而不是让它掉进下面那条"两个都没给"：调用方传了 `{"topic": ""}`，
+        # 却被告知"一个都没给"，只会更困惑。指名道姓他才改得对地方。
+        blank = [
+            name
+            for name, value in (("topic", self.topic), ("goal", self.goal))
+            if value is not None and not value.strip()
+        ]
+        if blank:
+            raise ValueError(f"{'、'.join(blank)} 不能是空白，请写出具体内容，或改用另一个字段")
         if (self.topic is None) == (self.goal is None):
             raise ValueError("必须且只能提供 topic 或 goal 其中之一")
         return self
