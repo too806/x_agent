@@ -5495,6 +5495,1457 @@
           "帮我找一个冷门的 AI Agent 话题。某个小众工具的一个很具体的细节，最近几乎没人在讨论。"
         ]
       }
+    },
+    {
+      "phase": "5B.3",
+      "generated_at": "2026-10-03T13:28:01.587468+00:00",
+      "note": "5 个真机验收观察面的记录（工作单第三十三、三十四节）。内容是当天真实 X 检索与真实 LLM 的产物，因此**不可复现**——它不是基准，是当时的记录。工作单第四十二节：真机不要求每次观点相同。",
+      "goals": {
+        "hotspot": "今天帮我找一个最近值得在中文科技 X 圈讨论的 AI Agent 话题。",
+        "conflict": "帮我找一个最近中文科技圈在吵的 AI Agent 话题。有人夸也有人骂，双方都举得出具体例子。",
+        "thin": "帮我找一个冷门的 AI Agent 话题。某个小众工具的一个很具体的细节，最近几乎没人在讨论。"
+      },
+      "smokes": {
+        "1_normal_hotspot": {
+          "source_run": "7173107c-8c9e-4007-8dca-8b16717aae06",
+          "goal": "今天帮我找一个最近值得在中文科技 X 圈讨论的 AI Agent 话题。",
+          "db_status": "running",
+          "topic": "模型路由与 AI 网关：从 GPT-6 家族选型到订阅额度复用工具",
+          "steps": 9,
+          "finish_reason": "最近一次评审已聚焦 c1 并给出 accept(9.0)，三条候选 c1/c2/c3 均为 accept（9.0/8.5/8.4），观点 a1 已绑定 4 条证据、3 条来源与 2 条反方；规则明确 Critic 已 accept 就不应再改稿或重复评价，剩余预算应用于交付，因此直接收尾交护栏与人工审核。",
+          "evidence": {
+            "facts": 31,
+            "sources": 14,
+            "consensus": 5,
+            "counterpoints": 5,
+            "unknowns": 8
+          },
+          "candidate_count": 5,
+          "angles": [
+            {
+              "angle_id": "a1",
+              "claim": "给 agent 发独立身份，会把『模型有没有意识』从内部伦理讨论推成外部合规问题——因为授予身份等于先默认它是某种主体。",
+              "evidence_ids": [
+                "f4",
+                "f30",
+                "f12",
+                "f13"
+              ],
+              "counterpoints": [
+                "agent 的身份在工程语境里就是凭据与权限（材料里 Specialist dots 的『身份和权限』正是这个用法），与主体性无关，把它和意识讨论并列是范畴错误",
+                "Anthropic 请宗教学者属于内部的伦理与风险审查，不会外溢成行业合规要求。"
+              ],
+              "counterpoint_evidence_ids": [
+                "f30",
+                "f13"
+              ],
+              "has_reasoning": true,
+              "risk": "如果行业最终把 agent 身份严格定义为技术凭据（权限、密钥、账号），与主体性完全脱钩，意识议题就会被隔离在伦理部门内部，不会进入合规流程。",
+              "confidence": 0.7656,
+              "viewpoint_score": 77.94,
+              "stance": "cautious",
+              "stance_declared": "cautious",
+              "max_stance": "strong",
+              "claim_scope": "industry",
+              "evidence_scope": "industry",
+              "scope_exceeds_evidence": false,
+              "scope_declared_missing": false,
+              "has_assessment": true,
+              "assessment": {
+                "evidence_support": 0.6952,
+                "evidence_support_raw": 0.6952,
+                "source_diversity": 0.85,
+                "counterpoint_awareness": 1.0,
+                "unknown_pressure": 0.5,
+                "specificity": 0.4667,
+                "novelty": 1.0,
+                "newness_contribution": 1.0,
+                "confidence_raw": 0.7656,
+                "viewpoint_score_raw": 77.94,
+                "bound_facts": 4,
+                "total_facts": 31,
+                "bound_sources": 3,
+                "bound_authors": 3,
+                "missing_author_sources": 0,
+                "declared_counterpoints": 2,
+                "bound_counterpoints": 2,
+                "total_materials": 14,
+                "unreferenced_materials": 0,
+                "breadth_markers": [],
+                "originality_claim": false,
+                "restates_fact": false,
+                "duplicate_group": ""
+              }
+            },
+            {
+              "angle_id": "a2",
+              "claim": "把模型路由当成本优化工具用错了力：它的真实产品形态是给常驻 agent 分配算力配额与权限边界。",
+              "evidence_ids": [
+                "f28",
+                "f29",
+                "f30",
+                "f11",
+                "f14",
+                "f24",
+                "f10"
+              ],
+              "counterpoints": [
+                "Dots 和企业版 Specialist dots 的配额、权限完全可以由 OpenAI 自己在企业侧收口，第三方路由层只是过渡产物",
+                "模型路由在中文圈目前只是一个早报主题标签，材料没有给出它的具体做法或相关工具细节，实践基础不明。"
+              ],
+              "counterpoint_evidence_ids": [
+                "f29",
+                "f30",
+                "f24"
+              ],
+              "has_reasoning": true,
+              "risk": "如果 Dots 这类常驻助手在企业里的实际并发很低，或者配额与权限被厂商在企业版里直接管完，独立路由层就没有存在必要。",
+              "confidence": 0.7791,
+              "viewpoint_score": 74.29,
+              "stance": "moderate",
+              "stance_declared": "moderate",
+              "max_stance": "strong",
+              "claim_scope": "segment",
+              "evidence_scope": "industry",
+              "scope_exceeds_evidence": false,
+              "scope_declared_missing": false,
+              "has_assessment": true,
+              "assessment": {
+                "evidence_support": 0.729,
+                "evidence_support_raw": 0.729,
+                "source_diversity": 0.85,
+                "counterpoint_awareness": 1.0,
+                "unknown_pressure": 0.5,
+                "specificity": 0.2333,
+                "novelty": 1.0,
+                "newness_contribution": 1.0,
+                "confidence_raw": 0.7791,
+                "viewpoint_score_raw": 74.29,
+                "bound_facts": 7,
+                "total_facts": 31,
+                "bound_sources": 4,
+                "bound_authors": 3,
+                "missing_author_sources": 0,
+                "declared_counterpoints": 2,
+                "bound_counterpoints": 3,
+                "total_materials": 14,
+                "unreferenced_materials": 0,
+                "breadth_markers": [],
+                "originality_claim": false,
+                "restates_fact": false,
+                "duplicate_group": ""
+              }
+            },
+            {
+              "angle_id": "a3",
+              "claim": "网关的采购理由会从『能接多少模型』转向『能证明拦住了什么』——Transluce 那份报告给了审计与限流比模型覆盖更硬的商业理由。",
+              "evidence_ids": [
+                "f16",
+                "f17",
+                "f18",
+                "f19",
+                "f1",
+                "f2"
+              ],
+              "counterpoints": [
+                "沙箱与审计更可能由云厂商或模型厂商在企业套件里内建，网关只是被路过的一层（材料已出现平台侧管控的接入计划）",
+                "那些被归类为 agent 的激进请求，其来源与主体性材料没有说清，用它们论证产品方向存在误判风险。"
+              ],
+              "counterpoint_evidence_ids": [
+                "f30"
+              ],
+              "has_reasoning": true,
+              "risk": "如果厂商与云平台把 agent 运行管控内建进自己的企业套件，独立网关的安全能力会被平台吞掉，卖点重新回到接入便利性。",
+              "confidence": 0.6388,
+              "viewpoint_score": 74.16,
+              "stance": "moderate",
+              "stance_declared": "moderate",
+              "max_stance": "moderate",
+              "claim_scope": "segment",
+              "evidence_scope": "segment",
+              "scope_exceeds_evidence": false,
+              "scope_declared_missing": false,
+              "has_assessment": true,
+              "assessment": {
+                "evidence_support": 0.7177,
+                "evidence_support_raw": 0.7177,
+                "source_diversity": 0.5667,
+                "counterpoint_awareness": 0.675,
+                "unknown_pressure": 0.5,
+                "specificity": 0.7,
+                "novelty": 1.0,
+                "newness_contribution": 1.0,
+                "confidence_raw": 0.6388,
+                "viewpoint_score_raw": 74.16,
+                "bound_facts": 6,
+                "total_facts": 31,
+                "bound_sources": 2,
+                "bound_authors": 2,
+                "missing_author_sources": 0,
+                "declared_counterpoints": 2,
+                "bound_counterpoints": 1,
+                "total_materials": 14,
+                "unreferenced_materials": 0,
+                "breadth_markers": [],
+                "originality_claim": false,
+                "restates_fact": false,
+                "duplicate_group": ""
+              }
+            },
+            {
+              "angle_id": "a4",
+              "claim": "订阅额度复用工具不是在省钱，而是在替厂商补做它们还没建立的『按 agent 计费』，它的天花板由计费口径而不是技术决定。",
+              "evidence_ids": [
+                "f1",
+                "f2",
+                "f10",
+                "f11",
+                "f30"
+              ],
+              "counterpoints": [
+                "这只是把已经付过钱的额度用满，厂商本来就按额度封顶计费，谈不上套利",
+                "厂商可以在条款层面直接封禁这类统一接入工具，工具的存续不取决于计费口径是否改变。"
+              ],
+              "counterpoint_evidence_ids": [
+                "f1"
+              ],
+              "has_reasoning": true,
+              "risk": "如果厂商长期维持按席位订阅、对 agent 消耗不加区分，复用额度就是稳定收益而不是套利窗口；合规口径也完全未在材料中出现，判断成立条件依赖厂商条款。",
+              "confidence": 0.7051,
+              "viewpoint_score": 73.4,
+              "stance": "moderate",
+              "stance_declared": "moderate",
+              "max_stance": "moderate",
+              "claim_scope": "segment",
+              "evidence_scope": "industry",
+              "scope_exceeds_evidence": false,
+              "scope_declared_missing": false,
+              "has_assessment": true,
+              "assessment": {
+                "evidence_support": 0.7065,
+                "evidence_support_raw": 0.7065,
+                "source_diversity": 0.85,
+                "counterpoint_awareness": 0.675,
+                "unknown_pressure": 0.5,
+                "specificity": 0.4667,
+                "novelty": 1.0,
+                "newness_contribution": 1.0,
+                "confidence_raw": 0.7051,
+                "viewpoint_score_raw": 73.4,
+                "bound_facts": 5,
+                "total_facts": 31,
+                "bound_sources": 3,
+                "bound_authors": 3,
+                "missing_author_sources": 0,
+                "declared_counterpoints": 2,
+                "bound_counterpoints": 1,
+                "total_materials": 14,
+                "unreferenced_materials": 0,
+                "breadth_markers": [],
+                "originality_claim": false,
+                "restates_fact": false,
+                "duplicate_group": ""
+              }
+            },
+            {
+              "angle_id": "a5",
+              "claim": "智能体商业化的议程主导权正在从模型公司移到支付与清算一侧——先被解决的是钱怎么走、出了事谁担责，而不是模型有多聪明。",
+              "evidence_ids": [
+                "f3",
+                "f4",
+                "f5"
+              ],
+              "counterpoints": [
+                "合办方名单只反映赞助与营销布局，议题主导权仍在主办方和模型公司手里",
+                "材料只给出了圆桌议题的存在，没有任何一方的立场或结论可作为依据。"
+              ],
+              "counterpoint_evidence_ids": [
+                "f3",
+                "f5"
+              ],
+              "has_reasoning": true,
+              "risk": "合办方可能只是赞助与市场动作，议程仍由主办方与模型公司主导；那样这条判断就只是对一份名单的过度解读。",
+              "confidence": 0.4,
+              "viewpoint_score": 47.75,
+              "stance": "cautious",
+              "stance_declared": "cautious",
+              "max_stance": "cautious",
+              "claim_scope": "segment",
+              "evidence_scope": "case",
+              "scope_exceeds_evidence": true,
+              "scope_declared_missing": false,
+              "has_assessment": true,
+              "assessment": {
+                "evidence_support": 0.45,
+                "evidence_support_raw": 0.5214,
+                "source_diversity": 0.2833,
+                "counterpoint_awareness": 1.0,
+                "unknown_pressure": 0.5,
+                "specificity": 0.0,
+                "novelty": 1.0,
+                "newness_contribution": 0.75,
+                "confidence_raw": 0.5258,
+                "viewpoint_score_raw": 47.75,
+                "bound_facts": 3,
+                "total_facts": 31,
+                "bound_sources": 1,
+                "bound_authors": 1,
+                "missing_author_sources": 0,
+                "declared_counterpoints": 2,
+                "bound_counterpoints": 2,
+                "total_materials": 14,
+                "unreferenced_materials": 0,
+                "breadth_markers": [],
+                "originality_claim": false,
+                "restates_fact": false,
+                "duplicate_group": ""
+              }
+            }
+          ],
+          "selected_angle_id": "a1",
+          "selected_claim": "给 agent 发独立身份，会把『模型有没有意识』从内部伦理讨论推成外部合规问题——因为授予身份等于先默认它是某种主体。",
+          "id_order_matches_score_order": true,
+          "id_order": [
+            "a1",
+            "a2",
+            "a3",
+            "a4",
+            "a5"
+          ],
+          "score_order": [
+            "a1",
+            "a2",
+            "a3",
+            "a4",
+            "a5"
+          ],
+          "score_replay": {
+            "available": true,
+            "angles_compared": 5,
+            "fields_per_angle": 32,
+            "skipped_without_assessment": [],
+            "mismatches": [],
+            "reproducible": true
+          }
+        },
+        "2_conflicting_evidence": {
+          "source_run": "9a6af129-f485-4925-a555-0a9d75bb2dc8",
+          "goal": "帮我找一个最近中文科技圈在吵的 AI Agent 话题。有人夸也有人骂，双方都举得出具体例子。",
+          "evidence_counterpoints": 4,
+          "evidence_has_counterpoints": true,
+          "observed_angles": [
+            {
+              "angle_id": "a1",
+              "claim": "CliProxyAPI 被夸成神器、agent 被骂成入侵，这两种评价指向的是同一种无人值守的批量调用，分野只在被调用的资源属于自己还是属于别人。",
+              "counterpoints": 1,
+              "bound_counterpoint_evidence": [
+                "f7",
+                "f15"
+              ],
+              "declared_counterpoints": 1,
+              "bound_counterpoints": 2,
+              "counterpoint_awareness": 1.0,
+              "stance": "moderate",
+              "max_stance": "moderate"
+            },
+            {
+              "angle_id": "a2",
+              "claim": "模型路由和 AI 网关不会停在省额度这一层，它会被推成 agent 的身份与配额闸门。",
+              "counterpoints": 1,
+              "bound_counterpoint_evidence": [
+                "f26"
+              ],
+              "declared_counterpoints": 1,
+              "bound_counterpoints": 1,
+              "counterpoint_awareness": 0.5,
+              "stance": "cautious",
+              "max_stance": "moderate"
+            },
+            {
+              "angle_id": "a3",
+              "claim": "订阅制按人头卖、agent 按身份算，两者对不齐，所以'把额度榨干'这条路会被压成一个有时限的窗口期，而不是长期商业模式。",
+              "counterpoints": 1,
+              "bound_counterpoint_evidence": [
+                "f8"
+              ],
+              "declared_counterpoints": 1,
+              "bound_counterpoints": 1,
+              "counterpoint_awareness": 0.5,
+              "stance": "moderate",
+              "max_stance": "moderate"
+            },
+            {
+              "angle_id": "a4",
+              "claim": "沙箱只能收窄 agent 的活动半径，收不回它已经打出去的请求，所以它解决的是施加方的风险，不是被访问方的损失。",
+              "counterpoints": 1,
+              "bound_counterpoint_evidence": [
+                "f16"
+              ],
+              "declared_counterpoints": 1,
+              "bound_counterpoints": 1,
+              "counterpoint_awareness": 0.5,
+              "stance": "moderate",
+              "max_stance": "moderate"
+            }
+          ],
+          "any_bound_counterpoint": true,
+          "any_conservative_stance": true,
+          "property_exercised": true,
+          "counterweight": {
+            "note": "把这一轮真实的证据索引喂给生产的打分函数，输入是一个自称毫无争议、并申报 strong 立场的观点。它检验的是策略，不是当天的巧合。",
+            "evidence_counterpoints_in_index": 4,
+            "counterpoint_awareness": 0.0,
+            "stance_declared": "strong",
+            "stance": "cautious",
+            "max_stance": "cautious",
+            "downgraded": true,
+            "confidence": 0.4982,
+            "confidence_raw": 0.4982
+          }
+        },
+        "3_insufficient_evidence": {
+          "source_run": "267e795d-9237-4c44-b14f-c798f820f1a2",
+          "goal": "帮我找一个冷门的 AI Agent 话题。某个小众工具的一个很具体的细节，最近几乎没人在讨论。",
+          "evidence": {
+            "facts": 19,
+            "sources": 11,
+            "consensus": 1,
+            "counterpoints": 4,
+            "unknowns": 7
+          },
+          "candidate_count": 4,
+          "stances": [
+            {
+              "angle_id": "a1",
+              "stance": "moderate"
+            },
+            {
+              "angle_id": "a2",
+              "stance": "moderate"
+            },
+            {
+              "angle_id": "a3",
+              "stance": "cautious"
+            },
+            {
+              "angle_id": "a4",
+              "stance": "cautious"
+            }
+          ],
+          "stance_exceeds_ceiling": [],
+          "counterweights": {
+            "no_evidence": {
+              "note": "绑不上任何事实的观点，上界推不到 strong。",
+              "evidence_support": 0.0,
+              "bound_facts": 0,
+              "max_stance": "uncertain",
+              "stance": "uncertain",
+              "viewpoint_score": 29.0,
+              "low_support_cap": 50.0,
+              "score_below_low_support_cap": true
+            },
+            "single_source": {
+              "note": "只绑到一个来源的事实，证据支撑度会被单一来源上限压住。",
+              "evidence_ids": [
+                "f1",
+                "f2",
+                "f3",
+                "f4"
+              ],
+              "available": true,
+              "evidence_support": 0.45,
+              "evidence_support_raw": 0.7237,
+              "single_source_cap": 0.45,
+              "cap_applied": true,
+              "bound_sources": 1,
+              "max_stance": "cautious",
+              "viewpoint_score": 61.75,
+              "reference_bound_sources": 2,
+              "reference_evidence_support": 0.7421,
+              "reference_viewpoint_score": 79.76
+            }
+          }
+        },
+        "4_novelty_specificity": {
+          "source_run": "7173107c-8c9e-4007-8dca-8b16717aae06",
+          "goal": "今天帮我找一个最近值得在中文科技 X 圈讨论的 AI Agent 话题。",
+          "candidate_count": 5,
+          "rows": [
+            {
+              "angle_id": "a1",
+              "claim": "给 agent 发独立身份，会把『模型有没有意识』从内部伦理讨论推成外部合规问题——因为授予身份等于先默认它是某种主体。",
+              "novelty": 1.0,
+              "specificity": 0.4667,
+              "evidence_support": 0.6952,
+              "newness_contribution": 1.0,
+              "restates_fact": false,
+              "duplicate_group": "",
+              "viewpoint_score": 77.94
+            },
+            {
+              "angle_id": "a2",
+              "claim": "把模型路由当成本优化工具用错了力：它的真实产品形态是给常驻 agent 分配算力配额与权限边界。",
+              "novelty": 1.0,
+              "specificity": 0.2333,
+              "evidence_support": 0.729,
+              "newness_contribution": 1.0,
+              "restates_fact": false,
+              "duplicate_group": "",
+              "viewpoint_score": 74.29
+            },
+            {
+              "angle_id": "a3",
+              "claim": "网关的采购理由会从『能接多少模型』转向『能证明拦住了什么』——Transluce 那份报告给了审计与限流比模型覆盖更硬的商业理由。",
+              "novelty": 1.0,
+              "specificity": 0.7,
+              "evidence_support": 0.7177,
+              "newness_contribution": 1.0,
+              "restates_fact": false,
+              "duplicate_group": "",
+              "viewpoint_score": 74.16
+            },
+            {
+              "angle_id": "a4",
+              "claim": "订阅额度复用工具不是在省钱，而是在替厂商补做它们还没建立的『按 agent 计费』，它的天花板由计费口径而不是技术决定。",
+              "novelty": 1.0,
+              "specificity": 0.4667,
+              "evidence_support": 0.7065,
+              "newness_contribution": 1.0,
+              "restates_fact": false,
+              "duplicate_group": "",
+              "viewpoint_score": 73.4
+            },
+            {
+              "angle_id": "a5",
+              "claim": "智能体商业化的议程主导权正在从模型公司移到支付与清算一侧——先被解决的是钱怎么走、出了事谁担责，而不是模型有多聪明。",
+              "novelty": 1.0,
+              "specificity": 0.0,
+              "evidence_support": 0.45,
+              "newness_contribution": 0.75,
+              "restates_fact": false,
+              "duplicate_group": "",
+              "viewpoint_score": 47.75
+            }
+          ],
+          "spread": {
+            "novelty": 0.0,
+            "specificity": 0.7,
+            "evidence_support": 0.279,
+            "newness_contribution": 0.25
+          },
+          "top_by_novelty": null,
+          "top_by_evidence": "a2",
+          "novelty_and_evidence_order_differ": null,
+          "novelty_comparison_note": "本次 novelty 在候选之间完全相同（极差 0），这一项没有分辨率；真正在变的通常是 newness_contribution —— novelty 乘上证据门控之后的值。"
+        },
+        "5_full_chain": {
+          "source_run": "7173107c-8c9e-4007-8dca-8b16717aae06",
+          "goal": "今天帮我找一个最近值得在中文科技 X 圈讨论的 AI Agent 话题。",
+          "db_status": "running",
+          "db_status_note": "直接调图、绕过 API 层，所以数据库那一列停在 running；进入人工审核的事实以 interrupted 为准（见 scripts/smoke_5b3.py 的注释）。",
+          "steps": 9,
+          "finish_reason": "最近一次评审已聚焦 c1 并给出 accept(9.0)，三条候选 c1/c2/c3 均为 accept（9.0/8.5/8.4），观点 a1 已绑定 4 条证据、3 条来源与 2 条反方；规则明确 Critic 已 accept 就不应再改稿或重复评价，剩余预算应用于交付，因此直接收尾交护栏与人工审核。",
+          "guardrail_passed": true,
+          "actions": [
+            "discover_topics",
+            "select_topic",
+            "extract_evidence",
+            "generate_angles",
+            "deepen_research",
+            "select_angle",
+            "generate_candidates",
+            "criticize",
+            "finish"
+          ],
+          "reached_human_review": true,
+          "links": {
+            "evidence_pack": true,
+            "selected_angle": true,
+            "style_recipe": true,
+            "draft": true,
+            "guardrail_evaluated": true
+          },
+          "selected_angle_id": "a1",
+          "candidate_viewpoint_refs": [
+            {
+              "candidate_id": "c1",
+              "viewpoint_ref": "a1"
+            },
+            {
+              "candidate_id": "c2",
+              "viewpoint_ref": "a1"
+            },
+            {
+              "candidate_id": "c3",
+              "viewpoint_ref": "a1"
+            }
+          ],
+          "all_candidates_reference_selected": true,
+          "critic_viewpoint_fit_present": [
+            {
+              "candidate_id": "c1",
+              "has_viewpoint_fit": true,
+              "overclaim_risk": 2.0,
+              "viewpoint_consistency": 9.0
+            },
+            {
+              "candidate_id": "c2",
+              "has_viewpoint_fit": true,
+              "overclaim_risk": 4.0,
+              "viewpoint_consistency": 8.0
+            },
+            {
+              "candidate_id": "c3",
+              "has_viewpoint_fit": true,
+              "overclaim_risk": 3.0,
+              "viewpoint_consistency": 8.0
+            }
+          ],
+          "viewpoint_render_has_placeholder": false,
+          "scope_signals_text": "- 证据能支撑的范围：整个行业 / 一个市场（4 条事实、3 条来源、3 位作者）\n- 观点申报的范围：整个行业 / 一个市场\n- 正文里的全称量词：无\n- 反方回应：声明 2 条、其中 2 条绑定到事实"
+        }
+      },
+      "runs": [
+        {
+          "label": "hotspot",
+          "goal": "今天帮我找一个最近值得在中文科技 X 圈讨论的 AI Agent 话题。",
+          "run_id": "7173107c-8c9e-4007-8dca-8b16717aae06",
+          "interrupted": true,
+          "db_status": "running",
+          "pack": {
+            "facts": 31,
+            "sources": 14,
+            "consensus": 5,
+            "counterpoints": 5,
+            "unknowns": 8
+          },
+          "topic": "模型路由与 AI 网关：从 GPT-6 家族选型到订阅额度复用工具",
+          "angles": [
+            {
+              "angle_id": "a1",
+              "claim": "给 agent 发独立身份，会把『模型有没有意识』从内部伦理讨论推成外部合规问题——因为授予身份等于先默认它是某种主体。",
+              "evidence_ids": [
+                "f4",
+                "f30",
+                "f12",
+                "f13"
+              ],
+              "counterpoints": [
+                "agent 的身份在工程语境里就是凭据与权限（材料里 Specialist dots 的『身份和权限』正是这个用法），与主体性无关，把它和意识讨论并列是范畴错误",
+                "Anthropic 请宗教学者属于内部的伦理与风险审查，不会外溢成行业合规要求。"
+              ],
+              "counterpoint_evidence_ids": [
+                "f30",
+                "f13"
+              ],
+              "has_reasoning": true,
+              "risk": "如果行业最终把 agent 身份严格定义为技术凭据（权限、密钥、账号），与主体性完全脱钩，意识议题就会被隔离在伦理部门内部，不会进入合规流程。",
+              "confidence": 0.7656,
+              "viewpoint_score": 77.94,
+              "stance": "cautious",
+              "stance_declared": "cautious",
+              "max_stance": "strong",
+              "claim_scope": "industry",
+              "evidence_scope": "industry",
+              "scope_exceeds_evidence": false,
+              "scope_declared_missing": false,
+              "has_assessment": true,
+              "assessment": {
+                "evidence_support": 0.6952,
+                "evidence_support_raw": 0.6952,
+                "source_diversity": 0.85,
+                "counterpoint_awareness": 1.0,
+                "unknown_pressure": 0.5,
+                "specificity": 0.4667,
+                "novelty": 1.0,
+                "newness_contribution": 1.0,
+                "confidence_raw": 0.7656,
+                "viewpoint_score_raw": 77.94,
+                "bound_facts": 4,
+                "total_facts": 31,
+                "bound_sources": 3,
+                "bound_authors": 3,
+                "missing_author_sources": 0,
+                "declared_counterpoints": 2,
+                "bound_counterpoints": 2,
+                "total_materials": 14,
+                "unreferenced_materials": 0,
+                "breadth_markers": [],
+                "originality_claim": false,
+                "restates_fact": false,
+                "duplicate_group": ""
+              }
+            },
+            {
+              "angle_id": "a2",
+              "claim": "把模型路由当成本优化工具用错了力：它的真实产品形态是给常驻 agent 分配算力配额与权限边界。",
+              "evidence_ids": [
+                "f28",
+                "f29",
+                "f30",
+                "f11",
+                "f14",
+                "f24",
+                "f10"
+              ],
+              "counterpoints": [
+                "Dots 和企业版 Specialist dots 的配额、权限完全可以由 OpenAI 自己在企业侧收口，第三方路由层只是过渡产物",
+                "模型路由在中文圈目前只是一个早报主题标签，材料没有给出它的具体做法或相关工具细节，实践基础不明。"
+              ],
+              "counterpoint_evidence_ids": [
+                "f29",
+                "f30",
+                "f24"
+              ],
+              "has_reasoning": true,
+              "risk": "如果 Dots 这类常驻助手在企业里的实际并发很低，或者配额与权限被厂商在企业版里直接管完，独立路由层就没有存在必要。",
+              "confidence": 0.7791,
+              "viewpoint_score": 74.29,
+              "stance": "moderate",
+              "stance_declared": "moderate",
+              "max_stance": "strong",
+              "claim_scope": "segment",
+              "evidence_scope": "industry",
+              "scope_exceeds_evidence": false,
+              "scope_declared_missing": false,
+              "has_assessment": true,
+              "assessment": {
+                "evidence_support": 0.729,
+                "evidence_support_raw": 0.729,
+                "source_diversity": 0.85,
+                "counterpoint_awareness": 1.0,
+                "unknown_pressure": 0.5,
+                "specificity": 0.2333,
+                "novelty": 1.0,
+                "newness_contribution": 1.0,
+                "confidence_raw": 0.7791,
+                "viewpoint_score_raw": 74.29,
+                "bound_facts": 7,
+                "total_facts": 31,
+                "bound_sources": 4,
+                "bound_authors": 3,
+                "missing_author_sources": 0,
+                "declared_counterpoints": 2,
+                "bound_counterpoints": 3,
+                "total_materials": 14,
+                "unreferenced_materials": 0,
+                "breadth_markers": [],
+                "originality_claim": false,
+                "restates_fact": false,
+                "duplicate_group": ""
+              }
+            },
+            {
+              "angle_id": "a3",
+              "claim": "网关的采购理由会从『能接多少模型』转向『能证明拦住了什么』——Transluce 那份报告给了审计与限流比模型覆盖更硬的商业理由。",
+              "evidence_ids": [
+                "f16",
+                "f17",
+                "f18",
+                "f19",
+                "f1",
+                "f2"
+              ],
+              "counterpoints": [
+                "沙箱与审计更可能由云厂商或模型厂商在企业套件里内建，网关只是被路过的一层（材料已出现平台侧管控的接入计划）",
+                "那些被归类为 agent 的激进请求，其来源与主体性材料没有说清，用它们论证产品方向存在误判风险。"
+              ],
+              "counterpoint_evidence_ids": [
+                "f30"
+              ],
+              "has_reasoning": true,
+              "risk": "如果厂商与云平台把 agent 运行管控内建进自己的企业套件，独立网关的安全能力会被平台吞掉，卖点重新回到接入便利性。",
+              "confidence": 0.6388,
+              "viewpoint_score": 74.16,
+              "stance": "moderate",
+              "stance_declared": "moderate",
+              "max_stance": "moderate",
+              "claim_scope": "segment",
+              "evidence_scope": "segment",
+              "scope_exceeds_evidence": false,
+              "scope_declared_missing": false,
+              "has_assessment": true,
+              "assessment": {
+                "evidence_support": 0.7177,
+                "evidence_support_raw": 0.7177,
+                "source_diversity": 0.5667,
+                "counterpoint_awareness": 0.675,
+                "unknown_pressure": 0.5,
+                "specificity": 0.7,
+                "novelty": 1.0,
+                "newness_contribution": 1.0,
+                "confidence_raw": 0.6388,
+                "viewpoint_score_raw": 74.16,
+                "bound_facts": 6,
+                "total_facts": 31,
+                "bound_sources": 2,
+                "bound_authors": 2,
+                "missing_author_sources": 0,
+                "declared_counterpoints": 2,
+                "bound_counterpoints": 1,
+                "total_materials": 14,
+                "unreferenced_materials": 0,
+                "breadth_markers": [],
+                "originality_claim": false,
+                "restates_fact": false,
+                "duplicate_group": ""
+              }
+            },
+            {
+              "angle_id": "a4",
+              "claim": "订阅额度复用工具不是在省钱，而是在替厂商补做它们还没建立的『按 agent 计费』，它的天花板由计费口径而不是技术决定。",
+              "evidence_ids": [
+                "f1",
+                "f2",
+                "f10",
+                "f11",
+                "f30"
+              ],
+              "counterpoints": [
+                "这只是把已经付过钱的额度用满，厂商本来就按额度封顶计费，谈不上套利",
+                "厂商可以在条款层面直接封禁这类统一接入工具，工具的存续不取决于计费口径是否改变。"
+              ],
+              "counterpoint_evidence_ids": [
+                "f1"
+              ],
+              "has_reasoning": true,
+              "risk": "如果厂商长期维持按席位订阅、对 agent 消耗不加区分，复用额度就是稳定收益而不是套利窗口；合规口径也完全未在材料中出现，判断成立条件依赖厂商条款。",
+              "confidence": 0.7051,
+              "viewpoint_score": 73.4,
+              "stance": "moderate",
+              "stance_declared": "moderate",
+              "max_stance": "moderate",
+              "claim_scope": "segment",
+              "evidence_scope": "industry",
+              "scope_exceeds_evidence": false,
+              "scope_declared_missing": false,
+              "has_assessment": true,
+              "assessment": {
+                "evidence_support": 0.7065,
+                "evidence_support_raw": 0.7065,
+                "source_diversity": 0.85,
+                "counterpoint_awareness": 0.675,
+                "unknown_pressure": 0.5,
+                "specificity": 0.4667,
+                "novelty": 1.0,
+                "newness_contribution": 1.0,
+                "confidence_raw": 0.7051,
+                "viewpoint_score_raw": 73.4,
+                "bound_facts": 5,
+                "total_facts": 31,
+                "bound_sources": 3,
+                "bound_authors": 3,
+                "missing_author_sources": 0,
+                "declared_counterpoints": 2,
+                "bound_counterpoints": 1,
+                "total_materials": 14,
+                "unreferenced_materials": 0,
+                "breadth_markers": [],
+                "originality_claim": false,
+                "restates_fact": false,
+                "duplicate_group": ""
+              }
+            },
+            {
+              "angle_id": "a5",
+              "claim": "智能体商业化的议程主导权正在从模型公司移到支付与清算一侧——先被解决的是钱怎么走、出了事谁担责，而不是模型有多聪明。",
+              "evidence_ids": [
+                "f3",
+                "f4",
+                "f5"
+              ],
+              "counterpoints": [
+                "合办方名单只反映赞助与营销布局，议题主导权仍在主办方和模型公司手里",
+                "材料只给出了圆桌议题的存在，没有任何一方的立场或结论可作为依据。"
+              ],
+              "counterpoint_evidence_ids": [
+                "f3",
+                "f5"
+              ],
+              "has_reasoning": true,
+              "risk": "合办方可能只是赞助与市场动作，议程仍由主办方与模型公司主导；那样这条判断就只是对一份名单的过度解读。",
+              "confidence": 0.4,
+              "viewpoint_score": 47.75,
+              "stance": "cautious",
+              "stance_declared": "cautious",
+              "max_stance": "cautious",
+              "claim_scope": "segment",
+              "evidence_scope": "case",
+              "scope_exceeds_evidence": true,
+              "scope_declared_missing": false,
+              "has_assessment": true,
+              "assessment": {
+                "evidence_support": 0.45,
+                "evidence_support_raw": 0.5214,
+                "source_diversity": 0.2833,
+                "counterpoint_awareness": 1.0,
+                "unknown_pressure": 0.5,
+                "specificity": 0.0,
+                "novelty": 1.0,
+                "newness_contribution": 0.75,
+                "confidence_raw": 0.5258,
+                "viewpoint_score_raw": 47.75,
+                "bound_facts": 3,
+                "total_facts": 31,
+                "bound_sources": 1,
+                "bound_authors": 1,
+                "missing_author_sources": 0,
+                "declared_counterpoints": 2,
+                "bound_counterpoints": 2,
+                "total_materials": 14,
+                "unreferenced_materials": 0,
+                "breadth_markers": [],
+                "originality_claim": false,
+                "restates_fact": false,
+                "duplicate_group": ""
+              }
+            }
+          ],
+          "selected_angle_id": "a1",
+          "selected_claim": "给 agent 发独立身份，会把『模型有没有意识』从内部伦理讨论推成外部合规问题——因为授予身份等于先默认它是某种主体。",
+          "actions": [
+            "discover_topics",
+            "select_topic",
+            "extract_evidence",
+            "generate_angles",
+            "deepen_research",
+            "select_angle",
+            "generate_candidates",
+            "criticize",
+            "finish"
+          ],
+          "steps": 9,
+          "finish_reason": "最近一次评审已聚焦 c1 并给出 accept(9.0)，三条候选 c1/c2/c3 均为 accept（9.0/8.5/8.4），观点 a1 已绑定 4 条证据、3 条来源与 2 条反方；规则明确 Critic 已 accept 就不应再改稿或重复评价，剩余预算应用于交付，因此直接收尾交护栏与人工审核。",
+          "has_draft": true,
+          "guardrail_passed": true
+        },
+        {
+          "label": "conflict",
+          "goal": "帮我找一个最近中文科技圈在吵的 AI Agent 话题。有人夸也有人骂，双方都举得出具体例子。",
+          "run_id": "9a6af129-f485-4925-a555-0a9d75bb2dc8",
+          "interrupted": true,
+          "db_status": "running",
+          "pack": {
+            "facts": 26,
+            "sources": 14,
+            "consensus": 5,
+            "counterpoints": 4,
+            "unknowns": 8
+          },
+          "topic": "把 AI 订阅额度榨干：CliProxyAPI 与模型路由、AI 网关",
+          "angles": [
+            {
+              "angle_id": "a1",
+              "claim": "CliProxyAPI 被夸成神器、agent 被骂成入侵，这两种评价指向的是同一种无人值守的批量调用，分野只在被调用的资源属于自己还是属于别人。",
+              "evidence_ids": [
+                "f7",
+                "f14",
+                "f15",
+                "f16"
+              ],
+              "counterpoints": [
+                "两者不可类比：把订阅额度用到极致是使用者复用自己付费买来的配额，而对政府站点发起二十余万次请求是未经授权的第三方访问，并称二者会模糊入侵与合法自动化的边界。"
+              ],
+              "counterpoint_evidence_ids": [
+                "f7",
+                "f15"
+              ],
+              "has_reasoning": true,
+              "risk": "如果 Transluce 记录的那些请求来自受控安全测试而非自主 agent 的自发行为，'同一种行为'的类比就站不住。",
+              "confidence": 0.6982,
+              "viewpoint_score": 73.95,
+              "stance": "moderate",
+              "stance_declared": "moderate",
+              "max_stance": "moderate",
+              "claim_scope": "segment",
+              "evidence_scope": "segment",
+              "scope_exceeds_evidence": false,
+              "scope_declared_missing": false,
+              "has_assessment": true,
+              "assessment": {
+                "evidence_support": 0.7038,
+                "evidence_support_raw": 0.7038,
+                "source_diversity": 0.5667,
+                "counterpoint_awareness": 1.0,
+                "unknown_pressure": 0.5,
+                "specificity": 0.4667,
+                "novelty": 1.0,
+                "newness_contribution": 1.0,
+                "confidence_raw": 0.6982,
+                "viewpoint_score_raw": 73.95,
+                "bound_facts": 4,
+                "total_facts": 26,
+                "bound_sources": 2,
+                "bound_authors": 2,
+                "missing_author_sources": 0,
+                "declared_counterpoints": 1,
+                "bound_counterpoints": 2,
+                "total_materials": 14,
+                "unreferenced_materials": 0,
+                "breadth_markers": [],
+                "originality_claim": false,
+                "restates_fact": false,
+                "duplicate_group": ""
+              }
+            },
+            {
+              "angle_id": "a2",
+              "claim": "模型路由和 AI 网关不会停在省额度这一层，它会被推成 agent 的身份与配额闸门。",
+              "evidence_ids": [
+                "f2",
+                "f7",
+                "f8",
+                "f20",
+                "f22",
+                "f26"
+              ],
+              "counterpoints": [
+                "控制权本来就在模型厂商手里：企业版 agent 的独立身份和权限由厂商授予，第三方网关只是转接层，谈不上成为闸门。"
+              ],
+              "counterpoint_evidence_ids": [
+                "f26"
+              ],
+              "has_reasoning": true,
+              "risk": "如果厂商把身份与配额能力直接做进自家控制台，第三方网关会被压成纯粹的协议转换壳，功能边界的迁移就不会发生。",
+              "confidence": 0.7173,
+              "viewpoint_score": 73.76,
+              "stance": "cautious",
+              "stance_declared": "cautious",
+              "max_stance": "moderate",
+              "claim_scope": "segment",
+              "evidence_scope": "industry",
+              "scope_exceeds_evidence": false,
+              "scope_declared_missing": false,
+              "has_assessment": true,
+              "assessment": {
+                "evidence_support": 0.7308,
+                "evidence_support_raw": 0.7308,
+                "source_diversity": 1.0,
+                "counterpoint_awareness": 0.5,
+                "unknown_pressure": 0.5,
+                "specificity": 0.4667,
+                "novelty": 1.0,
+                "newness_contribution": 1.0,
+                "confidence_raw": 0.7173,
+                "viewpoint_score_raw": 73.76,
+                "bound_facts": 6,
+                "total_facts": 26,
+                "bound_sources": 5,
+                "bound_authors": 5,
+                "missing_author_sources": 0,
+                "declared_counterpoints": 1,
+                "bound_counterpoints": 1,
+                "total_materials": 14,
+                "unreferenced_materials": 0,
+                "breadth_markers": [],
+                "originality_claim": false,
+                "restates_fact": false,
+                "duplicate_group": ""
+              }
+            },
+            {
+              "angle_id": "a3",
+              "claim": "订阅制按人头卖、agent 按身份算，两者对不齐，所以'把额度榨干'这条路会被压成一个有时限的窗口期，而不是长期商业模式。",
+              "evidence_ids": [
+                "f2",
+                "f7",
+                "f22",
+                "f26"
+              ],
+              "counterpoints": [
+                "订阅复用未必会消失：材料同时显示 Workbuddy、Hermes、DeepSeek Harness 这类后端接起来越来越方便，说明按订阅额度复用的做法正在被工具链固化，而不是被淘汰。"
+              ],
+              "counterpoint_evidence_ids": [
+                "f8"
+              ],
+              "has_reasoning": true,
+              "risk": "如果厂商长期不按 agent 身份计价、继续以席位制销售，窗口就不会关闭，这个判断落空。",
+              "confidence": 0.7065,
+              "viewpoint_score": 68.28,
+              "stance": "moderate",
+              "stance_declared": "moderate",
+              "max_stance": "moderate",
+              "claim_scope": "segment",
+              "evidence_scope": "industry",
+              "scope_exceeds_evidence": false,
+              "scope_declared_missing": false,
+              "has_assessment": true,
+              "assessment": {
+                "evidence_support": 0.7038,
+                "evidence_support_raw": 0.7038,
+                "source_diversity": 1.0,
+                "counterpoint_awareness": 0.5,
+                "unknown_pressure": 0.5,
+                "specificity": 0.2333,
+                "novelty": 1.0,
+                "newness_contribution": 1.0,
+                "confidence_raw": 0.7065,
+                "viewpoint_score_raw": 68.28,
+                "bound_facts": 4,
+                "total_facts": 26,
+                "bound_sources": 4,
+                "bound_authors": 4,
+                "missing_author_sources": 0,
+                "declared_counterpoints": 1,
+                "bound_counterpoints": 1,
+                "total_materials": 14,
+                "unreferenced_materials": 0,
+                "breadth_markers": [],
+                "originality_claim": false,
+                "restates_fact": false,
+                "duplicate_group": ""
+              }
+            },
+            {
+              "angle_id": "a4",
+              "claim": "沙箱只能收窄 agent 的活动半径，收不回它已经打出去的请求，所以它解决的是施加方的风险，不是被访问方的损失。",
+              "evidence_ids": [
+                "f2",
+                "f14",
+                "f15",
+                "f16"
+              ],
+              "counterpoints": [
+                "沙箱与可问责身份是先后关系而非替代关系：不先把 agent 放进可控环境，就给它的行为绑定身份和权限，等于让一个有名有姓的主体继续无边界行动。"
+              ],
+              "counterpoint_evidence_ids": [
+                "f16"
+              ],
+              "has_reasoning": true,
+              "risk": "如果沙箱本来就是责任分配的前置条件——先限制爆炸半径、再绑定身份与权限——那么把它说成责任转移就是伪二选一。",
+              "confidence": 0.5982,
+              "viewpoint_score": 61.78,
+              "stance": "moderate",
+              "stance_declared": "moderate",
+              "max_stance": "moderate",
+              "claim_scope": "segment",
+              "evidence_scope": "segment",
+              "scope_exceeds_evidence": false,
+              "scope_declared_missing": false,
+              "has_assessment": true,
+              "assessment": {
+                "evidence_support": 0.7038,
+                "evidence_support_raw": 0.7038,
+                "source_diversity": 0.5667,
+                "counterpoint_awareness": 0.5,
+                "unknown_pressure": 0.5,
+                "specificity": 0.2333,
+                "novelty": 1.0,
+                "newness_contribution": 1.0,
+                "confidence_raw": 0.5982,
+                "viewpoint_score_raw": 61.78,
+                "bound_facts": 4,
+                "total_facts": 26,
+                "bound_sources": 2,
+                "bound_authors": 2,
+                "missing_author_sources": 0,
+                "declared_counterpoints": 1,
+                "bound_counterpoints": 1,
+                "total_materials": 14,
+                "unreferenced_materials": 0,
+                "breadth_markers": [],
+                "originality_claim": false,
+                "restates_fact": false,
+                "duplicate_group": ""
+              }
+            }
+          ],
+          "selected_angle_id": "a1",
+          "selected_claim": "CliProxyAPI 被夸成神器、agent 被骂成入侵，这两种评价指向的是同一种无人值守的批量调用，分野只在被调用的资源属于自己还是属于别人。",
+          "actions": [
+            "discover_topics",
+            "select_topic",
+            "extract_evidence",
+            "generate_angles",
+            "deepen_research",
+            "select_angle",
+            "generate_candidates",
+            "criticize",
+            "finish"
+          ],
+          "steps": 9,
+          "finish_reason": "Critic 已对 c1(8.1)/c2(8.3)/c3(8.6) 全部给出 accept，c3 分最高且聚焦评审通过；按规则 accept 后不再改稿或重复评价，且针对 a2 的反方补检索已返回 0 条、材料无新空白可补，剩余预算应用于收尾，把候选正文交给护栏与人工审核。",
+          "has_draft": true,
+          "guardrail_passed": false
+        },
+        {
+          "label": "thin",
+          "goal": "帮我找一个冷门的 AI Agent 话题。某个小众工具的一个很具体的细节，最近几乎没人在讨论。",
+          "run_id": "267e795d-9237-4c44-b14f-c798f820f1a2",
+          "interrupted": true,
+          "db_status": "running",
+          "pack": {
+            "facts": 19,
+            "sources": 11,
+            "consensus": 1,
+            "counterpoints": 4,
+            "unknowns": 7
+          },
+          "topic": "（材料只有链接，没有可归纳的正文）",
+          "angles": [
+            {
+              "angle_id": "a1",
+              "claim": "wx-cli 把「我收藏了」升级成「Agent 随时能查到」，让「收藏即学会」的错觉从静态变成动态、更难自证；在这里可检索性的提升不是内化的辅助，而是内化的替代品。",
+              "evidence_ids": [
+                "f2",
+                "f3",
+                "f4",
+                "f6",
+                "f7"
+              ],
+              "counterpoints": [
+                "让笔记库为 agent 和自己的创作提供养分本身就是内化的新路径：能被 agent 调用意味着知识被结构化了，而结构化就是理解的一部分。",
+                "收藏不等于学会的问题出在「不整理」，出解决方案是整理知识、建立联系；Agent 恰好是强制整理的手段，所以它治的正是这个病。"
+              ],
+              "counterpoint_evidence_ids": [
+                "f6",
+                "f7"
+              ],
+              "has_reasoning": true,
+              "risk": "如果检索本身确实能促成理解——比如每次查询都在重建上下文联系——那么可检索性就是内化的一种形式，这条判断会被推翻。另外，把「怕错过」直接等同于「以不漏为满足」是一次解释性跳跃，未必每个使用者都如此。",
+              "confidence": 0.7135,
+              "viewpoint_score": 79.76,
+              "stance": "moderate",
+              "stance_declared": "moderate",
+              "max_stance": "moderate",
+              "claim_scope": "segment",
+              "evidence_scope": "segment",
+              "scope_exceeds_evidence": false,
+              "scope_declared_missing": false,
+              "has_assessment": true,
+              "assessment": {
+                "evidence_support": 0.7421,
+                "evidence_support_raw": 0.7421,
+                "source_diversity": 0.5667,
+                "counterpoint_awareness": 1.0,
+                "unknown_pressure": 0.5,
+                "specificity": 0.7,
+                "novelty": 1.0,
+                "newness_contribution": 1.0,
+                "confidence_raw": 0.7135,
+                "viewpoint_score_raw": 79.76,
+                "bound_facts": 5,
+                "total_facts": 19,
+                "bound_sources": 2,
+                "bound_authors": 2,
+                "missing_author_sources": 0,
+                "declared_counterpoints": 2,
+                "bound_counterpoints": 2,
+                "total_materials": 6,
+                "unreferenced_materials": 0,
+                "breadth_markers": [],
+                "originality_claim": false,
+                "restates_fact": false,
+                "duplicate_group": ""
+              }
+            },
+            {
+              "angle_id": "a2",
+              "claim": "wx-cli 真正在做的事不是「整理群聊」，而是把 Agent 的可用上下文从公开语料换成你的私人社交史；多数人讨论它时把最关键的那层——数据接口与授权——当成了用例层。",
+              "evidence_ids": [
+                "f1",
+                "f2",
+                "f4",
+                "f6",
+                "f7"
+              ],
+              "counterpoints": [
+                "把它接上 Agent 的动机本来就只是省时间：群太多、没时间一条条看，怕错过技术讨论和工具分享——这是注意力问题，不是数据接口问题，用不着上升到「接口层稀缺」。",
+                "笔记库那一路的经验说明，让 agent 读私人载体是一种已经被接受的做法，谈不上需要重新理解 wx-cli 的定位。"
+              ],
+              "counterpoint_evidence_ids": [
+                "f4",
+                "f7"
+              ],
+              "has_reasoning": true,
+              "risk": "如果微信客户端本身就提供了官方导出或检索能力，或者模型侧出现了不需要原始数据库就能理解聊天语义的方案，那么「数据接口」这个稀缺性就不成立，wx-cli 会退回到一个便利脚本的位置。",
+              "confidence": 0.7135,
+              "viewpoint_score": 79.76,
+              "stance": "moderate",
+              "stance_declared": "moderate",
+              "max_stance": "moderate",
+              "claim_scope": "segment",
+              "evidence_scope": "segment",
+              "scope_exceeds_evidence": false,
+              "scope_declared_missing": false,
+              "has_assessment": true,
+              "assessment": {
+                "evidence_support": 0.7421,
+                "evidence_support_raw": 0.7421,
+                "source_diversity": 0.5667,
+                "counterpoint_awareness": 1.0,
+                "unknown_pressure": 0.5,
+                "specificity": 0.7,
+                "novelty": 1.0,
+                "newness_contribution": 1.0,
+                "confidence_raw": 0.7135,
+                "viewpoint_score_raw": 79.76,
+                "bound_facts": 5,
+                "total_facts": 19,
+                "bound_sources": 2,
+                "bound_authors": 2,
+                "missing_author_sources": 0,
+                "declared_counterpoints": 2,
+                "bound_counterpoints": 2,
+                "total_materials": 6,
+                "unreferenced_materials": 0,
+                "breadth_markers": [],
+                "originality_claim": false,
+                "restates_fact": false,
+                "duplicate_group": ""
+              }
+            },
+            {
+              "angle_id": "a3",
+              "claim": "wx-cli 没被讨论不是因为被忽略，而是因为它是前置条件型工具：你得先接受「让 Agent 读我的私人数据」，它才有意义，所以它永远比自己服务的上层话题晚一步进入讨论。",
+              "evidence_ids": [
+                "f1",
+                "f2",
+                "f3",
+                "f7"
+              ],
+              "counterpoints": [
+                "最近有不少人在折腾微信聊天记录、想用 AI 把群聊里的重要信息整理出来，说明这类需求不冷门，只是你没看到讨论而已。",
+                "让笔记库为 agent 提供养分这种说法已经在流传，说明「把私人载体交给 Agent」这个前提已经有人在公开接受。"
+              ],
+              "counterpoint_evidence_ids": [
+                "f3",
+                "f7"
+              ],
+              "has_reasoning": true,
+              "risk": "如果实际数据表明它讨论量并不低，或者它的用户增长很快，那么「结构性滞后」就只是一个没被验证的解释，冷门的成因可能只是发布时间、分发渠道或语言圈子的问题。",
+              "confidence": 0.7062,
+              "viewpoint_score": 79.21,
+              "stance": "cautious",
+              "stance_declared": "cautious",
+              "max_stance": "moderate",
+              "claim_scope": "case",
+              "evidence_scope": "segment",
+              "scope_exceeds_evidence": false,
+              "scope_declared_missing": false,
+              "has_assessment": true,
+              "assessment": {
+                "evidence_support": 0.7237,
+                "evidence_support_raw": 0.7237,
+                "source_diversity": 0.5667,
+                "counterpoint_awareness": 1.0,
+                "unknown_pressure": 0.5,
+                "specificity": 0.7,
+                "novelty": 1.0,
+                "newness_contribution": 1.0,
+                "confidence_raw": 0.7062,
+                "viewpoint_score_raw": 79.21,
+                "bound_facts": 4,
+                "total_facts": 19,
+                "bound_sources": 2,
+                "bound_authors": 2,
+                "missing_author_sources": 0,
+                "declared_counterpoints": 2,
+                "bound_counterpoints": 2,
+                "total_materials": 6,
+                "unreferenced_materials": 0,
+                "breadth_markers": [
+                  "永远"
+                ],
+                "originality_claim": false,
+                "restates_fact": false,
+                "duplicate_group": ""
+              }
+            },
+            {
+              "angle_id": "a4",
+              "claim": "Agent 代读群聊省下的不是时间而是判断力的养成过程：它把新手本该在噪音里做的筛选整体外包出去，代价是资历形成期被压得更短，而不是被更快通过。",
+              "evidence_ids": [
+                "f2",
+                "f4",
+                "f5",
+                "f12",
+                "f14"
+              ],
+              "counterpoints": [
+                "把噪音筛掉恰恰是「自己探索」的前提：被动喂来的东西符合别人利益，自己探索才符合自身利益，Agent 代读是拿回时间去做真正属于自己的探索。",
+                "被动接收被喂的内容掐断成长这种批评，针对的是别人替你选内容；用自己写的 prompt 去筛自己的群，主体仍然是自己，性质不同。"
+              ],
+              "counterpoint_evidence_ids": [
+                "f12",
+                "f14"
+              ],
+              "has_reasoning": true,
+              "risk": "如果被外包的只是噪音筛选，而人把省下的时间投入到更难的判断上，那么这反而是判断力的加速器，代价并不存在。此外 f5、f12、f14 都只是观点式描述，没有可核对的细节，整条推理链条的起点本身较薄。",
+              "confidence": 0.7843,
+              "viewpoint_score": 74.68,
+              "stance": "cautious",
+              "stance_declared": "cautious",
+              "max_stance": "strong",
+              "claim_scope": "segment",
+              "evidence_scope": "industry",
+              "scope_exceeds_evidence": false,
+              "scope_declared_missing": false,
+              "has_assessment": true,
+              "assessment": {
+                "evidence_support": 0.7421,
+                "evidence_support_raw": 0.7421,
+                "source_diversity": 0.85,
+                "counterpoint_awareness": 1.0,
+                "unknown_pressure": 0.5,
+                "specificity": 0.2333,
+                "novelty": 1.0,
+                "newness_contribution": 1.0,
+                "confidence_raw": 0.7843,
+                "viewpoint_score_raw": 74.68,
+                "bound_facts": 5,
+                "total_facts": 19,
+                "bound_sources": 3,
+                "bound_authors": 3,
+                "missing_author_sources": 0,
+                "declared_counterpoints": 2,
+                "bound_counterpoints": 2,
+                "total_materials": 6,
+                "unreferenced_materials": 0,
+                "breadth_markers": [],
+                "originality_claim": false,
+                "restates_fact": false,
+                "duplicate_group": ""
+              }
+            }
+          ],
+          "selected_angle_id": "a2",
+          "selected_claim": "wx-cli 真正在做的事不是「整理群聊」，而是把 Agent 的可用上下文从公开语料换成你的私人社交史；多数人讨论它时把最关键的那层——数据接口与授权——当成了用例层。",
+          "actions": [
+            "discover_topics",
+            "research_topic",
+            "extract_evidence",
+            "generate_angles",
+            "deepen_research",
+            "select_angle",
+            "generate_candidates",
+            "criticize",
+            "finish"
+          ],
+          "steps": 9,
+          "finish_reason": "最近一次评审已对 c1/c2/c3 全部给出 accept（c2 聚焦 8.6 分），按规则 Critic 已 accept 就不应再改稿或重评；上一轮换检索词补反方追加 0 条材料也说明语料已无新内容，剩余 1 次检索与 2 次改稿继续投入边际收益极低。此刻唯一该做的是把手上的候选正文（以 c2 为主）交给护栏与人工审核。",
+          "has_draft": true,
+          "guardrail_passed": true
+        }
+      ],
+      "failed_runs": {},
+      "x_requests": {
+        "total": 7,
+        "by_method": {
+          "GET": 7
+        },
+        "by_endpoint": {
+          "GET /2/tweets/search/recent": 7
+        },
+        "queries": [
+          "AI Agent 智能体 小众工具 细节 讨论",
+          "AI Agent 智能体 讨论",
+          "AI Agent 独立身份 合规 监管 争议",
+          "AI 网关 模型路由 限流 封号 风险",
+          "Agent 读取私人聊天记录 隐私 授权 反对 质疑",
+          "帮我找一个冷门的 AI Agent 话题。某个小众工具的一个很具体的细节，最近几乎没人在讨论。"
+        ]
+      }
     }
   ]
 }
