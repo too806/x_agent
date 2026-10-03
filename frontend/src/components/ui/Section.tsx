@@ -62,6 +62,37 @@ export function DetailSection({
   )
 }
 
+/**
+ * 把若干个 `DetailSection` 收在一层分区标题下。
+ *
+ * Run 详情的抽屉有十几个区块叠在一起，从头滚到尾看不见"哪里是一段"。加了这一层
+ * 之后，滚动条上出现四个明确的路标：Agent 过程 / 输入与反馈 / 产出与发布 /
+ * 运行信息 —— 想核对"为什么这篇稿子长这样"的人可以直奔第二层，不用先扫过
+ * 十几行他不关心的字段。
+ *
+ * **只加标题，不搬动任何区块。** 区块之间的先后顺序是它们各自留下的注释反复
+ * 论证过的结果（比如"反馈两块必须按时间顺序排"），这一层不参与那个决定。
+ */
+export function DetailGroup({
+  title,
+  hint,
+  children,
+}: {
+  title: string
+  hint?: ReactNode
+  children: ReactNode
+}) {
+  return (
+    <section className="detail-group">
+      <div className="detail-group__head">
+        <h2 className="detail-group__title">{title}</h2>
+        {hint ? <span className="detail-group__hint">{hint}</span> : null}
+      </div>
+      {children}
+    </section>
+  )
+}
+
 /** 一个"标签 + 值"。空值不要传 `null` 进来——由调用方决定显示什么。 */
 export function Field({ label, children }: { label: string; children: ReactNode }) {
   return (

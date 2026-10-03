@@ -10,7 +10,7 @@ import { StatusBadge } from './StatusBadge'
 import { CopyButton } from './ui/CopyButton'
 import { LifecycleTimeline } from './ui/LifecycleTimeline'
 import { ResearchList } from './ui/ResearchList'
-import { DetailSection, Field, FieldGrid } from './ui/Section'
+import { DetailGroup, DetailSection, Field, FieldGrid } from './ui/Section'
 import { TraceTimeline } from './ui/TraceTimeline'
 import { IconExternal } from './ui/icons'
 import {
@@ -889,150 +889,157 @@ export function DetailBody({ detail, onSettled }: { detail: AdminRunDetail; onSe
         </div>
       ) : null}
 
-      <DetailSection title="生命周期" hint="每一步都按它自己留下的记录判断">
-        <LifecycleTimeline steps={lifecycle} />
-      </DetailSection>
+      {/* 三层分区只是给这条长滚动加路标，**区块本身一个都没有搬动**。 */}
+      <DetailGroup title="Agent 过程" hint="Agent 怎么走到这里的">
+        <DetailSection title="生命周期" hint="每一步都按它自己留下的记录判断">
+          <LifecycleTimeline steps={lifecycle} />
+        </DetailSection>
 
-      <AgentTraceSection detail={detail} />
+        <AgentTraceSection detail={detail} />
 
-      <AgentQualitySection detail={detail} />
+        <AgentQualitySection detail={detail} />
 
-      {/* 判断在写作结构之前：这一轮**说什么**决定它怎么说，不是反过来。
-          与 `quality` 同一门控（非 Agent 运行返回 null，整段不出现）。 */}
-      <ViewpointSection detail={detail} />
+        {/* 判断在写作结构之前：这一轮**说什么**决定它怎么说，不是反过来。
+            与 `quality` 同一门控（非 Agent 运行返回 null，整段不出现）。 */}
+        <ViewpointSection detail={detail} />
 
-      <StyleSection detail={detail} />
+        <StyleSection detail={detail} />
+      </DetailGroup>
 
-      {/* 反馈两块排在一起，且**按时间顺序**排：
-          先"这次运行当时读到了什么"（它是这次决策的输入），
-          再"这条帖子后来怎么样"（它是这次决策的结果）。
-          反过来摆，读的人会以为 Agent 当时就知道后面的数。 */}
-      <FeedbackSection detail={detail} />
+      <DetailGroup title="输入与反馈" hint="这次运行读到什么、结果如何">
+        {/* 反馈两块排在一起，且**按时间顺序**排：
+            先"这次运行当时读到了什么"（它是这次决策的输入），
+            再"这条帖子后来怎么样"（它是这次决策的结果）。
+            反过来摆，读的人会以为 Agent 当时就知道后面的数。 */}
+        <FeedbackSection detail={detail} />
 
-      <PerformanceSection detail={detail} />
+        <PerformanceSection detail={detail} />
 
-      {/* 学习准备度紧跟在"这条帖子后来怎么样"之后：那是**一条帖子**的结果，
-          这一块是**全账号**的可靠性判断。门控与 `PerformanceSection` 相同
-          （没真的发出去的 Run 不谈"这些数据够不够格"——它连数据都还没有）。 */}
-      {detail.publish?.x_post_id ? <LearningReadinessSection /> : null}
+        {/* 学习准备度紧跟在"这条帖子后来怎么样"之后：那是**一条帖子**的结果，
+            这一块是**全账号**的可靠性判断。门控与 `PerformanceSection` 相同
+            （没真的发出去的 Run 不谈"这些数据够不够格"——它连数据都还没有）。 */}
+        {detail.publish?.x_post_id ? <LearningReadinessSection /> : null}
+      </DetailGroup>
 
-      <DetailSection
-        title="研究素材"
-        hint={detail.research_items.length ? `${detail.research_items.length} 条` : undefined}
-      >
-        <ResearchList items={detail.research_items} initialVisible={3} />
-      </DetailSection>
+      <DetailGroup title="产出与发布" hint="写了什么、检查了什么、发出去了没有">
+        <DetailSection
+          title="研究素材"
+          hint={detail.research_items.length ? `${detail.research_items.length} 条` : undefined}
+        >
+          <ResearchList items={detail.research_items} initialVisible={3} />
+        </DetailSection>
 
-      <DetailSection title="内容">
-        <div className="stack stack--tight">
-          <div>
-            <div className="meta__label">
-              最终内容 <span className="cell-muted">（来自 checkpoint）</span>
-            </div>
-            <div className="body-block">{detail.final_content ?? EMPTY}</div>
-          </div>
-
-          {review ? (
-            <div>
-              <div className="meta__label row row--tight">
-                人工决定
-                <StatusBadge status={review.action} kind="review" />
-                <span className="cell-muted">{dateTime(review.reviewed_at)}</span>
-              </div>
-              <div className="meta__label body-label">原始内容（Agent 写的，未改动）</div>
-              {/* 两块正文必须长得不一样：上面这块是存档，下面那块才是会发出去的。
-                  同一种样式会让人分不清自己正在读哪一份。 */}
-              <div className="body-block body-block--readonly">{review.original_content}</div>
-              {review.edited_content !== null ? (
-                <>
-                  <div className="meta__label body-label">
-                    编辑后的内容
-                    {review.action === 'edit' ? '（这条才是实际发布的）' : ''}
-                  </div>
-                  <div className="body-block">{review.edited_content}</div>
-                </>
-              ) : null}
-              {review.reject_reason ? (
-                <>
-                  <div className="meta__label body-label">拒绝原因</div>
-                  <div className="body-block">{review.reject_reason}</div>
-                </>
-              ) : null}
-            </div>
-          ) : (
-            <div className="cell-muted">这个 Run 还没有人工决定记录。</div>
-          )}
-
-          {draft ? (
+        <DetailSection title="内容">
+          <div className="stack stack--tight">
             <div>
               <div className="meta__label">
-                草稿 v{draft.version} · {draftStatusLabel(draft.status)}
-                {draft.model_name ? ` · ${draft.model_name}` : ''}
-                {draft.prompt_version ? ` · 提示词 ${draft.prompt_version}` : ''}
-                {draft.generated_at ? ` · ${dateTime(draft.generated_at)}` : ''}
+                最终内容 <span className="cell-muted">（来自 checkpoint）</span>
               </div>
-              <div className="body-block">{draft.content}</div>
+              <div className="body-block">{detail.final_content ?? EMPTY}</div>
             </div>
-          ) : (
-            <div className="cell-muted">这个 Run 没有存下草稿。</div>
-          )}
-        </div>
-      </DetailSection>
 
-      <DetailSection title="规则检查" hint="来自 LangGraph checkpoint">
-        {detail.guardrail_passed === null ? (
-          <div className="notice">
-            规则检查结果无法从 checkpoint 读出。这<strong>不等于</strong>通过 —— checkpoint
-            要么不存在，要么没有带着这个 Run 的状态。
-          </div>
-        ) : detail.guardrail_passed ? (
-          <div className="notice notice--ok">规则检查通过。</div>
-        ) : (
-          <div className="notice notice--danger">
-            <div className="notice__title">规则检查未通过</div>
-            {detail.guardrail_reasons.length ? (
-              <ul className="reason-list">
-                {detail.guardrail_reasons.map((reason, index) => (
-                  <li key={index}>{reason}</li>
-                ))}
-              </ul>
+            {review ? (
+              <div>
+                <div className="meta__label row row--tight">
+                  人工决定
+                  <StatusBadge status={review.action} kind="review" />
+                  <span className="cell-muted">{dateTime(review.reviewed_at)}</span>
+                </div>
+                <div className="meta__label body-label">原始内容（Agent 写的，未改动）</div>
+                {/* 两块正文必须长得不一样：上面这块是存档，下面那块才是会发出去的。
+                    同一种样式会让人分不清自己正在读哪一份。 */}
+                <div className="body-block body-block--readonly">{review.original_content}</div>
+                {review.edited_content !== null ? (
+                  <>
+                    <div className="meta__label body-label">
+                      编辑后的内容
+                      {review.action === 'edit' ? '（这条才是实际发布的）' : ''}
+                    </div>
+                    <div className="body-block">{review.edited_content}</div>
+                  </>
+                ) : null}
+                {review.reject_reason ? (
+                  <>
+                    <div className="meta__label body-label">拒绝原因</div>
+                    <div className="body-block">{review.reject_reason}</div>
+                  </>
+                ) : null}
+              </div>
             ) : (
-              <div>后端没有记录原因文本。</div>
+              <div className="cell-muted">这个 Run 还没有人工决定记录。</div>
+            )}
+
+            {draft ? (
+              <div>
+                <div className="meta__label">
+                  草稿 v{draft.version} · {draftStatusLabel(draft.status)}
+                  {draft.model_name ? ` · ${draft.model_name}` : ''}
+                  {draft.prompt_version ? ` · 提示词 ${draft.prompt_version}` : ''}
+                  {draft.generated_at ? ` · ${dateTime(draft.generated_at)}` : ''}
+                </div>
+                <div className="body-block">{draft.content}</div>
+              </div>
+            ) : (
+              <div className="cell-muted">这个 Run 没有存下草稿。</div>
             )}
           </div>
-        )}
-      </DetailSection>
+        </DetailSection>
 
-      <DetailSection title="发布">
-        {publish ? (
-          <PublishBlock publish={publish} />
-        ) : (
-          <div className="notice">
-            这个 Run <strong>没有发布记录</strong>，没有内容发到 X。上面的运行状态<strong>不能</strong>
-            当作发布结果来读。
-          </div>
-        )}
+        <DetailSection title="规则检查" hint="来自 LangGraph checkpoint">
+          {detail.guardrail_passed === null ? (
+            <div className="notice">
+              规则检查结果无法从 checkpoint 读出。这<strong>不等于</strong>通过 —— checkpoint
+              要么不存在，要么没有带着这个 Run 的状态。
+            </div>
+          ) : detail.guardrail_passed ? (
+            <div className="notice notice--ok">规则检查通过。</div>
+          ) : (
+            <div className="notice notice--danger">
+              <div className="notice__title">规则检查未通过</div>
+              {detail.guardrail_reasons.length ? (
+                <ul className="reason-list">
+                  {detail.guardrail_reasons.map((reason, index) => (
+                    <li key={index}>{reason}</li>
+                  ))}
+                </ul>
+              ) : (
+                <div>后端没有记录原因文本。</div>
+              )}
+            </div>
+          )}
+        </DetailSection>
 
-        {/* 发布入口只在**确实可以发布**时出现：Run 已通过审核（approved / edited），
-            且没有在途或结果未知的发布记录。
+        <DetailSection title="发布">
+          {publish ? (
+            <PublishBlock publish={publish} />
+          ) : (
+            <div className="notice">
+              这个 Run <strong>没有发布记录</strong>，没有内容发到 X。上面的运行状态<strong>不能</strong>
+              当作发布结果来读。
+            </div>
+          )}
 
-            publishing / publish_unknown 一律不给按钮 —— Phase 4a 的整个设计就是让这
-            两种状态只能由人在 X 上亲眼确认后裁决（去 Published 页），任何"再发一次"
-            的快捷方式都会绕过那道判断，直接变成重复推文。 */}
-        {canPublish ? (
-          <div className="detail-action">
-            <PublishControl runId={detail.run_id} body={publishableBody} onSettled={onSettled} />
-          </div>
-        ) : null}
+          {/* 发布入口只在**确实可以发布**时出现：Run 已通过审核（approved / edited），
+              且没有在途或结果未知的发布记录。
 
-        {isUnresolved(detail.publish_status) ? (
-          <div className="notice notice--unknown detail-action">
-            这个 Run 有一次<strong>结果未定的发布尝试</strong>。请先到 X 上确认账号，再到
-            <Link to="/published?status=__unresolved__">发布记录</Link>
-            页裁决 —— 这个抽屉不会代你发布。
-          </div>
-        ) : null}
-      </DetailSection>
+              publishing / publish_unknown 一律不给按钮 —— Phase 4a 的整个设计就是让这
+              两种状态只能由人在 X 上亲眼确认后裁决（去 Published 页），任何"再发一次"
+              的快捷方式都会绕过那道判断，直接变成重复推文。 */}
+          {canPublish ? (
+            <div className="detail-action">
+              <PublishControl runId={detail.run_id} body={publishableBody} onSettled={onSettled} />
+            </div>
+          ) : null}
+
+          {isUnresolved(detail.publish_status) ? (
+            <div className="notice notice--unknown detail-action">
+              这个 Run 有一次<strong>结果未定的发布尝试</strong>。请先到 X 上确认账号，再到
+              <Link to="/published?status=__unresolved__">发布记录</Link>
+              页裁决 —— 这个抽屉不会代你发布。
+            </div>
+          ) : null}
+        </DetailSection>
+      </DetailGroup>
 
       <DetailSection title="运行信息">
         <FieldGrid>

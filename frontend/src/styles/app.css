@@ -2594,6 +2594,39 @@ p.scope-note {
   border-top: 1px solid var(--border);
 }
 
+/* 抽屉里的分区路标（Agent 过程 / 输入与反馈 / 产出与发布）。
+   `.detail-section` 是 15px + 一条细线，这一层比它大一号并带底线——整条长滚动
+   里只出现三次，所以撑得住更重的层级。 */
+.detail-group {
+  margin-top: var(--space-6);
+}
+
+.detail-group__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border);
+}
+
+.detail-group__title {
+  font-size: var(--text-lg);
+}
+
+.detail-group__hint {
+  color: var(--text-faint);
+  font-size: var(--text-sm);
+}
+
+/* 分区标题下面紧跟的那个区块不要再画一条横线：两条线隔着一行标题并排出现，
+   看起来像空了一块内容。 */
+.detail-group > .detail-section:first-child {
+  margin-top: var(--space-3);
+  padding-top: 0;
+  border-top: none;
+}
+
 /* 护栏结论：只有"通过 / 未通过 / 读不到"三种，读不到必须看起来
    和另外两种都不一样——它是缺数据，不是结论。 */
 .guard {
