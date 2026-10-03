@@ -408,6 +408,106 @@ async def test_critic_tally_accumulates_across_rounds():
 
 
 # --------------------------------------------------------------------------
+# 长度遵从：字数必须**算好了**递进 prompt，不能指望模型自己数
+# --------------------------------------------------------------------------
+
+
+async def test_critic_prompt_carries_the_computed_length_of_each_candidate():
+    """Critic 必须拿到每条候选算好的字数，否则它判不了「超上限」。
+
+    这里盯的是一根**断过的线**：`critic.py` 很早就把 `MAX_LENGTH` 传进了
+    `render()`，但模板里当时没有这个占位符，而 `render()` 只替换模板里存在的键，
+    于是那个参数被静默丢弃——Critic 从头到尾不知道正文多少字。后果是真机上
+    `max_length=140` 写出了 188 字的稿子，而回路里没有任何一环会因此要求改稿。
+    """
+    cap = load_persona().max_length
+    candidates = [
+        Candidate(candidate_id="c1", label="直接观点", content="正文一"),
+        Candidate(candidate_id="c2", label="信息密集", content="字" * (cap + 48)),
+    ]
+    state = {
+        "run_id": "run-1",
+        "goal": "目标",
+        "candidates": candidates,
+        "writer_epoch": 1,
+        "critic_epoch": 0,
+        "evidence_pack": EvidencePack(facts=[EvidenceFact(fact="事实", source_ids=["s"])]),
+    }
+    llm = ScriptedLLMService(responses={"critic": critic_payload("accept")})
+    tool = make_critic_tool(llm, load_persona())
+
+    await tool(state, AgentDecision(action="criticize", reason="评"))
+
+    prompt = llm.calls[0]["prompt"]
+    # 超长那条带着差值，合规那条只报字数、不背"超出"的标签
+    assert f"，{cap + 48} 字，**超出上限 48 字**）" in prompt
+    assert "，3 字）" in prompt
+    assert prompt.count("超出上限") == 1
+    # 上限本身也进了 prompt（模板里原先 0 处提及）
+    assert f"**{cap} 个字符**" in prompt
+    assert "{{" not in prompt
+
+
+async def test_revise_prompt_states_how_many_characters_to_cut():
+    """改稿拿到的必须是**要砍多少**，不是一个绝对上限。
+
+    "写 ≤140 字"和"把 188 砍掉 48"是两个难度完全不同的任务：模型数不准中文字数，
+    后者它做得到。所以差值由 Python 算好写进 prompt。
+    """
+    cap = load_persona().max_length
+    over = "字" * (cap + 48)
+    state = {
+        "run_id": "run-1",
+        "goal": "目标",
+        "candidates": [Candidate(candidate_id="c1", label="直接观点", content=over)],
+        "critic_result": verdict("c1", "revise", 4.0),
+        "critic_results": [verdict("c1", "revise", 4.0)],
+        "evidence_pack": EvidencePack(facts=[EvidenceFact(fact="事实", source_ids=["s"])]),
+        "writer_epoch": 1,
+        "critic_epoch": 1,
+    }
+    llm = ScriptedLLMService(responses={"revise": revise_payload("改好的正文。")})
+    tool = make_revise_tool(llm, load_persona())
+
+    await tool(state, AgentDecision(action="revise", reason="改", target="c1"))
+
+    prompt = llm.calls[0]["prompt"]
+    assert f"原稿 {cap + 48} 字" in prompt
+    assert "砍掉至少 48 字" in prompt
+    # 砍长度的同时必须禁止用删事实来换长度
+    assert "不许删事实" in prompt
+    assert "{{" not in prompt
+
+
+async def test_revise_prompt_tells_a_compliant_draft_not_to_trim():
+    """已经合规的稿子，改稿提示要明确说"别动长度"。
+
+    少了这一句，模型会顺手把一条合规稿也压一遍——改稿这一步反而丢掉了内容。
+    """
+    cap = load_persona().max_length
+    state = {
+        "run_id": "run-1",
+        "goal": "目标",
+        "candidates": [Candidate(candidate_id="c1", label="直接观点", content="字" * (cap - 20))],
+        "critic_result": verdict("c1", "revise", 4.0),
+        "critic_results": [verdict("c1", "revise", 4.0)],
+        "evidence_pack": EvidencePack(facts=[EvidenceFact(fact="事实", source_ids=["s"])]),
+        "writer_epoch": 1,
+        "critic_epoch": 1,
+    }
+    llm = ScriptedLLMService(responses={"revise": revise_payload("改好的正文。")})
+    tool = make_revise_tool(llm, load_persona())
+
+    await tool(state, AgentDecision(action="revise", reason="改", target="c1"))
+
+    prompt = llm.calls[0]["prompt"]
+    assert f"原稿 {cap - 20} 字，已在 {cap} 字以内" in prompt
+    assert "不要为了长度删内容" in prompt
+    assert "砍掉至少" not in prompt
+    assert "{{" not in prompt
+
+
+# --------------------------------------------------------------------------
 # Phase 5B.3：观点由工具赋分、由工具编号
 # --------------------------------------------------------------------------
 
