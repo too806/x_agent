@@ -5,12 +5,14 @@ from sqlalchemy import select, text
 
 from app.main import Runtime
 from app.models import AgentRun, Draft, ResearchItem, Review
+from app.models.review import DECIDED_BY_AUTO, DECIDED_BY_HUMAN
 from app.repositories import (
     claim_run_for_review,
     create_agent_run,
     create_review,
     mark_run_waiting_for_review,
 )
+from app.services.review import resume_review
 from fakes import FakeLLMService
 from support import FlakyGraph, api_for, runtime_with_checkpointer
 
@@ -460,3 +462,76 @@ async def test_resume_from_postgres_checkpoint_after_runtime_rebuild(session_fac
     run = await _run_row(session_factory, run_id)
     assert run.status == "approved"
     assert len(await _reviews(session_factory)) == 1
+
+
+# ---------------------------------------------------------------------------
+# `decided_by`：HTTP 结构性地无法声称自己是自动的
+#
+# 这一节守的是"机器人只是替你点了一下批准"这句话在数据上的样子。它不是一条
+# 鉴权，而是一条**结构性**的保证：`decided_by` 刻意不在决策 schema 里，
+# 而那个 schema 配着 `extra="ignore"`。
+# ---------------------------------------------------------------------------
+
+
+async def test_http_cannot_forge_decided_by_auto(session_factory):
+    """客户端在请求体里塞 `decided_by: "auto"` —— 会被丢掉，不是被信任。
+
+    为什么要紧：`decided_by` 是 `reap_stale_review_claims` 之类"清理自动残留"
+    的判据，也是影子一致率的归因依据。若它能被 HTTP 写进来，任何客户端都能
+    把一条人工 Run 伪装成自动的，而后果是那条 Run 会被自动清理逻辑收走。
+
+    这里断言的是**结果**而不是"有没有某段校验代码"：即便将来有人给决策
+    schema 加了这个字段，只要它仍然落到 `human`，这条测试就还是绿的——
+    而它该绿就绿，因为要把 HTTP 路径真的打开需要同时改 schema 和这里。
+    """
+    async with runtime_with_checkpointer(session_factory) as runtime:
+        async with api_for(runtime) as api:
+            started = await _start_run(api)
+            resp = await api.post(
+                f"/api/runs/{started['run_id']}/review",
+                json={"action": "approve", "decided_by": DECIDED_BY_AUTO},
+            )
+            assert resp.status_code == 200, resp.text
+
+    reviews = await _reviews(session_factory)
+    assert len(reviews) == 1
+    assert reviews[0].decided_by == DECIDED_BY_HUMAN
+    # 决定本身照常生效——被丢掉的只有"谁做的"这个声明。
+    assert reviews[0].status == "approve"
+
+
+async def test_the_auto_path_records_decided_by_auto_and_is_not_reaped(session_factory):
+    """自动侧走**原始 resume dict** 这条路，于是标记得以保留。
+
+    这条路只有本进程内部的代码走得通（HTTP 那条被 schema 挡住），
+    这正是它的安全属性。
+
+    后半段断言的是这条标记的**用处**：一条被自动放行的 Run 有 review 行，
+    所以 reaper 的"可发布状态 + 没有 review 行"判据为假——自动放行的 Run
+    不会被自家的清理逻辑当成残留收走。
+    """
+    from app.repositories import reap_stale_review_claims
+
+    async with runtime_with_checkpointer(session_factory) as runtime:
+        async with api_for(runtime) as api:
+            started = await _start_run(api)
+        run_id = started["run_id"]
+
+        await resume_review(
+            runtime,
+            run_id,
+            action="approve",
+            # 自动侧**绕开** schema 直接给 Command(resume=...) 传原始 dict
+            resume_value={"action": "approve", "decided_by": DECIDED_BY_AUTO},
+        )
+
+    reviews = await _reviews(session_factory)
+    assert len(reviews) == 1
+    assert reviews[0].decided_by == DECIDED_BY_AUTO
+
+    run = await _run_row(session_factory, run_id)
+    assert run.status == "approved"
+
+    async with session_factory() as session:
+        reaped = await reap_stale_review_claims(session)
+    assert reaped == []

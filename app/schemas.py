@@ -4,6 +4,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, Field, TypeAdapter, field_validator, model_validator
 
 from app.agent.schemas import ViewpointAssessment
+from app.models.agent_run import ORIGIN_MANUAL
 from app.style.schemas import AiStyleSignals
 
 
@@ -433,11 +434,35 @@ class RunSummary(BaseModel):
     started_at: datetime | None = None
     finished_at: datetime | None = None
     error: str | None = None
+    #: 谁发起了这个 Run（见 app/models/agent_run.py 的 ORIGIN_*）。
+    #: 列表页要能把"机器自己跑出来的"和"人点出来的"分开——混在一起看，
+    #: 就没法回答"这东西到底在没人管的时候做了些什么"。
+    origin: str = ORIGIN_MANUAL
 
 
 class RunListPage(BaseModel):
     items: list[RunSummary]
     page: Page
+
+
+class RunAutoReviewSummary(BaseModel):
+    """自动审阅者对某条草稿的判断，供控制台展示。
+
+    只读，且**只在下发时组装**——没有任何写路径经过这里。
+
+    `acted` 必须与 `verdict` 分开：影子模式下 `verdict=approve` 而 `acted=false`
+    是**正常且常见**的，把两者合成一个"是否发布"的布尔值，界面就会在影子期
+    显示一堆"已自动发布"，而那些帖子一条都不存在。
+    """
+
+    mode: str
+    verdict: str
+    reasons: list[str] = []
+    #: 可空：交付候选可能压根没被 Critic 评价过（此时 verdict 是 reject）。
+    #: NULL 是"没有评价"，不是"0 分"。
+    critic_score: float | None = None
+    #: 这次判断有没有真的导致动作。影子模式恒为 False。
+    acted: bool = False
 
 
 class ReviewQueueItem(BaseModel):
@@ -448,6 +473,10 @@ class ReviewQueueItem(BaseModel):
 
     topic 同理可能为 None：Agent 模式的 Run 在 Planner 选定主题之前 topic 就是
     NULL，这是它的**真实初始状态**，不是脏数据。UI 同样显示成 `—`。
+
+    `auto_review` 只对自动发起的 Run 存在（`origin == "scheduled"` 且判据跑过）。
+    它给审核者的是**机器为什么把它留给你**——没有这段理由，队列里每一条看起来
+    都一样，人得从零开始判断，而那正是这个功能想省掉的事。
     """
 
     run_id: str
@@ -458,6 +487,8 @@ class ReviewQueueItem(BaseModel):
     draft_preview: str | None = None
     guardrail_passed: bool | None = None
     guardrail_reasons: list[str] = []
+    origin: str = ORIGIN_MANUAL
+    auto_review: RunAutoReviewSummary | None = None
 
 
 class ResolutionQueueItem(BaseModel):
@@ -803,6 +834,11 @@ class AdminRunDetail(BaseModel):
     # 所以是两个字段而不是一个：前者是运行期决策，后者是外部世界的回音。
     # 与 quality / style / viewpoint 同一处门控（只有 Agent 运行才有）。
     feedback: RunFeedbackSummary | None = None
+    #: 谁发起了这个 Run。**不加门控**：它是每一行都有的属性，
+    #: 与"是不是 Agent 运行"无关。
+    origin: str = ORIGIN_MANUAL
+    #: 自动审阅者的判断（只有自动发起的 Run 才有）。
+    auto_review: RunAutoReviewSummary | None = None
     #: 这个 Run 的已发布帖子的**最新一次观察**。没有快照（还没采过、
     #: 或者这条帖子根本没有 x_post_id）时为 `None`，**不是一行 0**。
     #: 它不门控于 goal：发布链路是 V1 就有的，topic 链路的 Run 也会发帖。
@@ -1193,3 +1229,96 @@ class AdminErrorResponse(BaseModel):
     """控制台错误信息的对外形状。只带安全文案，绝不带 traceback。"""
 
     detail: str
+
+
+# ---------------------------------------------------------------------------
+# 无人值守自动发布
+# ---------------------------------------------------------------------------
+
+
+class AutoPublishTickResponse(BaseModel):
+    """一次 tick 的结果。字段与 `app/services/auto_publish.py::TickResult` 一一对应。
+
+    `outcome` 说明这次 tick 走到了哪一步（disabled / locked / run_cap / timeout /
+    reviewed / ...），`approved` 与 `published` 是两个**独立**的布尔：
+    影子模式下"判据通过"会是 `approved=true, published=false`，那是正常结果，
+    不是失败。
+    """
+
+    outcome: str
+    mode: str | None = None
+    run_id: str | None = None
+    topic: str | None = None
+    verdict: str | None = None
+    approved: bool = False
+    published: bool = False
+    reasons: list[str] = Field(default_factory=list)
+    reaped: list[str] = Field(default_factory=list)
+    runs_today: int = 0
+    publishes_today: int = 0
+    error: str | None = None
+
+
+class AutoPublishAgreement(BaseModel):
+    """自动判断与人的决定的对照（混淆矩阵折成的几个计数）。
+
+    `agreement_rate` / `soft_mismatch_rate` 是 `float | None`：**`null` 不等于 0**。
+    "还没有已决配对"和"有配对但一致率为零"在处置上完全不同，
+    用 0 冒充前者会让界面显示一个吓人的数字，而实际含义是"还没有数据"。
+    """
+
+    decided_pairs: int
+    agreed: int
+    false_approve: int
+    soft_mismatch: int
+    false_reject: int
+    auto_approvals: int
+    agreement_rate: float | None = None
+    soft_mismatch_rate: float | None = None
+
+
+class AutoPublishGateCriterion(BaseModel):
+    key: str
+    label: str
+    met: bool
+    detail: str
+
+
+class AutoPublishGate(BaseModel):
+    """影子转正式的可行性。
+
+    `ready` **只**表示自动判据全部通过，不表示"可以翻转了"——
+    `manual_steps` 每次都会一起下发，那几步机器算不出来。
+    """
+
+    ready: bool
+    criteria: list[AutoPublishGateCriterion]
+    manual_steps: list[str]
+
+
+class AutoPublishStatus(BaseModel):
+    """`GET /api/admin/auto-publish/status` 的响应。
+
+    把**当前配置**也一并下发，是因为门槛的结论只有在"当时配置是什么"的
+    前提下才有意义：`min_critic_score` 调高一次，之前积累的一致率就不再能
+    用来判断当前这套阈值了。
+    """
+
+    enabled: bool
+    mode: str | None = None
+    goals: list[str] = Field(default_factory=list)
+    max_auto_runs_per_day: int | None = None
+    max_publishes_per_day: int | None = None
+    min_critic_score: float | None = None
+    recent_window_days: int | None = None
+    #: 配置文件读不了时非空，其余字段按各自的安全默认值下发。此时
+    #: `agreement` / `gate` 仍然算出来，因为它们是**库里已有的数据**，
+    #: 与配置能不能读无关。
+    config_error: str | None = None
+    agreement: AutoPublishAgreement
+    gate: AutoPublishGate
+    #: 这三个词**不对等**，映射随数据一起下发，免得有人重新推一遍：
+    #: `approve` = 原样接受；`edit` = 不会原样接受（正式模式发的正是未编辑原稿）；
+    #: `reject` = 拦下。
+    mapping_note: str
+    limitations: list[str]

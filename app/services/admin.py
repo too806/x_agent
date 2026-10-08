@@ -80,6 +80,7 @@ from app.repositories import (
     list_runs_page,
     list_unresolved_publications,
     published_by_run,
+    auto_reviews_by_run,
     reviews_by_run,
     topic_distribution,
 )
@@ -115,6 +116,7 @@ from app.schemas import (
     ReviewQueueItem,
     ReviewQueuePage,
     ReviewRecord,
+    RunAutoReviewSummary,
     RunFeedbackSummary,
     RunListPage,
     RunStyleSummary,
@@ -289,6 +291,24 @@ def _preview(text: str | None, limit: int = PREVIEW_CHARS) -> str | None:
     if len(text) <= limit:
         return text
     return text[:limit] + "…"
+
+
+def _auto_review_summary(row) -> RunAutoReviewSummary | None:
+    """`auto_review` 行 → 控制台用的摘要。没有行就是 None。
+
+    None 与"有行但判据未通过"是两件事，界面必须分得开：前者是**人自己发起的
+    Run**（或自动 Run 还没跑到判据那一步），后者是机器明确把它留给了人。
+    用 None 之外的任何值兜底都会让这两件事看起来一样。
+    """
+    if row is None:
+        return None
+    return RunAutoReviewSummary(
+        mode=row.mode,
+        verdict=row.verdict,
+        reasons=list(row.reasons or []),
+        critic_score=row.critic_score,
+        acted=row.acted,
+    )
 
 
 def _page(page: int, page_size: int, total: int) -> Page:
@@ -823,6 +843,7 @@ class AdminService:
                 started_at=run.started_at,
                 finished_at=run.finished_at,
                 error=run.error,
+                origin=run.origin,
             )
             for run in runs
         ]
@@ -833,6 +854,8 @@ class AdminService:
         async with self._session_factory() as session:
             drafts = await drafts_by_run(session, run_ids)
             reviews = await reviews_by_run(session, run_ids)
+            # 同一个会话里批量取，理由同上面两条：列表页不能有 N+1。
+            auto_reviews = await auto_reviews_by_run(session, run_ids)
         guardrails = await self._guardrail([str(run.id) for run in runs])
 
         items = []
@@ -855,6 +878,8 @@ class AdminService:
                     draft_preview=_preview(content),
                     guardrail_passed=passed,
                     guardrail_reasons=reasons,
+                    origin=run.origin,
+                    auto_review=_auto_review_summary(auto_reviews.get(run.id)),
                 )
             )
         return items
@@ -954,6 +979,9 @@ class AdminService:
             # 必须比 checkpoint 活得久，否则清理过 checkpoint 的 Run 在控制台上
             # 就只剩一堆没有来由的产物。
             decisions = await list_decisions(session, run_id)
+            # 自动审阅者的判断。**只读地下发，不参与任何判据**——判据读的是
+            # checks 的原始取值，这里给出的只是"机器为什么这么判"。
+            auto_reviews = await auto_reviews_by_run(session, [run.id])
             # 这个 Run 的已发布帖子自己的观察序列。取不到（没发布 / 没有快照）
             # 就是空列表，由 `observation_summary` 变成 `None`，不是一行 0。
             metrics_snapshots = (
@@ -977,6 +1005,8 @@ class AdminService:
             started_at=run.started_at,
             finished_at=run.finished_at,
             error=run.error,
+            origin=run.origin,
+            auto_review=_auto_review_summary(auto_reviews.get(run.id)),
             guardrail_passed=state.get("guardrail_passed"),
             guardrail_reasons=list(state.get("guardrail_reasons") or []),
             human_action=state.get("human_action"),

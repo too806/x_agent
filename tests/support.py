@@ -36,7 +36,7 @@ CHECKPOINT_URL = to_libpq_url(TEST_URL)
 _ALL_TABLES = (
     "account, agent_run, research_item, draft, review, published_post, agent_decision, "
     "tracked_account, style_sample, style_profile, post_metrics_snapshot, "
-    "learning_proposal"
+    "learning_proposal, auto_review"
 )
 
 # 固定的"现在"。`SAMPLE_X_RESPONSE` 里的 `created_at` 是写死的，而 Phase 5B.1 的

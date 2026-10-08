@@ -1,0 +1,153 @@
+{
+  "phase": "auto-publish",
+  "note": "每次 smoke 一份记录，累积保存在 runs 里。",
+  "runs": [
+    {
+      "phase": "auto-publish",
+      "generated_at": "2026-10-06T23:50:00+00:00",
+      "note": "影子模式真机 smoke。配置 enabled=true / mode=shadow，跑 scripts/auto_publish_tick.py。这一轮会真实调用 LLM 与 X 检索，但**不发布任何内容**——脚本装了只读守卫，任何非 GET 都会在发出去之前抛。",
+      "config_snapshot": {
+        "enabled": true,
+        "mode": "shadow",
+        "goals": [
+          "找一个当前中文科技圈值得讨论的 AI 话题，写一条有具体观点的帖子"
+        ],
+        "max_auto_runs_per_day": 3,
+        "max_publishes_per_day": 1,
+        "min_critic_score": 7.0,
+        "recent_window_days": 14,
+        "recent_corpus_limit": 50,
+        "tick_timeout_seconds": 900
+      },
+      "environment": {
+        "python": "conda env 2026-agent",
+        "proxy": "HTTPS_PROXY/HTTP_PROXY = http://127.0.0.1:7890",
+        "llm": "real (DeepSeek, 12 agent steps)",
+        "x_api": "real, read-only (guard installed)"
+      },
+      "tick_result": {
+        "outcome": "reviewed",
+        "mode": "shadow",
+        "run_id": "6f735b69-0914-4c12-971f-786a84a433e8",
+        "topic": "AI 算力基建的两面：纳指新高、数据中心却越来越难建，同时 CPU 数据中心收入暴涨",
+        "verdict": "reject",
+        "approved": false,
+        "published": false,
+        "reasons": [
+          "今天已经发起过 1 次发布，达到上限 1，今天不再自动放行。"
+        ],
+        "reaped": [],
+        "runs_today": 0,
+        "publishes_today": 1,
+        "error": null,
+        "exit_code": 0
+      },
+      "assertions": {
+        "run_origin_is_scheduled": true,
+        "auto_review_row_written": {
+          "mode": "shadow",
+          "verdict": "reject",
+          "acted": false,
+          "critic_score": 8.4
+        },
+        "run_still_waiting_for_review": true,
+        "nothing_published_to_x": true,
+        "shadow_guard_had_no_write_request": true,
+        "published_post_rows_added": 0,
+        "published_post_rows_created_today": 1
+      },
+      "interpretation": {
+        "verdict_reject_is_expected": "判据结论是 reject，但**不是因为内容有问题**：交付候选的 Critic 分数是 8.4，内容门禁与重复检测都干净。它被拦下是因为 volume_cap —— 当天已经有过一次发布尝试（Phase 5B.4 那条真实帖子，2026-10-06 02:29 UTC），而 max_publishes_per_day=1。额度按设计生效了。",
+        "volume_cap_scope": "count_publish_attempts_since 数的是当天**全库**的发布尝试，不区分谁发的。人当天手工发过一条，自动侧当天就不会再发——这是刻意的（账号层面的频率风险与谁发的无关），但要知道自动化会被人手工发帖静默地饿死。"
+      },
+      "status_endpoint": {
+        "enabled": false,
+        "mode": "shadow",
+        "agreement": {
+          "decided_pairs": 0,
+          "agreed": 0,
+          "false_approve": 0,
+          "soft_mismatch": 0,
+          "false_reject": 0,
+          "auto_approvals": 0,
+          "agreement_rate": null,
+          "soft_mismatch_rate": null
+        },
+        "gate": {
+          "ready": false,
+          "criteria_abbreviated": {
+            "_note": "这里只记了 key→met。真实响应里 criteria 是 {key,label,met,detail} 的数组（7 项），detail 是当时算出来的取值。",
+            "sample": false,
+            "false_approve": true,
+            "soft_mismatch": false,
+            "agreement": false,
+            "attribution": true,
+            "content_gate": true,
+            "stale_claims": true
+          },
+          "manual_steps": 3
+        },
+        "note": "库里已经有一条 auto_review 记录，但人还没审那条 Run，所以已决配对是 0。agreement_rate 是 null 而不是 0 —— '还没有数据'和'数据说不行'必须分得开。"
+      }
+    },
+    {
+      "phase": "auto-publish/acceptance",
+      "generated_at": "2026-10-06T08:09:42+00:00",
+      "data_class": "verification",
+      "note": "核心验收阶段（四层语义 + 统计口径）的真机验证 tick。这不是生产运行，是为了在真实数据下再走一遍 scheduled → draft → waiting_for_review → auto_review 链路而跑的，在本文件里明确标为 verification。config/automation.yaml 的 enabled 跑完已还原为 false（出厂值）。",
+      "config_snapshot": {
+        "enabled": true,
+        "mode": "shadow",
+        "max_auto_runs_per_day": 3,
+        "max_publishes_per_day": 1,
+        "min_critic_score": 7.0
+      },
+      "environment": {
+        "python": "conda env 2026-agent",
+        "proxy": "HTTPS_PROXY/HTTP_PROXY = http://127.0.0.1:7897",
+        "llm": "real (DeepSeek), 12 agent steps",
+        "x_api": "real, read-only (tick 脚本装的只读守卫)"
+      },
+      "tick_result": {
+        "outcome": "reviewed",
+        "mode": "shadow",
+        "run_id": "1b4564a4-0a78-4b29-ad5b-d79577763f6b",
+        "topic": "OKX 一个月付给大模型公司 1000 万美元 AI 账单",
+        "verdict": "reject",
+        "approved": false,
+        "published": false,
+        "reasons": [
+          "今天已经发起过 1 次发布，达到上限 1，今天不再自动放行。"
+        ],
+        "reaped": [],
+        "runs_today": 1,
+        "publishes_today": 1,
+        "error": null,
+        "exit_code": 0
+      },
+      "assertions": {
+        "run_origin_is_scheduled": true,
+        "auto_review_row_written": {
+          "mode": "shadow",
+          "verdict": "reject",
+          "acted": false,
+          "critic_score": 8.8
+        },
+        "run_still_waiting_for_review": true,
+        "nothing_published_to_x": true,
+        "published_post_rows_added": 0,
+        "human_review_rows_added": 0
+      },
+      "read_paths_checked": {
+        "review_queue": "2 条 scheduled 条目都带 origin 与完整 auto_review 块",
+        "run_detail": "auto_review 与队列逐字段一致（critic_score 8.8）",
+        "status_endpoint": "decided_pairs=0 且 agreement_rate=null（不是 0）",
+        "analytics.review_decisions": "approve 8 / edit 7 / reject 4 —— 与库里 decided_by='human' 完全一致"
+      },
+      "interpretation": {
+        "verdict_reject_is_expected": "与 2026-10-06 那次 smoke 同因：不是内容问题（交付候选 Critic 8.8，内容门禁与重复检测都干净），是 volume_cap —— 当天已有一次发布尝试（max_publishes_per_day=1），额度按设计生效了。",
+        "no_decided_pairs_yet": "两条 scheduled Run 都还没被人审过，所以已决配对是 0、一致率是 null。**没有为了凑数去伪造人的决定** —— 那会直接抬高转正式门槛的样本量。"
+      }
+    }
+  ]
+}

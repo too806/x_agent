@@ -1,12 +1,11 @@
 import logging
-import traceback
+import os
 import uuid
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
-from langgraph.types import Command
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.agent.graph import GraphDeps, build_graph
@@ -15,9 +14,7 @@ from app.api.admin import create_admin_router
 from app.config import settings
 from app.db.checkpointer import create_checkpointer
 from app.db.session import async_session_factory
-from app.redaction import redact
 from app.repositories import (
-    claim_run_for_review,
     create_agent_run,
     get_agent_run,
     get_draft_for_run,
@@ -26,7 +23,6 @@ from app.repositories import (
     mark_run_completed,
     mark_run_failed,
     mark_run_waiting_for_review,
-    release_run_review_claim,
 )
 from app.schemas import (
     REVIEW_ACTION_STATUS,
@@ -50,6 +46,14 @@ from app.services.publish import (
     PublishResult,
     PublishService,
 )
+from app.services.review import (
+    ResumeFailed,
+    RunAlreadyClaimed,
+    RunNotFound,
+    RunNotWaitingForReview,
+    describe_failure,
+    resume_review,
+)
 from app.services.x_api import RealXApiClient, XApiError
 from app.services.x_service import XService
 
@@ -60,14 +64,6 @@ logger = logging.getLogger(__name__)
 # 返回了错误或不可用，调用方可按「依赖故障」处理（如重试）。
 # 其余异常（代码缺陷、数据库错误等）→ 500 Internal Server Error。
 _UPSTREAM_ERRORS = (XApiError, LLMError)
-
-
-def _redact(message: str) -> str:
-    """抹掉错误信息中可能出现的凭据，避免写入 DB 或返回给调用方。
-
-    实现在 app/redaction.py：发布服务也要写错误信息到库里，共用同一份脱敏规则。
-    """
-    return redact(message)
 
 
 def _thread_config(run_id: str) -> dict:
@@ -152,12 +148,13 @@ app.include_router(create_admin_router(get_runtime))
 
 
 def _describe_failure(run_id: str, exc: Exception) -> str:
-    """记录失败日志（脱敏）并返回可对外返回的错误描述。"""
-    # 显式格式化 traceback 并脱敏，而不是 logger.exception：日志同样不允许出现凭据
-    logger.error(
-        "run failed (run_id=%s, error=%s)%s", run_id, _redact(str(exc)), _redact(traceback.format_exc())
-    )
-    return _redact(str(exc)) or exc.__class__.__name__
+    """记录失败日志（脱敏）并返回可对外返回的错误描述。
+
+    实现搬到了 `app/services/review.py`：自动发布那条路也要写失败原因到库里
+    （`release_run_review_claim(error=...)`），两条路必须用同一份脱敏规则，
+    否则总有一条会把 X 的 token 写进 DB。
+    """
+    return describe_failure(run_id, exc)
 
 
 def _failure_response(run_id: str, exc: Exception, *, status: str, error: str) -> JSONResponse:
@@ -334,9 +331,35 @@ async def _publish_payload(
     return JSONResponse(status_code=status_code, content=body.model_dump(mode="json"))
 
 
+def _audit_header(request: Request, name: str) -> str:
+    """取一个请求头用于审计；缺失时给 `-`，日志才好 grep。
+
+    顺带把值压成单行：请求头是客户端可控的，里面塞进换行就能伪造出额外的
+    日志行（log injection），让事后阅读时误以为发生了别的事。
+    """
+    value = request.headers.get(name)
+    if not value:
+        return "-"
+    return " ".join(value.split())
+
+
+def _client_host(request: Request) -> str:
+    """请求来源 `host:port`。`request.client` 不保证存在（测试的 ASGI
+    transport、某些反代下会是 None），所以每一段都单独兜底，绝不能让它
+    把一次发布打成 500。"""
+    client = request.client
+    if client is None:
+        return "-"
+    host = getattr(client, "host", None) or "-"
+    port = getattr(client, "port", None)
+    return f"{host}:{port}" if port is not None else host
+
+
 @app.post("/api/runs/{run_id}/publish", response_model=PublishResponse)
 async def publish_run(
-    run_id: uuid.UUID, runtime: Runtime = Depends(get_runtime)
+    run_id: uuid.UUID,
+    request: Request,
+    runtime: Runtime = Depends(get_runtime),
 ) -> JSONResponse:
     run_id_str = str(run_id)
     async with runtime.session_factory() as session:
@@ -344,7 +367,25 @@ async def publish_run(
     if run is None:
         raise HTTPException(status_code=404, detail="run not found")
 
-    logger.info("publish requested (run_id=%s)", run_id_str)
+    # 这是**唯一会真的发出推文**的动作，所以这一行是整个系统里最值得审计的日志：
+    # 事故复盘时要能回答"这条帖子是人从浏览器点的，还是脚本打的"。
+    #
+    # 取哪三样、以及**刻意不取什么**：
+    #   - 只取 client_host / User-Agent / Referer，全部来自请求头
+    #   - 不取 Cookie、不取 Authorization、不取任何 X API 凭据
+    #   - **不取 request body**——发布请求体里就是 draft / edited_content 正文，
+    #     一旦进日志就等于把待发内容抄进了一个长期保留的文件
+    #
+    # 它是**审计**信息，不是身份认证：本地服务没有鉴权，UA 与 Referer 都可以
+    # 随便伪造。它的用途只有一个——把"机器发的"和"人点的"区分开。
+    logger.info(
+        "publish requested run_id=%s client_host=%s user_agent=%s referer=%s pid=%s",
+        run_id_str,
+        _client_host(request),
+        _audit_header(request, "user-agent"),
+        _audit_header(request, "referer"),
+        os.getpid(),
+    )
     # 不 try/except 包住：X 的各类错误在 PublishService 内部已经分类落库，
     # 这里再包一层只会把"发布失败"和"服务本身出错"混成同一件事。
     result = await runtime.publish_service.publish(run_id_str)
@@ -382,46 +423,37 @@ async def review_run(
     decision: ReviewDecision,
     runtime: Runtime = Depends(get_runtime),
 ) -> RunResponse:
-    run_id_str = str(run_id)
-    session_factory = runtime.session_factory
+    """人工评审：抢占 → 重放 Graph → 失败时归位。
 
-    async with session_factory() as session:
-        run = await get_agent_run(session, run_id_str)
-    if run is None:
-        raise HTTPException(status_code=404, detail="run not found")
-    if run.status != "waiting_for_review":
-        raise HTTPException(
-            status_code=409, detail=f"run is not waiting for review (status={run.status})"
+    这三步连同失败处理都搬进了 `app/services/review.py::resume_review`，
+    因为**无人值守的自动审阅者必须走同一条路**——否则自动侧会自己写一份 claim
+    逻辑，两份迟早漂开，而漂开的表现是"偶尔有一条 run 谁都处理不了"。
+    这里只剩下把 `ReviewError` 映射成 HTTP 码。
+
+    `decision.model_dump(exclude_none=True)` 是**已校验**的决策模型，所以客户端
+    塞进来的 `decided_by` 会被 pydantic 的 `extra="ignore"` 丢掉——HTTP 路径
+    在结构上无法自称 auto，见 `app/agent/nodes/human_review.py::_decided_by_of`。
+    """
+    run_id_str = str(run_id)
+    try:
+        final_state = await resume_review(
+            runtime,
+            run_id_str,
+            action=decision.action,
+            resume_value=decision.model_dump(exclude_none=True),
         )
+    except RunNotFound as exc:
+        raise HTTPException(status_code=404, detail="run not found") from exc
+    except (RunNotWaitingForReview, RunAlreadyClaimed) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ResumeFailed as exc:
+        # 失败时仍返回同一 RunResponse 结构（含 run_id / error），只把状态码改成
+        # 非 2xx。`exc.released=False` 表示 checkpoint 其实已经推进过、状态没有
+        # 被放回去，这种情况调用方**不要重试**——重试会撞上"状态说在等人、
+        # review 行却已写好"的矛盾。见 services/review.py 的 ResumeFailed 说明。
+        return _failure_response(run_id_str, exc.exc, status=exc.status, error=exc.error)
 
     final_status = REVIEW_ACTION_STATUS[decision.action]
-    # 原子抢占：并发重复提交时只有一个请求能拿到这个 Run
-    async with session_factory() as session:
-        claimed = await claim_run_for_review(
-            session, run_id_str, expected="waiting_for_review", new_status=final_status
-        )
-    if not claimed:
-        raise HTTPException(status_code=409, detail="run review was already submitted")
-
-    logger.info("review resume requested (run_id=%s, action=%s)", run_id_str, decision.action)
-    try:
-        # 同一个 run_id → 同一个 thread_id，从 checkpoint 恢复而不是新开线程
-        final_state = await runtime.graph.ainvoke(
-            Command(resume=decision.model_dump(exclude_none=True)),
-            config=_thread_config(run_id_str),
-        )
-    except Exception as exc:  # noqa: BLE001
-        # resume 失败：Graph 仍停在 human_review，Run 事实上还在等人工，把刚才抢到的
-        # 状态放回去，同一个人工决定就能重试。否则一次瞬时的 checkpointer 故障会让
-        # Run 永久不可恢复（checkpoint 完好，但状态已不是 waiting_for_review）。
-        error = _describe_failure(run_id_str, exc)
-        async with session_factory() as session:
-            current = await release_run_review_claim(
-                session, run_id_str, claimed_status=final_status, error=error
-            )
-        # current 为 None 只可能是 Run 行已不存在，此时无从判断状态，按 failed 返回
-        return _failure_response(run_id_str, exc, status=current or "failed", error=error)
-
     logger.info("run %s (run_id=%s)", final_status, run_id_str)
     return RunResponse(
         run_id=run_id_str,

@@ -1,6 +1,7 @@
 from app.models.account import Account
 from app.models.agent_decision import AgentDecision
 from app.models.agent_run import AgentRun
+from app.models.auto_review import AutoReview
 from app.models.draft import Draft
 from app.models.learning_proposal import LearningProposalRecord
 from app.models.post_metrics_snapshot import PostMetricsSnapshot
@@ -27,4 +28,6 @@ __all__ = [
     "PostMetricsSnapshot",
     # Phase 5D
     "LearningProposalRecord",
+    # 自动发布
+    "AutoReview",
 ]

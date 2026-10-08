@@ -26,14 +26,19 @@
 调用，覆盖会静默失效，测试会把生产 runtime 当成被测对象。
 """
 
+import secrets
 import uuid
 from datetime import datetime
+from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 
+from app.config import settings
 from app.schemas import (
     AdminRunDetail,
     AnalyticsResponse,
+    AutoPublishStatus,
+    AutoPublishTickResponse,
     FeedbackOverview,
     LearningOverview,
     LearningProposalRow,
@@ -51,6 +56,7 @@ from app.services.admin import (
     AdminService,
     LearningProposalReviewError,
 )
+from app.services.auto_publish import AutoPublishService, collect_status
 
 
 def create_admin_router(runtime_dep) -> APIRouter:
@@ -280,6 +286,64 @@ def create_admin_router(runtime_dep) -> APIRouter:
                 404 if exc.reason == PROPOSAL_REVIEW_NOT_FOUND else 409
             )
             raise HTTPException(status_code=status_code, detail=exc.detail) from exc
+
+    @router.post("/auto-publish/tick", response_model=AutoPublishTickResponse)
+    async def trigger_auto_publish_tick(
+        runtime=Depends(runtime_dep),
+        token: Annotated[str | None, Header(alias="X-Auto-Publish-Token")] = None,
+    ) -> AutoPublishTickResponse:
+        """手工跑一轮自动发布。**这是控制台唯一会真的发帖的端点。**
+
+        其它写端点（评审、发布、提案裁决）改变的都是"某次运行/某个决定"，
+        而这一条会在 `mode: live` 下把一条帖子发到 X 上。所以它需要令牌，
+        而其余端点不需要——这是本仓库唯一一处按"后果"而不是按"是否写库"
+        来区分权限的地方。
+
+        **没配令牌 = 端点拒绝一切请求**（`app/config.py` 的
+        `auto_publish_tick_token`，默认空）。这是刻意的失败方向：本仓库没有
+        任何鉴权设施，与其为这一个端点发明一套，不如让它默认不存在。
+        不配令牌就用 CLI（`scripts/auto_publish_tick.py`），
+        那本来就是主机制——计划任务走的也是它。
+
+        令牌比对用 `secrets.compare_digest`：普通的 `==` 会在第一个不同的
+        字符上短路，把令牌的长度和前缀泄漏给能反复试探的人。
+
+        **`outcome` 不是 HTTP 状态**：`disabled` / `locked` / `run_cap` 都是
+        正常的"这一轮什么都不做"，一律 200 —— 调度器要的是"跑过了"，
+        而不是"成功了"。真正的失败（配置坏了、Agent 抛异常）在
+        `outcome` 与 `error` 里，同样是 200，因为这个端点代表的是
+        "tick 已经被执行"，而不是"tick 产出了好结果"。
+        """
+        configured = settings.auto_publish_tick_token
+        if not configured:
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "auto publish tick endpoint is disabled: "
+                    "AUTO_PUBLISH_TICK_TOKEN is not set. "
+                    "Use scripts/auto_publish_tick.py instead."
+                ),
+            )
+        if token is None or not secrets.compare_digest(token, configured):
+            raise HTTPException(status_code=403, detail="invalid auto publish token")
+
+        result = await AutoPublishService(runtime).tick()
+        return AutoPublishTickResponse(**result.to_dict())
+
+    @router.get("/auto-publish/status", response_model=AutoPublishStatus)
+    async def get_auto_publish_status(
+        runtime=Depends(runtime_dep),
+    ) -> AutoPublishStatus:
+        """影子模式的一致率与"能不能转正式"的门槛。
+
+        只读，而且**不改任何东西**：它不跑 tick、不改配置、不发布。
+        翻配置永远是人拿着这个数去改 `config/automation.yaml`。
+
+        真实数据下（还没跑过影子）正确的输出是 `agreement.decided_pairs=0`
+        加一串 `met=false` 的判据与原因，**不是**一串 0 加
+        `ready=false`——"还没有数据"和"数据说不行"必须分得开。
+        """
+        return await collect_status(runtime.session_factory)
 
     @router.get("/analytics", response_model=AnalyticsResponse)
     async def get_analytics(

@@ -25,6 +25,19 @@ class Settings(BaseSettings):
     # Phase 5B.2：Style Corpus 的采样与筛选阈值、Recipe 的分档切点。
     # 与预算同理——这些数会随着对样本的认知而调，调它不该改代码。
     style_config_path: str = "config/style.yaml"
+    # 无人值守自动发布的开关与阈值。与上面三个的**关键区别**：这个文件
+    # 每个 tick 重读一次，所以改它等于热杀开关（不用重启进程）。
+    # 见 app/services/automation_config.py。
+    automation_config_path: str = "config/automation.yaml"
+    # 手工触发一次自动发布 tick 的令牌（`POST /api/admin/auto-publish/tick`）。
+    #
+    # **默认空 = 该端点拒绝一切请求。** 这是刻意的失败方向：控制台的其它端点
+    # 都是只读的，只有这一个会在正式模式下真的发出一条帖子，而本仓库没有
+    # 任何鉴权设施（没有登录、没有 session）。与其为它发明一套，
+    # 不如让它默认不存在——不配令牌就用 CLI（那才是主机制）。
+    #
+    # 配了值之后，请求必须带 `X-Auto-Publish-Token` 且完全一致。
+    auto_publish_tick_token: str = ""
     # Agent 各步 prompt 所在目录（planner / discover / evidence / angles / ...）。
     # 用目录而不是逐项列路径：每加一个 Tool 就要来 settings 里补一行，漏了会在
     # 运行到那一步时才炸。

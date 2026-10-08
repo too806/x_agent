@@ -21,6 +21,9 @@ from sqlalchemy import text
 
 from app.main import Runtime
 from app.models import AgentRun
+from app.models.agent_run import ORIGIN_SCHEDULED
+from app.models.auto_review import MODE_SHADOW, VERDICT_APPROVE, VERDICT_REJECT
+from app.models.review import DECIDED_BY_AUTO
 from app.repositories import (
     claim_publish,
     claim_run_for_review,
@@ -28,6 +31,7 @@ from app.repositories import (
     create_decision,
     create_draft,
     create_review,
+    insert_auto_review,
     mark_publish_failed,
     mark_published,
     mark_run_waiting_for_review,
@@ -86,6 +90,69 @@ async def _make_goal_run(session_factory, goal: str = "找一个值得讨论的 
     async with session_factory() as session:
         run = await create_agent_run(session, topic=None, goal=goal)
         return str(run.id)
+
+
+async def _make_waiting_run(session_factory, topic: str, *, at: datetime | None = None) -> str:
+    """造一条**待人工审核**的 Run，可选地把 `created_at` 钉到指定时刻。
+
+    `created_at` 由 server_default 生成、构造不出历史时间，队列排序的测试因此必须
+    走 `_set_created_at` 这条绕过 ORM 的路（见那个函数的说明）。不传 `at` 就保持
+    建库时的当前时间，用于不关心顺序的用例。
+    """
+    run_id = await _make_run(session_factory, topic)
+    async with session_factory() as session:
+        await mark_run_waiting_for_review(session, run_id)
+    if at is not None:
+        await _set_created_at(session_factory, run_id, at)
+    return run_id
+
+
+async def _make_auto_waiting_run(
+    session_factory,
+    topic: str,
+    *,
+    run_origin: str = ORIGIN_SCHEDULED,
+    mode: str = MODE_SHADOW,
+    verdict: str = VERDICT_REJECT,
+    reasons: list | None = None,
+    critic_score: float | None = None,
+    acted: bool = False,
+    with_auto_review: bool = True,
+) -> tuple[str, str | None]:
+    """造一条**自动调度建出来、自动审阅过、仍等人审**的 Run。
+
+    真实时序是：tick 建 run（origin=scheduled）→ 跑 Graph → Graph 在 human_review
+    中断（此时草稿已写）→ 判据落 auto_review 行 → 到此为止（影子模式不动作）。
+    这里逐步复刻，不跳步——"run 在 waiting_for_review 且有 auto_review 行"正是
+    影子模式唯一稳定的落库形态。
+
+    `with_auto_review=False` 造的是**正式模式**下判据放行了的那条：run 已经被自动
+    放行、正在走发布，队列里看不到它。控制台不该因为看不到就以为它没有自动结论。
+    """
+    async with session_factory() as session:
+        run = await create_agent_run(session, topic, origin=run_origin)
+        run_id = str(run.id)
+    async with session_factory() as session:
+        draft_id = await create_draft(
+            session, run_id, content="草稿正文", version=1, prompt_version="v1", model_name="fake"
+        )
+    async with session_factory() as session:
+        await mark_run_waiting_for_review(session, run_id)
+    if with_auto_review:
+        async with session_factory() as session:
+            inserted = await insert_auto_review(
+                session,
+                agent_run_id=run_id,
+                draft_id=draft_id,
+                mode=mode,
+                verdict=verdict,
+                reasons=reasons if reasons is not None else ["内容里有硬问题。"],
+                checks={"duplication": {"hit": False}},
+                critic_score=critic_score,
+                acted=acted,
+            )
+            assert inserted is not None, "auto_review 行没插进去，测试前提不成立"
+    return run_id, draft_id
 
 
 async def _seed_decision(
@@ -635,6 +702,139 @@ async def test_review_queue_accepts_a_run_without_a_topic(session_factory):
 
 
 # ---------------------------------------------------------------------------
+# 自动审阅在控制台上的可见性
+# ---------------------------------------------------------------------------
+
+
+async def test_review_queue_shows_an_auto_run_with_its_verdict(session_factory):
+    """自动建出来的 Run 必须在队列里**自证身份**，并带上自动审阅说了什么。
+
+    这条是整套自动发布里唯一由人看的一处：人打开队列，看到的是一个已经替他说了
+    "不通过"的机器人。如果界面上只有一条普通的待审条目，人就会**重新从零审一遍**，
+    影子模式量到的一致率就永远没人看、也永远翻不了正。
+
+    `reasons` 必须原样透传，不能在服务层"整理"成一句概括——转正式前要回答
+    "哪条判据在误拦"，靠的就是这几句。
+    """
+    run_id, _ = await _make_auto_waiting_run(
+        session_factory,
+        "自动跑出来的题",
+        reasons=["Guardrail 命中了硬性问题（数据无出处）。", "今天已经发起过 1 次发布，达到上限 1。"],
+        critic_score=8.4,
+    )
+
+    async with admin_api(session_factory) as api:
+        page = (await api.get("/api/admin/reviews")).json()
+
+    item = next(i for i in page["items"] if i["run_id"] == run_id)
+    assert item["origin"] == ORIGIN_SCHEDULED
+    assert item["auto_review"] == {
+        "mode": MODE_SHADOW,
+        "verdict": VERDICT_REJECT,
+        "reasons": [
+            "Guardrail 命中了硬性问题（数据无出处）。",
+            "今天已经发起过 1 次发布，达到上限 1。",
+        ],
+        # 8.4 而不是 8：分数是 Critic 的原值，控制台不得四舍五入——
+        # 门槛就是按它比的，抹掉尾数会让人对着"刚过线"的数字做错判断。
+        "critic_score": 8.4,
+        "acted": False,
+    }
+
+
+async def test_review_queue_does_not_attribute_one_runs_verdict_to_another(session_factory):
+    """自动结论是按 run 装配的，**不许**串台。
+
+    列表页为了不做 N+1，一个会话里把整页的 auto_review 批量取回来（`auto_reviews_by_run`），
+    再按 run_id 分发。批量这一步的返回若被误当成"最后一条"或按位置对上，队列里
+    就会出现**甲的机器意见挂在乙身上**——人会据此批掉一条机器从没看过的稿。
+    所以这里造两条同时在队、结论不同的 Run，逐条断言。
+
+    顺带钉住"没有自动结论 ≠ 没有结论"：手工 Run 的字段必须是 `None`，不能是空对象。
+    """
+    rejected, _ = await _make_auto_waiting_run(
+        session_factory, "被判不通过的题", reasons=["重复了 14 天内的一条选题。"], critic_score=6.1
+    )
+    manual = await _make_waiting_run(session_factory, "人手发起的题")
+    approved, _ = await _make_auto_waiting_run(
+        session_factory,
+        "被判通过的题",
+        verdict=VERDICT_APPROVE,
+        reasons=[],
+        critic_score=9.2,
+    )
+
+    async with admin_api(session_factory) as api:
+        page = (await api.get("/api/admin/reviews")).json()
+
+    by_id = {i["run_id"]: i for i in page["items"]}
+    assert by_id[rejected]["auto_review"]["verdict"] == VERDICT_REJECT
+    assert by_id[rejected]["auto_review"]["critic_score"] == 6.1
+    assert by_id[rejected]["auto_review"]["reasons"] == ["重复了 14 天内的一条选题。"]
+    assert by_id[approved]["auto_review"]["verdict"] == VERDICT_APPROVE
+    assert by_id[approved]["auto_review"]["critic_score"] == 9.2
+    # 通过 = 无人可归因的理由，必须是空列表而不是 None（两种"没有"要分得开）
+    assert by_id[approved]["auto_review"]["reasons"] == []
+    assert by_id[manual]["origin"] == "manual"
+    assert by_id[manual]["auto_review"] is None
+
+
+async def test_run_detail_carries_the_same_auto_review_block(session_factory):
+    """队列条目和 Run 详情必须说同一件事。
+
+    人从队列点进去是为了看理由的全文，而队列只给了预览。两处若各装配一次、
+    各写一遍字段，迟早会漂开——这里直接断言详情里的块与队列里的块**逐字段相等**。
+    """
+    run_id, _ = await _make_auto_waiting_run(
+        session_factory, "详情页也要看到理由", reasons=["与已发内容高度雷同。"], critic_score=5.5
+    )
+
+    async with admin_api(session_factory) as api:
+        page = (await api.get("/api/admin/reviews")).json()
+        detail = (await api.get(f"/api/admin/runs/{run_id}")).json()
+
+    item = next(i for i in page["items"] if i["run_id"] == run_id)
+    assert detail["origin"] == ORIGIN_SCHEDULED
+    assert detail["auto_review"] == item["auto_review"]
+    assert detail["auto_review"]["reasons"] == ["与已发内容高度雷同。"]
+
+
+async def test_run_detail_has_no_auto_block_for_a_manual_run(session_factory):
+    """人工 Run 的详情里 `auto_review` 是 `None`——**不是**空对象、不是全 False 的壳。
+
+    全 False 的壳会让界面显示一个"自动审阅：未通过"的假结论；而真实情况是**没有
+    自动审阅者看过它**。这两种情况在翻正门槛里是不同的分母。
+    """
+    run_id = await _make_run(session_factory, "人手发起的题")
+
+    async with admin_api(session_factory) as api:
+        detail = (await api.get(f"/api/admin/runs/{run_id}")).json()
+
+    assert detail["origin"] == "manual"
+    assert detail["auto_review"] is None
+
+
+async def test_run_list_marks_which_runs_the_scheduler_created(session_factory):
+    """Run 列表要能一眼分出"机器自己排的"和"人发起的"。
+
+    当日额度、影子一致率的分母、reaper 该收谁——三件事都靠这个字段界定范围，
+    而它们全都发生在**没有队列条目**的 Run 上（比如已经发布的、被收走的）。
+    所以它必须在列表里，不能只在待审队列里。
+
+    也钉住默认值：既有代码路径一行没改，建出来的新旧 Run 都必须是 manual。
+    """
+    auto_id, _ = await _make_auto_waiting_run(session_factory, "自动的题")
+    manual_id = await _make_run(session_factory, "人手的题")
+
+    async with admin_api(session_factory) as api:
+        page = (await api.get("/api/admin/runs?page_size=100")).json()
+
+    by_id = {i["run_id"]: i for i in page["items"]}
+    assert by_id[auto_id]["origin"] == ORIGIN_SCHEDULED
+    assert by_id[manual_id]["origin"] == "manual"
+
+
+# ---------------------------------------------------------------------------
 # Analytics
 # ---------------------------------------------------------------------------
 
@@ -679,6 +879,40 @@ async def test_analytics_distributions(session_factory):
     assert topics["发布成功"] == 1
     assert data["run_volume"] == 5
     assert len(data["daily_runs"]) == 7
+
+
+async def test_analytics_counts_human_decisions_only(session_factory):
+    """那块分布标着"一次人工决定一行"，就不能把机器的决定也数进去。
+
+    正式模式下自动侧会往 `review` 表写一行 `decided_by='auto'` 的批准
+    （见 `app/services/auto_publish.py::_publish`）。它和人的决定**共用同一张表、
+    同一列状态**，所以"数 review 表"这件事默认会把两者混成一个数——界面上却写着
+    "人工决定"。这是最容易被忽略的一类污染：数字本身没错，错的是它回答的问题。
+
+    这里不要自动 Run、也不要发布，只造一条机器决定，把"分布只认人"这件事
+    单独钉住。
+    """
+    await _make_reviewed_run(session_factory, "人批准的")
+
+    async with session_factory() as session:
+        draft_id = await create_draft(
+            session, await _make_run(session_factory, "机器批准的"),
+            content="草稿正文", version=1, prompt_version="v1", model_name="fake",
+        )
+    async with session_factory() as session:
+        await create_review(
+            session,
+            draft_id=draft_id,
+            action="approve",
+            original_content="草稿正文",
+            decided_by=DECIDED_BY_AUTO,
+        )
+
+    async with admin_api(session_factory) as api:
+        data = (await api.get("/api/admin/analytics")).json()
+
+    # 表里有两行 approve，但只有一行是**人**做的决定。
+    assert data["review_decisions"]["approve"] == 1
 
 
 async def test_analytics_survives_a_run_without_a_topic(session_factory):
@@ -966,18 +1200,30 @@ async def test_published_empty_state(session_factory):
 #: 控制台上**允许**存在的写端点。这是一张**封闭白名单**：往控制台加任何一条写路径
 #: 都会让下面那条测试红，逼着人回来重新想一遍——它守的是架构边界，不是某个功能。
 #:
-#: 目前只有一条，而且它不改变任何一次运行的行为：
+#: 有两条。它们有一条共同的性质：**都不实现自己那套运行状态迁移**，
+#: 而是去调既有的那条路径。
 #:
 #:     POST /api/admin/learning/proposals/{proposal_id}/review
+#:     POST /api/admin/auto-publish/tick
 #:
-#: 它记的是**人对一条学习提案的裁决**（Phase 5D）。这个动作在 Phase 3/4a 的
+#: 第一条记的是**人对一条学习提案的裁决**（Phase 5D）。这个动作在 Phase 3/4a 的
 #: 写路径里没有对应物——它不是"改变某次运行"，是"记下某次决定"。写下之后
 #: 什么都不发生：不改 Prompt / StyleRecipe / 权重 / 阈值 / 预算，也不发布。
+#:
+#: 第二条（无人值守自动发布）比第一条重得多，所以它单独需要令牌
+#: （`AUTO_PUBLISH_TICK_TOKEN`，不配就是关着的）。但它**没有**违反上面那条边界：
+#: tick 内部的建 Run / resume / 发布走的全是 `create_agent_run`、
+#: `resume_review`、`PublishService` —— 人工路径上的**同一个函数**，
+#: 一行私有的状态迁移都没有。它在控制台上表现为一个写端点，只是因为它是个
+#: 需要人来按的扳机；被触发的那个动作仍然住在 Phase 3/4a 的路径里。
 #:
 #: **真正改变运行状态的迁移路径仍然只有 Phase 3/4a 那三条**，前端必须继续复用
 #: 它们（review / publish / publish-resolve），否则就会绕过 Phase 4a 用条件
 #: UPDATE 换来的并发与幂等保护。
-ADMIN_ALLOWED_WRITE_PATHS = {"/api/admin/learning/proposals/{proposal_id}/review"}
+ADMIN_ALLOWED_WRITE_PATHS = {
+    "/api/admin/learning/proposals/{proposal_id}/review",
+    "/api/admin/auto-publish/tick",
+}
 
 
 async def test_admin_api_writes_are_limited_to_the_proposal_review(session_factory):

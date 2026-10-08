@@ -3,7 +3,7 @@ import uuid
 from collections.abc import Sequence
 from datetime import datetime, timezone
 
-from sqlalchemy import case, func, select, update
+from sqlalchemy import case, func, select, text, update
 from sqlalchemy.dialects.postgresql import distinct_on
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import (
     AgentDecision,
     AgentRun,
+    AutoReview,
     Draft,
     LearningProposalRecord,
     PostMetricsSnapshot,
@@ -19,8 +20,16 @@ from app.models import (
     ResearchItem,
     Review,
 )
+from app.models.agent_run import ORIGIN_MANUAL, ORIGIN_SCHEDULED
+from app.models.auto_review import (
+    UQ_AUTO_REVIEW_DRAFT,
+    VERDICT_APPROVE,
+    VERDICT_REJECT,
+    AutoReview,
+)
 from app.models.learning_proposal import UQ_LEARNING_PROPOSAL_KEY
 from app.models.post_metrics_snapshot import UQ_X_POST_OBSERVED
+from app.models.review import DECIDED_BY_HUMAN
 from app.models.style_profile import StyleProfile
 from app.models.published_post import (
     STATUS_FAILED,
@@ -61,6 +70,7 @@ async def create_agent_run(
     topic: str | None,
     *,
     goal: str | None = None,
+    origin: str = ORIGIN_MANUAL,
 ) -> AgentRun:
     """新建一个 Run。
 
@@ -70,10 +80,16 @@ async def create_agent_run(
 
     两条都允许为空是刻意的：Run 行必须能先建出来，Agent 才知道自己有 run_id
     可用作 thread_id。topic 为空的那段时间是真实存在的中间态，不是错误状态。
+
+    `origin` 默认 `manual`——**不给默认值之外的行为留余地**：既有的每一个调用方
+    （控制台、smoke 脚本）都确实是人发起的，它们一行都不用改。自动调度器显式传
+    `ORIGIN_SCHEDULED`，于是"谁建的"是一个被写下来的事实，不是事后猜出来的。
     """
     if (topic is None) == (goal is None):
         raise ValueError("exactly one of topic / goal must be provided")
-    run = AgentRun(topic=topic, goal=goal, status="running", started_at=_now())
+    run = AgentRun(
+        topic=topic, goal=goal, status="running", started_at=_now(), origin=origin
+    )
     session.add(run)
     await session.commit()
     await session.refresh(run)
@@ -551,12 +567,17 @@ async def create_review(
     original_content: str,
     edited_content: str | None = None,
     reject_reason: str | None = None,
+    decided_by: str = DECIDED_BY_HUMAN,
 ) -> str | None:
-    """保存人工审核决定。原 draft 行不在这里改动。
+    """保存审核决定。原 draft 行不在这里改动。
 
     一个 Draft 始终只有一条决定：resume 失败后重试会重放 human_review 节点，若上次
     已经写成功（checkpoint 写失败但本行已提交），这里复用并覆盖那一行，而不是插入
     第二条。
+
+    `decided_by` 默认 `human`，由 `human_review_node` 从 resume 值里取。
+    人和自动审阅者走的是**同一个函数**——差别只有这一列，这正是"机器人只是替你
+    点了批准"这句话在数据上的样子。
     """
     if draft_id is None:
         return None
@@ -572,6 +593,7 @@ async def create_review(
     review.edited_content = edited_content
     review.reject_reason = reject_reason
     review.reviewed_at = _now()
+    review.decided_by = decided_by
     session.add(review)
     await session.commit()
     await session.refresh(review)
@@ -793,6 +815,28 @@ async def reviews_by_run(
     return {run_id: review for run_id, review in result.all()}
 
 
+async def auto_reviews_by_run(
+    session: AsyncSession, run_ids: list[uuid.UUID]
+) -> dict[uuid.UUID, AutoReview]:
+    """批量取每个 Run 的自动审阅记录，避免列表页 N+1。
+
+    与 `reviews_by_run` 同一个形状，但**不经过 draft 反查**：`auto_review` 自己
+    就有 `agent_run_id`（它是为这个功能建的表，没有既有的形状要迁就）。
+
+    一个 Run 至多一条：`UNIQUE(draft_id)` 加上"一个 Run 一条草稿"，
+    所以这里不需要像 `reviews_by_run` 那样担心"万一有多条"。
+
+    只给控制台读，**不参与任何判据**——判据读的是 `checks` 的原始取值，
+    而这个函数返回的是给人看的行。
+    """
+    if not run_ids:
+        return {}
+    result = await session.execute(
+        select(AutoReview).where(AutoReview.agent_run_id.in_(run_ids))
+    )
+    return {row.agent_run_id: row for row in result.scalars().all()}
+
+
 async def published_by_run(
     session: AsyncSession, run_ids: list[uuid.UUID]
 ) -> dict[uuid.UUID, PublishedPost]:
@@ -829,7 +873,19 @@ async def count_published_grouped_by_status(session: AsyncSession) -> dict[str, 
 
 
 async def count_reviews_grouped_by_status(session: AsyncSession) -> dict[str, int]:
-    result = await session.execute(select(Review.status, func.count()).group_by(Review.status))
+    """各审核决定的条数。**只数人的决定。**
+
+    正式模式下自动侧也往 `review` 表写行（`decided_by='auto'`，见
+    `app/services/auto_publish.py::_publish`），而这条查询喂的是控制台
+    analytics 上那块标着"一次人工决定一行"的分布。不过滤的话，转正式之后
+    机器替人点的每一次"批准"都会记进人工决策分布里——那个数字从此不再回答
+    "人做了什么决定"。
+    """
+    result = await session.execute(
+        select(Review.status, func.count())
+        .where(Review.decided_by == DECIDED_BY_HUMAN)
+        .group_by(Review.status)
+    )
     return {status: int(count) for status, count in result.all()}
 
 
@@ -1362,3 +1418,441 @@ async def count_learning_proposal_decisions(
         stmt = stmt.where(LearningProposalRecord.status == status)
     result = await session.execute(stmt)
     return int(result.scalar_one())
+
+
+# ---------------------------------------------------------------------------
+# 自动发布（无人值守）
+#
+# 这一节里的读取函数都**有上界**，这是刻意的：它们每个 tick 都要跑一次，
+# 而没有上界的 `list_published_contents` 会长成账号的整个历史长度。
+# 详见各函数的说明。
+# ---------------------------------------------------------------------------
+
+
+async def insert_auto_review(
+    session: AsyncSession,
+    *,
+    agent_run_id: str,
+    draft_id: str,
+    mode: str,
+    verdict: str,
+    reasons: list,
+    checks: dict,
+    critic_score: float | None,
+    acted: bool = False,
+) -> AutoReview | None:
+    """记下一次自动审阅判断。返回 None 表示**这条草稿已经记过**（幂等跳过）。
+
+    用 `ON CONFLICT DO NOTHING` 按 draft_id 去重，而不是先查后插：同一个 tick
+    被跑两遍（计划任务与手动端点撞上、或上一步崩了重来）不该产生第二行，
+    但也不该报错——**先写的那次说了算**。
+
+    "先写的那次说了算"是有意的：第二次跑时近期的语料已经变了（上一次 tick 可能
+    刚发了一条），重算会得到一个不同的结论。让结论随重跑漂移，等于让
+    "机器当时判断了什么"变成一个说不清的问题——而影子模式要量的正是它。
+    """
+    stmt = (
+        pg_insert(AutoReview)
+        .values(
+            agent_run_id=_uuid(agent_run_id),
+            draft_id=_uuid(draft_id),
+            mode=mode,
+            verdict=verdict,
+            reasons=reasons,
+            checks=checks,
+            critic_score=critic_score,
+            acted=acted,
+        )
+        .on_conflict_do_nothing(constraint=UQ_AUTO_REVIEW_DRAFT)
+        .returning(AutoReview.id)
+    )
+    result = await session.execute(stmt)
+    inserted_id = result.scalar_one_or_none()
+    await session.commit()
+    if inserted_id is None:
+        return None
+    return await session.get(AutoReview, inserted_id)
+
+
+async def list_recent_published_contents(
+    session: AsyncSession, *, since: datetime, limit: int = 50
+) -> list[str]:
+    """窗口内**真正发布过**的正文，用于跨帖重复检测。有上界。
+
+    与 `list_published_contents` 是两件事，不要互相替代：
+
+    - 那个是 Guardrail 的**全量**判重基准（无界、无窗口），判的是"这条和历史上
+      任何一条完全一样吗"；
+    - 这个是自动审阅的**近期**语料（有界、有窗口），判的是"这条和最近发过的像不像"。
+      重复发帖的风险来自"最近"，把三年前的帖子拉进来只会稀释信号。
+
+    同样过滤 `x_post_id IS NOT NULL`——理由见 `list_published_contents`：
+    publishing / failed 的行从未出现在 X 上，拿它们当"已发过"是误报。
+    """
+    stmt = (
+        select(PublishedPost.body)
+        .where(
+            PublishedPost.x_post_id.is_not(None),
+            PublishedPost.published_at.is_not(None),
+            PublishedPost.published_at >= since,
+        )
+        .order_by(PublishedPost.published_at.desc())
+        .limit(limit)
+    )
+    result = await session.execute(stmt)
+    return list(result.scalars().all())
+
+
+async def list_recent_draft_contents(
+    session: AsyncSession,
+    *,
+    since: datetime,
+    limit: int = 50,
+    exclude_draft_id: str | None = None,
+) -> list[str]:
+    """窗口内**产出过**的草稿正文（不分状态）。有上界。
+
+    ## 为什么重复检测必须也看草稿，不能只看已发布
+
+    影子模式下**什么都不发布**，`published_post` 始终是空的。若检测语料只取
+    已发布正文，它看到的是一份空语料，于是**放行一切**——影子模式会退化成一个
+    永远说"通过"的橡皮图章，量出来的一致率毫无意义。
+
+    取草稿还顺带修了一个正式模式下的漏洞：连续三次生成近乎相同的稿子、
+    前两次都被人拒了，第三次照样会被放行。比对"发过什么"看不见这件事，
+    比对"写过什么"看得见。
+
+    `exclude_draft_id` 排除本次正在判的那条草稿自己。
+    """
+    stmt = (
+        select(Draft.content)
+        .join(AgentRun, Draft.agent_run_id == AgentRun.id)
+        .where(
+            Draft.created_at >= since,
+            Draft.content.is_not(None),
+        )
+        .order_by(Draft.created_at.desc())
+        .limit(limit)
+    )
+    if exclude_draft_id is not None:
+        stmt = stmt.where(Draft.id != _uuid(exclude_draft_id))
+    result = await session.execute(stmt)
+    return [text for text in result.scalars().all() if text]
+
+
+async def list_recent_topics(
+    session: AsyncSession,
+    *,
+    since: datetime,
+    limit: int = 50,
+    exclude_run_id: str | None = None,
+) -> list[str]:
+    """窗口内**所有状态**的 Run 选定过的题目。有上界。
+
+    刻意**不过滤状态**：一个被拒的 Run 也消耗过那个选题，明天再写一遍同一个题目
+    仍然是重复。同 `list_recent_draft_contents`，这条在影子模式下尤其要紧——
+    那期间没有任何 Run 会走到 published。
+
+    ## `exclude_run_id` 不是可选的礼貌
+
+    正在被自动审阅的那条 Run **自己的题目已经在库里了**：`finalize` 在
+    `set_run_topic` 里把它写进 `agent_run.topic`，而题目检测的输入正是这一列。
+    不排除它的话，判据会拿"这条稿子的题目"和"这条稿子的题目"比，
+    于是**每一次自动运行都因"最近已经写过同一个题目"被判不通过**。
+
+    那是一种特别难查的失败：影子模式会显示 100% 的误拦，而理由看起来完全合理
+    （"确实重复了"），只是没人会想到它是在跟自己比。
+    """
+    stmt = (
+        select(AgentRun.topic)
+        .where(
+            AgentRun.topic.is_not(None),
+            AgentRun.created_at >= since,
+        )
+        .order_by(AgentRun.created_at.desc())
+        .limit(limit)
+    )
+    if exclude_run_id is not None:
+        stmt = stmt.where(AgentRun.id != _uuid(exclude_run_id))
+    result = await session.execute(stmt)
+    return [topic for topic in result.scalars().all() if topic]
+
+
+async def count_publish_attempts_since(session: AsyncSession, *, since: datetime) -> int:
+    """窗口内向 X 发起过多少次发布**尝试**（成功与否都算）。
+
+    刻意数"尝试"而不是"成功"：`publish_unknown` 的行可能**已经发出去了**
+    （见 publish.py 的窗口图）。只数成功会漏掉那些，于是额度在 X 那边看是超的，
+    而本地看还没到。这是同一条"证据压过猜测"的老规矩。
+    """
+    stmt = (
+        select(func.count())
+        .select_from(PublishedPost)
+        .where(PublishedPost.created_at >= since)
+    )
+    result = await session.execute(stmt)
+    return int(result.scalar_one())
+
+
+async def count_auto_runs_since(session: AsyncSession, *, since: datetime) -> int:
+    """窗口内自动调度器建了多少个 Run。
+
+    按 `origin` 而不是按 `goal` 是否等于配置值来数——人可以提交同一个 goal，
+    那种推断会把人的 Run 算进机器的额度里。
+    """
+    stmt = (
+        select(func.count())
+        .select_from(AgentRun)
+        .where(
+            AgentRun.origin == ORIGIN_SCHEDULED,
+            AgentRun.created_at >= since,
+        )
+    )
+    result = await session.execute(stmt)
+    return int(result.scalar_one())
+
+
+async def reap_stale_review_claims(session: AsyncSession) -> list[str]:
+    """回收"已 claim 却没能 resume"的残留 Run，返回被回收的 run_id 列表。
+
+    ## 判据：在 approved/edited 却**没有** review 行
+
+    合法的 `approved` / `edited` 一定有 review 行——它是 `human_review_node`
+    在 resume 时写的，而 Run 状态也正是那次 claim 改的。两者出自同一段代码，
+    所以"有状态、没记录"只可能是：claim 已提交，resume 还没跑（或崩了）。
+    `_preflight` 同样依赖这条不变式，它把缺 review 的 approved 判成 409。
+
+    ## 为什么只收自动发起的 Run
+
+    人和机器在 claim→resume 之间都有一段窗口，但人和机器**不共享那把锁**
+    （tick 拿的是 advisory lock，人走 HTTP 不拿）。若这里也去收人的 Run，
+    就可能把一个人"正在 resume 的那一次"重置回 `waiting_for_review`——
+    他的 resume 随后照常写完 review 行，而 Run 状态已经变了，于是发布时
+    撞上"状态与审核结论不符"的 409。
+
+    自动 Run 不存在这个问题：整个 tick 持有 advisory lock，两个 tick 不会并发，
+    所以这里看到的残留只可能来自**上一次已经结束（崩溃）的 tick**，
+    不可能是"正在进行的那一次"。
+
+    残留窗口本身是无害的（worst case 是人少发一条、要多审一次），但把人的
+    Run 卷进来会制造一个新的、更难查的失败，所以不收。
+
+    ## 人那条路径的同一个窗口
+
+    HTTP 路径已经用 `release_run_review_claim` 兜住了异常路径（见 main.py），
+    只有"进程整个崩掉"才会留下人的残留。那是既有行为，不在本次改动范围内。
+    """
+    has_review = (
+        select(Review.id)
+        .join(Draft, Review.draft_id == Draft.id)
+        .where(Draft.agent_run_id == AgentRun.id)
+        .exists()
+    )
+    stmt = select(AgentRun).where(
+        AgentRun.origin == ORIGIN_SCHEDULED,
+        AgentRun.status.in_(PUBLISHABLE_RUN_STATUSES),
+        ~has_review,
+    )
+    runs = list((await session.execute(stmt)).scalars().all())
+    if not runs:
+        return []
+    reaped: list[str] = []
+    for run in runs:
+        run.status = REVIEW_QUEUE_RUN_STATUS
+        run.error = "review claim was left behind by an interrupted auto tick"
+        reaped.append(str(run.id))
+    await session.commit()
+    return reaped
+
+
+async def shadow_agreement_stats(session: AsyncSession) -> dict[tuple[str, str], int]:
+    """影子模式的混淆矩阵原料：`{(自动结论, 人的决定): 条数}`。
+
+    只统计自动发起的 Run（`origin='scheduled'`）——人自己发起的 Run 没有自动
+    判断，混进来会让分母变成两件不同的事。
+
+    返回**原始配对**而不是已经算好的"一致率"：命名与口径是产品决定，
+    归服务层（`app/services/auto_review.py::summarize_agreement`）并且要能被
+    单测钉住。这里只负责把行数数对。
+
+    只返回**已决**的配对：`review.status` 为 `pending` 的行说明人还没看，
+    把"还没决定"算成"不同意"，一致率会凭空变低。
+
+    **只要人的决定（`decided_by='human'`）。** 正式模式下自动侧会重放
+    human_review 节点、以 `decided_by='auto'` 留下一条 review 行
+    （见 `app/services/auto_publish.py::_publish`）。那条行和它自己写下的
+    `auto_review` 按 `draft_id` 天然配得上对，于是一条机器放行的 Run 会
+    **白送一个"一致"**。方向是单向的：机器只在判通过时才动作，所以它写的
+    每条 review 行都必然是 approve，配上的也必然是 approve——一致率被推向
+    1.0，而"一致率 ≥ 90%"正是转正式门槛的第 4 项。漏掉这个过滤，等于让机器
+    拿自己的判断给自己打分。影子模式下没有这条行，所以这个错**恰好从翻正
+    那一刻开始**，也就是恰好从它开始算数的时刻开始。
+    """
+    stmt = (
+        select(AutoReview.verdict, Review.status, func.count())
+        .select_from(AutoReview)
+        .join(AgentRun, AutoReview.agent_run_id == AgentRun.id)
+        .join(Review, Review.draft_id == AutoReview.draft_id)
+        .where(
+            AgentRun.origin == ORIGIN_SCHEDULED,
+            Review.decided_by == DECIDED_BY_HUMAN,
+        )
+        .group_by(AutoReview.verdict, Review.status)
+    )
+    result = await session.execute(stmt)
+    return {(verdict, status): int(count) for verdict, status, count in result.all()}
+
+
+# ---------------------------------------------------------------------------
+# 自动发布 tick 的互斥锁
+# ---------------------------------------------------------------------------
+
+#: tick 用的 advisory lock 键。任意固定值，全仓只有这一个使用者。
+#:
+#: 取一个看起来就是"随手挑的常数"的值，而不是 `1`：advisory lock 的命名空间是
+#: **整个 PostgreSQL 实例**共享的，别的库、别的项目偶然用了同一个键时，
+#: 冲突的表现是 tick 静默地什么都不做——最难查的那类故障。`1` 恰好是
+#: 别人最可能也选的值。
+AUTO_PUBLISH_LOCK_KEY = 0x5841475F4155544F  # "XAG_AUTO"
+
+
+async def try_auto_publish_lock(session: AsyncSession) -> bool:
+    """尝试独占自动发布的 tick。拿到返回 True，别人正持有返回 False。
+
+    **用 PostgreSQL 的 advisory lock 而不是 asyncio 锁**：asyncio 锁只在单进程内
+    有效，而这个 tick 有三个并发来源——Windows 计划任务、手动的管理端点、
+    以及人可能在本地跑的那个 CLI。三者是三个进程，进程内的锁对它们全部无效。
+
+    锁是**会话级**的（`pg_try_advisory_lock`，不是 `_xact_` 那个）：它跨事务存活，
+    直到显式解锁或连接关闭。这正是这里需要的——一个 tick 里会开很多个事务，
+    锁必须比其中任何一个都长命。
+
+    `try_` 而不是阻塞版：抢不到锁说明另一个 tick 正在跑，**这一轮直接放弃**才是
+    正确的行为。排队等下去只会让两个 tick 一前一后各建一个 Run，把当日额度
+    加倍用掉，而计划任务下一轮马上又要来了。
+    """
+    result = await session.execute(
+        text("SELECT pg_try_advisory_lock(:key)"), {"key": AUTO_PUBLISH_LOCK_KEY}
+    )
+    return bool(result.scalar())
+
+
+async def release_auto_publish_lock(session: AsyncSession) -> None:
+    """释放 tick 锁。
+
+    必须在 `finally` 里调。会话级锁虽然会在连接关闭时自动释放，但
+    SQLAlchemy 的连接池会让连接**活着回到池子里**——那条连接仍然持有锁，
+    而下一个从池里拿到它的人会莫名其妙地拿到一个已经"被占用"的锁。
+    结果是：一次没释放的 tick 会让后续所有 tick 永久静默失效。
+    """
+    await session.execute(
+        text("SELECT pg_advisory_unlock(:key)"), {"key": AUTO_PUBLISH_LOCK_KEY}
+    )
+
+
+async def mark_auto_review_acted(session: AsyncSession, *, draft_id: str) -> bool:
+    """把一条自动结论标成"真的动过手"。返回是否命中一行。
+
+    `acted` 的语义是**自动审阅者替人发出了这条**，不是"判据通过了"。
+    两者必须分开：影子模式下判据通过也不发，若把通过当成 acted，
+    那条记录日后看起来就像"这条是自动发布的"，而账号上根本没有这条帖子——
+    审计时无法自证。所以只有真的走到 publish 之后才置位。
+
+    命中不到行（返回 False）是可能发生的：tick 崩溃后重放时，
+    `insert_auto_review` 会因 UNIQUE(draft_id) 而 DO NOTHING，
+    但那时 draft_id 一定已经有行了；真正找不到行只说明有人手工删了它。
+    不当成错误，只如实返回。
+    """
+    stmt = (
+        update(AutoReview)
+        .where(AutoReview.draft_id == _uuid(draft_id))
+        .values(acted=True)
+    )
+    result = await session.execute(stmt)
+    await session.commit()
+    return bool(result.rowcount)
+
+
+async def count_stale_review_claims(session: AsyncSession) -> int:
+    """`reap_stale_review_claims` 的**只读**版本，用于转正式前的门槛检查。
+
+    判据完全相同（自动发起的 Run 停在可发布状态却没有 review 行），
+    只是不写。门槛检查绝不能顺手把残留收掉——那会让"我检查过了，是干净的"
+    这句话变成"我检查的动作把它变干净了"，下一次检查就再也看不到这个问题。
+    """
+    has_review = (
+        select(Review.id)
+        .join(Draft, Review.draft_id == Draft.id)
+        .where(Draft.agent_run_id == AgentRun.id)
+        .exists()
+    )
+    stmt = (
+        select(func.count())
+        .select_from(AgentRun)
+        .where(
+            AgentRun.origin == ORIGIN_SCHEDULED,
+            AgentRun.status.in_(PUBLISHABLE_RUN_STATUSES),
+            ~has_review,
+        )
+    )
+    return int((await session.execute(stmt)).scalar_one())
+
+
+async def list_false_reject_reasons(session: AsyncSession) -> list[list[str]]:
+    """自动判"不通过"、人却认为可发的那些条目的**拒绝理由**。
+
+    转正式的门槛要求"每个误拦都能归因到具名判据"（见
+    `app/services/auto_review.py::evaluate_go_live_gate`）。只看条数答不了这个问题——
+    要看到底是哪条判据在拦，才能判断这个误拦率接不接受（工作单：若误拦集中在
+    lexical 层，转正式前直接关掉它）。
+
+    返回每条一组的理由串。空列表意味着那条记录没有留下任何理由——
+    那本身就是门槛要抓的东西：一条说不出理由的拒绝是无法归因的。
+    """
+    stmt = (
+        select(AutoReview.reasons)
+        .select_from(AutoReview)
+        .join(AgentRun, AutoReview.agent_run_id == AgentRun.id)
+        .join(Review, Review.draft_id == AutoReview.draft_id)
+        .where(
+            AgentRun.origin == ORIGIN_SCHEDULED,
+            AutoReview.verdict == VERDICT_REJECT,
+            Review.status.in_(("approve", "edit")),
+        )
+    )
+    rows = (await session.execute(stmt)).scalars().all()
+    return [list(row or []) for row in rows]
+
+
+async def earliest_auto_review_at(session: AsyncSession) -> datetime | None:
+    """第一条自动结论落库的时刻；一条都没有时为 None。
+
+    这是转正式门槛里"观察满 7 天"的起点。刻意取**数据**的最早时刻而不是
+    "配置文件最后一次修改时间"——文件的 mtime 会被编辑器、备份还原、git
+    checkout 随意改动，而这里要回答的是"这套判据已经在真实输入上跑了多久"，
+    那个问题的答案只能从数据里来。
+    """
+    stmt = select(func.min(AutoReview.created_at))
+    return (await session.execute(stmt)).scalar_one_or_none()
+
+
+async def count_auto_approvals_with_gate_violations(session: AsyncSession) -> int:
+    """自动放行、但记录里的内容门禁**非空**的条数。
+
+    正常恒为 0：`evaluate_auto_publish` 在内容门禁非空时一定会判不通过，
+    所以"放行 + 门禁非空"这个组合不可能被它写出来。一旦非 0，说明记录与
+    判据之间的不变式被破坏了——转正式前的门槛要求它必须是 0，不是因为它
+    危险，而是因为它意味着**别的地方有 bug**。
+
+    用 JSONB 路径直接查而不是把行拉回来在 Python 里数：条数无上界，
+    而这里只需要一个数。
+    """
+    stmt = (
+        select(func.count())
+        .select_from(AutoReview)
+        .where(
+            AutoReview.verdict == VERDICT_APPROVE,
+            AutoReview.checks["content_gate"]["passed"].as_boolean().is_(False),
+        )
+    )
+    return int((await session.execute(stmt)).scalar_one())

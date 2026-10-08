@@ -113,6 +113,28 @@ def _prepare_test_db():
                 "is_reply BOOLEAN NOT NULL DEFAULT FALSE"
             )
         )
+        # 自动发布：`agent_run.origin` 与 `review.decided_by`。与 alembic
+        # a7d4e21c9f83 对应。
+        #
+        # **这是本仓库第一次给已有表加列**（5C/5D 都以"没加过列"为纪律），
+        # 所以这两行也是"复用测试库"约定第一次真正吃到苦头的地方：agent_run
+        # 和 review 在两年前建库时就有了，create_all 从此不再碰它们，
+        # 后加的列永远补不上。漏了这里的表现是任何一次建 Run / 写 Review 都报
+        # UndefinedColumn，而错误指向的是业务逻辑，与"测试库少了一列"隔得很远。
+        #
+        # server_default 必须一起给：库里的旧行要立刻有值，否则 NOT NULL 加不上。
+        conn.execute(
+            text(
+                "ALTER TABLE agent_run ADD COLUMN IF NOT EXISTS "
+                "origin VARCHAR(16) NOT NULL DEFAULT 'manual'"
+            )
+        )
+        conn.execute(
+            text(
+                "ALTER TABLE review ADD COLUMN IF NOT EXISTS "
+                "decided_by VARCHAR(16) NOT NULL DEFAULT 'human'"
+            )
+        )
     sync_eng.dispose()
     yield
 
