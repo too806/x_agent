@@ -1,4 +1,5 @@
 import json
+import re
 from datetime import datetime, timezone
 
 import httpx
@@ -121,6 +122,41 @@ async def test_search_connect_error_is_marked_as_not_delivered():
 # ---------- create_post（OAuth 1.0a 写路径）----------
 
 
+def _header_without_signature(header: str) -> str:
+    """去掉 `oauth_signature` 那个参数之后的头文本。
+
+    "凭据有没有泄漏进请求头"这个检查必须先把签名摘出去再搜：签名是 HMAC-SHA1
+    的 base64（字符集含大小写字母与数字），里面**偶然**拼出凭据的那两个字符，
+    与"凭据被写进了头里"是两件毫不相干的事。原来的断言搜整条头，于是它按
+    nonce/时间随机抖动——`oauth_nonce` 是 `secrets.token_hex(16)`（十六进制，
+    不含 's'），抖动只可能来自签名；实测失败那次的头里就是
+    `oauth_signature="yj9deYHcsWcUPhP7tSj8yXBli48%3D"` 恰好含 "cs"。
+
+    摘掉签名后，剩下的全是**真实参数值**（consumer key / token / nonce /
+    timestamp / method / version），凭据一旦真被写进其中任何一个，检查照样会响。
+    """
+    return re.sub(r'oauth_signature="[^"]*"', "", header)
+
+
+def test_the_credential_leak_check_ignores_the_random_signature():
+    """回归：签名里偶然出现的凭据子串不算泄漏，真泄漏仍然会被抓到。
+
+    这条不依赖运气——它直接喂一个**必然**含 "cs" 的签名，钉住"先摘签名"这一步
+    不会被改回"搜整条头"；反例那一半保证摘签名没有把检查摘成摆设。
+    """
+    header = (
+        'OAuth oauth_consumer_key="ck", oauth_nonce="0011", '
+        'oauth_signature="ycs%2Bdeadbeef", oauth_token="tk"'
+    )
+
+    # 签名含 "cs" → 不算泄漏（这正是那个间歇性失败要修的地方）
+    assert "cs" not in _header_without_signature(header).replace("ck", "")
+
+    # 签名之外的参数里出现凭据 → 必须响
+    leaked = header.replace('oauth_nonce="0011"', 'oauth_nonce="cs"')
+    assert "cs" in _header_without_signature(leaked).replace("ck", "")
+
+
 async def test_create_post_sends_oauth_header_and_json_body():
     seen = {}
 
@@ -147,7 +183,7 @@ async def test_create_post_sends_oauth_header_and_json_body():
     assert seen["content_type"] == "application/json"
     assert json.loads(seen["body"]) == {"text": "hi"}
     # 凭据本身绝不能出现在请求头里（只出现签名）
-    assert "cs" not in seen["auth"].replace("ck", "")
+    assert "cs" not in _header_without_signature(seen["auth"]).replace("ck", "")
 
 
 async def test_create_post_requires_all_four_credentials():
