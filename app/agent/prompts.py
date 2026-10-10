@@ -17,6 +17,7 @@ from typing import Any, Mapping
 
 from app.agent.labels import (
     claim_scope_label as _claim_scope_label,
+    context_origin_label,
     viewpoint_stance_label as _viewpoint_stance_label,
 )
 from app.agent.persona import Persona
@@ -76,6 +77,8 @@ _VOICE_SECTIONS: tuple[tuple[str, str], ...] = (
     ("rhythm_rules", "节奏"),
     ("plain_language", "说人话"),
     ("allowed_devices", "允许的手法"),
+    # 结尾排在事实红线**前面**：红线读到最后一条的印象最深，把它留在末尾。
+    ("ending_rules", "结尾"),
     ("fabrication_red_lines", "事实红线"),
 )
 
@@ -158,7 +161,7 @@ def format_style_recipe(recipe: Any | None) -> str:
             lines.append(
                 f"- 目标长度：**不超过 {length} 字**。"
                 f"（语料里典型长度是 {recipe.observed_target_length} 字，"
-                f"受发布长度硬上限约束，本次实际写到 {length} 字左右即可；"
+                f"受我们的写作长度目标约束，本次实际写到 {length} 字左右即可；"
                 f"**这不是语料认为该写多短**，所以不要为了凑短而丢掉事实。）"
             )
         else:
@@ -544,6 +547,23 @@ def format_scope_signals(angle: Any | None) -> str:
             "- **范围超出证据**：主张的范围比证据能支撑的更宽。这属于 overclaim，"
             "按 P0/P1 处理。"
         )
+
+    # 动机/意图断言（工作单第六节）：这一栏是**闸门**，不是参考——程序会用它
+    # 决定 accept 能不能成立（viewpoint.accept_ceiling_for）。所以这里必须写
+    # 清楚「程序查到了什么、会据此怎么判」，否则模型会以为自己判 accept 就是最终
+    # 结论，而它的结论随后被静默改判。
+    motive_markers = list(getattr(assessment, "motive_markers", None) or [])
+    if motive_markers:
+        lines.append(
+            f"- 正文/判断里的**动机或意图断言**：{'、'.join(motive_markers)}"
+        )
+    if getattr(assessment, "motive_unsupported", False):
+        lines.append(
+            "- **动机判断没有独立来源托住**：互相独立的来源不足 2 条。材料证实得了"
+            "「做了什么」，证实不了「为了什么」。这一条**程序会拦住 accept**，"
+            "除非正文把它写成了对冲过的解读（更像 / 可能 / 一种解读 / 从目前材料看）"
+            "——所以这一项应当按 P0/P1 判，并把「改成解读」写进 revision_targets。"
+        )
     lines.append(
         f"- 反方回应：声明 {assessment.declared_counterpoints} 条、"
         f"其中 {assessment.bound_counterpoints} 条绑定到事实"
@@ -571,11 +591,129 @@ def format_sources(sources: list[tuple[str, str]]) -> str:
     return "\n".join(f"[{item_id}] {content}" for item_id, content in sources)
 
 
+def format_context(context: Any | None, *, for_reader: bool = True) -> str:
+    """话题背景块的文本（工作单第三、四、六、九节）。
+
+    **永远返回一段文本，绝不返回空串或 None**——理由与 `format_style_recipe`
+    完全相同：`render()` 不会因为缺键报错，调用方漏传这个参数，字面量
+    `{{CONTEXT}}` 会原样进入发给模型的 prompt。
+
+    ## 它与证据块是两块不同的东西
+
+    证据块回答"这条判断有什么依据"；背景块回答"读者要能看懂，最少得知道什么"。
+    两者混成一个块，模型立刻会把背景当成"又多了一条可以引用的事实"——
+    而那就是工作单第四节要挡的。所以这里**不印事实编号**，也不写"依据"字样。
+
+    ## `for_reader`
+
+    Writer / Critic 看到的是"给读者进门用"的说明；Angle 阶段看到的是同一段背景
+    加一句"不要把它写成判断"。同一份内容、不同的用途说明，比抄两份文本安全：
+    抄两份必然漂，而漂了不会报错。
+    """
+    if context is None or not any(
+        (getattr(context, name) or "").strip()
+        for name in ("subject", "definition", "why_now", "core_tension")
+    ):
+        return (
+            "（本次没有可用的话题背景：材料不足以支撑一段背景介绍。"
+            "**不要为了补背景去编**——正文直接从证据能支撑的地方写起，"
+            "并且不要让读者觉得你假设他已经知道了什么。）"
+        )
+
+    lines: list[str] = [
+        "- 以下是**给不熟悉这个话题的读者**进门用的最小必要背景。"
+        "它不是证据，不是结论，也不是本条的论点。",
+    ]
+    for field, title in (
+        ("subject", "这个话题在讲什么"),
+        ("definition", "需要解释的说法"),
+        ("why_now", "为什么现在值得看"),
+        ("core_tension", "里面真正的矛盾"),
+    ):
+        value = (getattr(context, field) or "").strip()
+        if value:
+            lines.append(f"- {title}：{value}")
+    lines.append(
+        "- 这段背景的来源："
+        + context_origin_label(getattr(context, "origin", None))
+        + "。"
+    )
+    if for_reader:
+        lines.append(
+            "- **读者不知道这个话题**。研究过程中你已经知道的东西，读者不知道——"
+            "正文要让一个第一次听说它的人能读下去。"
+        )
+    else:
+        lines.append(
+            "- **这一段不是判断**：不要从背景里推出一个结论，也不要把它当成"
+            "论证的依据——那是 `claim` 与 `evidence_ids` 的事。"
+        )
+    return "\n".join(lines)
+
+
+def format_context_signals(
+    context: Any | None, candidates: list[Candidate], pack: EvidencePack | None
+) -> str:
+    """逐条候选的**确定性**陌生读者信号，给 Critic 当参考事实（工作单第十四节）。
+
+    与 `format_ai_signals` 同一条纪律：由程序算出、按需重算、不入库、不进 state，
+    **只作为参考事实呈现，绝不混进 `context_fit` 的分数**。回传命中的具体对象是
+    为了便于核对误报，不是自动判负。
+
+    背景为空时返回一句"本次没有背景可参照"：那种运行里判"缺背景"只会是噪声，
+    而噪声会让真是问题的那一条失去意义。
+    """
+    from app.agent.context import context_signals as _signals
+
+    if context is None or not getattr(context, "subject", ""):
+        return "（本次没有话题背景可参照，这一组信号本次不适用。）"
+
+    signals = _signals(context, candidates, pack)
+    if not signals:
+        return "（本次没有话题背景可参照，这一组信号本次不适用。）"
+
+    lines: list[str] = []
+    for signal in signals:
+        found: list[str] = []
+        if signal.concept_jump:
+            detail = "、".join(signal.entry_specifics) or "一个具体对象"
+            found.append(f"首句直接抛出背景里没解释过的「{detail}」")
+        if signal.evidence_hijacking:
+            found.append(
+                "首句在复述一条事实"
+                + (f"（{signal.hijacked_fact_id}）" if signal.hijacked_fact_id else "")
+                + "，而话题本身还没交代"
+            )
+        if signal.context_missing:
+            found.append("全文与背景没有任何共同表述，没有接住这段背景")
+        lines.append(
+            f"[{signal.candidate_id}] "
+            + ("；".join(found) if found else "未发现")
+        )
+    lines.append(
+        "（这些是**可以复算的痕迹**，不是分数：命中了要自己看正文确认，"
+        "没命中不代表正文一定好读。）"
+    )
+    return "\n".join(lines)
+
+
 def format_evidence(pack: EvidencePack) -> str:
-    """证据包列表（f1、f2…）。Angle 按 fact_id 引用它们。"""
+    """证据包列表（f1、f2…）。Angle 按 fact_id 引用它们。
+
+    头一行先报**事实条数**与它们实际覆盖的**材料条数**（工作单第五节）：
+    6 条事实可能全部来自同 1 条帖子，而"6 条证据"这句话本身在暗示有 6 份
+    独立材料托着同一个判断。两个数印在一起，才读得出来这批事实是不是
+    同一个来源拆出来的。
+
+    作者数不在这里报——那要拿到本次材料才算得出（作者名在 research result
+    上，不在证据包里），由 `extract_evidence` 的 summary 报（见
+    tools/evidence.py，`viewpoint.authors_of`）。
+    """
     if not pack.facts:
         return "（无证据）"
-    lines = [
+    materials = {sid for fact in pack.facts for sid in fact.source_ids}
+    lines = [f"（共 {len(pack.facts)} 条事实，来自 {len(materials)} 条材料）"]
+    lines += [
         f"[{fact.fact_id}] {fact.fact}（出处：{', '.join(fact.source_ids) or '无'}）"
         for fact in pack.facts
     ]
@@ -635,10 +773,11 @@ def format_length_headroom(content: str, max_length: int) -> str:
     percent = round(over / length * 100) if length else 0
     return (
         f"**原稿 {length} 字，超过上限 {max_length} 字 {over} 字（约 {percent}%）。"
-        f"这次改稿的第一件事就是砍掉至少 {over} 字。**\n"
+        f"这次改稿的第一件事就是砍掉至少 {over} 字——这是交付硬上限，不是建议。**\n"
         "砍的顺序：先合并重复的铺垫和转折，再删掉可有可无的修饰与形容词，"
         "最后才动句子结构。**不许删事实、不许删观点、不许改掉开头那个钩子**"
-        "——把事实删了换来的合格长度，比超长更糟。"
+        "——把事实删了换来的合格长度，比超长更糟。\n"
+        "**也不许把一句话砍成半句**：删的是整句与冗余修饰，不是句子的后半截。"
     )
 
 
@@ -709,14 +848,32 @@ def _topics(topics: list[CandidateTopic]) -> str:
     分档（qualification）必须印：没有它，Planner 看不出"这条只有一位作者参与、
     分数是被封顶过的"，而 `select_topic` 恰恰会优先选 qualified 的，
     两边看到的东西不一致时，回退就会显得莫名其妙。
+
+    相关性判定也印（`goal_relevance`）：它是"这一批候选是不是你要的东西"的
+    唯一确定性结论（`app/agent/relevance.py`），而这两件事的处置完全相反——
+    不达人可以换检索词再找，不相关则说明这一批材料本身就选错了。只印分数与
+    分档的话，Planner 会看到一堆"弱支撑"的候选，然后合理地判断"再研究研究"，
+    而正确的动作是"换一个词重新发现"。
     """
     if not topics:
         return "（尚未发现）"
     return "；".join(
         f"{t.topic_id} {t.title}（{t.trend_score:.1f} 分/{t.qualification.value}，"
-        f"{t.author_count} 位作者）"
+        f"{t.author_count} 位作者，{_relevance_label(t)}）"
         for t in topics
     )
+
+
+def _relevance_label(topic: Any) -> str:
+    """候选与目标的相关性，三态各自的说法。
+
+    `None`（本次没判定）写"相关性未判定"而不是"相关"：两者的含义不同，
+    而 Planner 的下一步动作也不同——没判定时不该因为"这一栏写着相关"就放心。
+    """
+    relevance = getattr(topic, "goal_relevance", None)
+    if relevance is None:
+        return "相关性未判定"
+    return "与目标相关" if relevance else "**与目标无关**"
 
 
 def _angles(angles: list[Any], selected: Any | None) -> str:

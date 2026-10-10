@@ -3,10 +3,12 @@
 三层保证，缺一不可：
 
 1. **预检**——本地能判定的错误一律在调用 X 之前拦下（没有审核记录、内容与审核
-   记录不一致、正文泄漏内部编号或含低质诱饵词）。能本地判定的错误不该浪费一次
-   外部调用，更不该在外部留下痕迹。
-   **长度不在其中**：见 `_preflight` 里的说明——那是我们自己的目标长度，不是
-   平台的硬限制。
+   记录不一致、正文超过交付硬上限、正文泄漏内部编号或含低质诱饵词）。能本地判定
+   的错误不该浪费一次外部调用，更不该在外部留下痕迹。
+   **长度的角色**要说清楚：`content_max_length`（`persona.max_length`，默认 140）
+   是**我们自己定的交付硬上限**——不是平台的限制，我们这账号能发的比它长。它在这里
+   是硬闸门，与"正文里泄漏内部编号"同级；而 60 那个推荐下限**不在这里**，
+   短稿照发。见 `_preflight` 里的说明。
 2. **抢占**——调用 X **之前**，在同一个事务里把 Run 从 approved/edited 抢到
    publishing 并写下发布行的在途记录（repositories.claim_publish）。
    崩溃时宁可留下"以为发出去了"的痕迹交给人工裁决，也不能没有任何痕迹：
@@ -35,6 +37,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
+from app.agent.post_structure import length_detail, over_hard_limit
 from app.agent.viewpoint import evidence_index
 from app.diagnostics import describe as _describe
 from app.models.published_post import STATUS_FAILED, STATUS_PUBLISHED, STATUS_UNKNOWN
@@ -81,10 +84,16 @@ class PublishResult:
 
 
 class PublishService:
-    def __init__(self, *, x_service, session_factory, graph):
+    def __init__(self, *, x_service, session_factory, graph, content_max_length: int):
         self._x_service = x_service
         self._session_factory = session_factory
         self._graph = graph
+        # 交付硬上限（`persona.max_length`）。**必填**，没有默认值：
+        # 给它一个"没传就不校验"的默认值，等于把这条产品规则变成"取决于谁来构造
+        # 这个对象"——而构造点越多，漏掉一处就越难发现（那种坏法的表现是
+        # "有的超长稿被拦、有的发出去了"，比整齐地不拦更难查）。
+        # 让它必填，漏传就是一个启动即现的 TypeError。
+        self._content_max_length = content_max_length
 
     async def publish(self, run_id: str) -> PublishResult:
         preflight = await self._preflight(run_id)
@@ -164,20 +173,42 @@ class PublishService:
                 detail="checkpoint final_content does not match the recorded review decision",
             )
 
-        # 长度**不在这里拦**。
+        # 交付硬上限：超过 `content_max_length` 的正文一律不发。
         #
-        # 这一条曾经做过本地 422，理由是"能本地判定就不要浪费一次外部调用，
-        # X 端只会回 400"。理由本身没错，错的是它拦的东西：`persona.max_length`
-        # 是我们**自己的写作目标**，不是平台的硬限制——这个账号能发的比它长。
-        # 于是出现了一种很别扭的失败：一条比目标长一点、其实完全发得出去的正文，
-        # 在点发布的那一刻被自己的规则挡下来，而审核者看到的是一个他改不了的错。
+        # 这道闸门走过一个来回，把两次的理由都记在这里，免得下次又凭一半的记忆
+        # 把它改回去：
         #
-        # 现在长度只是 `guardrail` 的一条**提示**（`too_long`），和"正文里出现
-        # 内部编号"那种硬不合规不是一回事：前者交给审核者判断要不要压短，后者
-        # 照样在这里 422（见下面的内容门禁）。
+        # - 起初它在，理由是"能本地判定就别浪费一次外部调用去换 X 的 400"。那个
+        #   理由本身是错的（假想敌是 X 的 400，而 X 其实收得下更长的稿子）。
+        # - 后来撤掉，理由是"`max_length` 是我们自己的**写作目标**，不是平台限制"。
+        #   这句话没错，但**撤错了地方**：它是写作目标这一点，说明它不该被当成
+        #   平台限制去呈现，不说明它不该被当成交付条件去执行。撤掉之后，"这条稿
+        #   比目标长了 40 字"只剩一条 `guardrail` 提示，而提示是**可以放着不管的**
+        #   ——于是超长稿一路走到发布。
+        # - 现在它在，理由只有一条：这是我们要的交付标准。到发布这一步，正文已经
+        #   经过 Agent 的候选选择、Critic、人类审核三道关；还超长说明这三道关都
+        #   没拦住，那么**在最后一次机会上拦住它就是唯一诚实的做法**。
         #
-        # 撤掉这道本地闸门不会制造"结果未知"：真的发不出去时 X 会回 4xx，那条
-        # 路径是 `_fail`（确定没发出去、可重试），不是 `_unknown`。
+        # 特别注意 `edit` 路径：人工改写稿也走这里。人可以手改正文（那正是 edit 的
+        # 用途），但不能用改长来绕过上限——否则"过不了就手工改"会变成默认操作，
+        # 与内容门禁一视同仁的那条纪律就自相矛盾了。
+        #
+        # 为什么用 `OUTCOME_INVALID` 而不是新造一个结果：它与内容门禁是同一类
+        # 事实——"这条正文不能发，不是网络问题、不是状态问题"，调用方对这两者的
+        # 处置也相同（回去改正文）。顺带：这里返回等于**没有抢占过**，Run 状态与
+        # 发布行都不动，所以它不会制造 publishing 残留，也不会落进"结果未知"。
+
+        if over_hard_limit(content, self._content_max_length):
+            # 用 `length_detail` 而不是手写 f-string：这条判据在三个地方被用
+            # （Critic 的确定性拦截、finalize 的选稿、这里），谁改了长度口径，
+            # 三处的说法会一起变——而不是一处改了、另两处继续按老口径说话。
+            return PublishResult(
+                OUTCOME_INVALID,
+                detail=(
+                    f"{length_detail(content, self._content_max_length)}；"
+                    "超过交付硬上限的正文不允许发布，请先把它改短"
+                ),
+            )
 
         # 内容门禁：正文里泄漏内部事实编号、或出现低质点击诱饵词，一律不发。
         # 与 guardrail 调的是**同一个函数**（`evaluate_content_gate`），所以

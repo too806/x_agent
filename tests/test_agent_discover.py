@@ -22,8 +22,8 @@ from datetime import timedelta
 
 import pytest_asyncio
 
-from app.agent.schemas import AgentDecision
-from app.agent.tools.discover import make_discover_tool
+from app.agent.schemas import AgentDecision, TopicQualification
+from app.agent.tools.discover import make_discover_tool, make_select_topic_tool
 from app.agent.trends import LINK_ONLY_TITLE, TREND_WINDOW_HOURS
 from app.repositories import create_agent_run
 from app.services.x_service import XService
@@ -281,3 +281,67 @@ async def test_discover_declares_the_scan_window_it_used(session_factory, run_id
     sent = client.searches[0]
     assert sent["start_time"] == FIXED_NOW - timedelta(hours=TREND_WINDOW_HOURS)
     assert sent["end_time"] == FIXED_NOW
+
+
+# --------------------------------------------------------------------------
+# 目标相关性：候选与用户目标对不上时必须**标记出来**（工作单第二、四节）
+# --------------------------------------------------------------------------
+
+
+HONG_KONG_GOAL = "今天想关注香港"
+
+
+async def test_materials_that_mention_the_goal_mark_the_candidate_relevant(
+    session_factory, run_id
+):
+    """GOAL 里的「AI Agent」在材料里出现过 → 判相关，并写清命中了哪个词。
+
+    两个簇各引两条材料，是为了**不触发按帖子分组的兜底**（`FALLBACK_MIN_TOPICS`
+    ＝2）：兜底出来的候选是"一条帖子一个候选"，那样测到的相关性判定对象
+    就不是模型给的分组了。
+    """
+    tool = _tool(session_factory, clusters([["m1", "m2"], ["m1", "m2"]]))
+
+    result = await tool(discover_state(run_id), decide(query="AI Agent"))
+
+    topics = result.delta["candidate_topics"]
+    assert [t.goal_relevance for t in topics] == [True, True]
+    # ASCII 词在 `relevance.goal_terms` 里统一小写，所以比对也不分大小写。
+    assert "agent" in topics[0].goal_relevance_note.lower()
+
+
+async def test_candidates_whose_materials_miss_the_goal_are_marked_and_refused(
+    session_factory, run_id
+):
+    """Run 20ab360c 的复现（工作单第二、三、四节）。
+
+    目标是「今天想关注香港」，而材料是两条讲 AI coding agent 的英文帖子——
+    目标里的话题词一个都没出现。此时的判定必须是 **False**（不是"未判定"），
+    而且这件事必须**说出来**：summary 里要写清淘汰了几个、为什么。
+
+    然后 `select_topic` 必须**拒绝**。原先这里回退到"候选里分最高的那个"，
+    于是用户拿到一篇讲 FF 发布会的分析——trace 里那条回退记录看起来完全正常。
+
+    这个候选本身是**达标**的（两条材料、两位作者），所以拒绝它不是因为
+    "材料不够"，而是因为它与目标无关——这两件事的处置完全相反。
+    """
+    tool = _tool(session_factory, clusters([["m1", "m2"], ["m1", "m2"]]))
+    state = {**discover_state(run_id), "goal": HONG_KONG_GOAL}
+
+    result = await tool(state, decide(query="香港"))
+
+    topics = result.delta["candidate_topics"]
+    assert len(topics) == 2
+    assert [t.goal_relevance for t in topics] == [False, False]
+    # 达标与否是另一回事：这两条候选本身有两条材料、两位作者。
+    assert all(t.qualification is TopicQualification.QUALIFIED for t in topics)
+    assert "香港" in topics[0].goal_relevance_note
+    assert "淘汰" in result.summary
+    assert "香港" in result.summary
+
+    refusal = await make_select_topic_tool()(
+        {**state, **result.delta}, decide(target=topics[0].topic_id)
+    )
+    assert refusal.delta == {}
+    assert "没有可用的候选选题" in refusal.summary
+    assert "换一个检索词" in refusal.summary

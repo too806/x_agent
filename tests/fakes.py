@@ -289,6 +289,29 @@ def topics_payload(count: int = 5):
     return build
 
 
+def evidence_payload_with_context(context=None):
+    """证据包 + 话题背景。
+
+    `context` 原样写进返回体（`None` 就不带这个键，用来覆盖"模型漏了背景"那条路径）：
+    与 `evidence_payload(*extra_facts)` 注入坏事实同一个用意——测试要能精确控制
+    模型返回到字段这一级，才验得了工具是不是真的在清洗它。
+    """
+
+    def build(prompt: str) -> str:
+        ids = source_ids_in(prompt)
+        body = {
+            "facts": [{"fact": "事实一：有明确出处", "source_ids": ids[:1]}],
+            "consensus": [],
+            "counterpoints": [],
+            "unknowns": [],
+        }
+        if context is not None:
+            body["context"] = context
+        return json.dumps(body, ensure_ascii=False)
+
+    return build
+
+
 def evidence_payload(*extra_facts):
     """证据包。额外的 fact 直接写进返回体（用来注入编造出处的坏数据）。"""
 
@@ -362,7 +385,10 @@ def angles_payload(count: int = 3, *, rich_first: bool = True):
 
 
 def candidates_payload(count: int = 3, content: str = "这是一条候选正文。"):
-    labels = ["直接观点", "信息密集", "反共识"]
+    # 与 `prompts/agent/candidates.txt` 要求的三条路一致（`ROLE_ORDER`）。
+    # label 不参与任何分支，只是让假数据与真实契约的形状对得上——
+    # 对不上的话，"Critic 按 label 判有没有走对路"这类测试就会假通过。
+    labels = ["鲜明观点型", "事实与反差型", "讨论与不同视角型"]
 
     def build(prompt: str) -> str:
         return json.dumps(
@@ -379,25 +405,30 @@ def candidates_payload(count: int = 3, content: str = "这是一条候选正文�
 
 
 def critic_payload(decision: str = "accept", *, focus=None, score: float = 8.0,
-                   revision_targets=("第一句改成直接给结论",)):
+                   revision_targets=("第一句改成直接给结论",), context_fit=None):
     """整批候选的评价。
 
     默认让**每一条**候选都得到同一个结论——这样"聚焦到哪一条"就由
     `focus` 或内部规则决定，测试不必依赖字典序之类的偶然。
+
+    `context_fit` 给了就写进返回体（没有这个键时输出与加它之前**逐字相同**，
+    盯住这段的旧测试不受影响）。
     """
 
     def build(prompt: str) -> str:
         cids = candidate_ids_in(prompt)
-        results = [
-            {
+        results = []
+        for cid in cids:
+            entry = {
                 "candidate_id": cid,
                 "score": score,
                 "flags": [] if decision == "accept" else ["有问题"],
                 "revision_targets": list(revision_targets) if decision == "revise" else [],
                 "decision": decision,
             }
-            for cid in cids
-        ]
+            if context_fit is not None:
+                entry["context_fit"] = dict(context_fit)
+            results.append(entry)
         return json.dumps(
             {"results": results, "focus_candidate_id": focus or (cids[0] if cids else "")},
             ensure_ascii=False,

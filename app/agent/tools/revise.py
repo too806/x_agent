@@ -23,6 +23,7 @@ import logging
 from app.agent.budget import counter
 from app.agent.persona import Persona
 from app.agent.prompts import (
+    format_context,
     format_critics,
     format_evidence,
     format_length_headroom,
@@ -74,6 +75,12 @@ def make_revise_tool(llm_service: LLMService, persona: Persona):
             TOPIC=state.get("selected_topic") or "",
             # 与 Writer / Critic 同一份渲染：改稿也要知道"不能改掉的是哪个判断"。
             VIEWPOINT=format_viewpoint(angle),
+            # 改稿同样是写作，同样要面对"读者不知道这个话题"。用同一份背景、
+            # 同一句用途说明（`for_reader=True`），否则 Critic 判了"读者进不来"、
+            # 改稿这一步却看不到该往哪补。
+            CONTEXT=format_context(
+                getattr(state.get("evidence_pack"), "context", None)
+            ),
             EVIDENCE=format_evidence(state.get("evidence_pack")),
             PERSONA=format_persona(persona),
             # 改稿要收敛到同一个结构，否则改着改着骨架就换了。

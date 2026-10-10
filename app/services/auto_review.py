@@ -44,7 +44,12 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Mapping, Sequence
 
-from app.agent.nodes.finalize import AgentIncompleteError, pick_final_candidate
+from app.agent.nodes.finalize import (
+    AgentIncompleteError,
+    AgentOverlongError,
+    pick_final_candidate,
+)
+from app.agent.post_structure import length_detail, over_hard_limit
 from app.models.auto_review import VERDICT_APPROVE, VERDICT_REJECT
 from app.services.automation_config import AutomationConfig
 from app.style.gate import evaluate_content_gate
@@ -60,10 +65,16 @@ logger = logging.getLogger(__name__)
 #: 那是一个会被人发现的、可修的偏差；反过来则是静默的。
 NON_BLOCKING_GUARDRAIL_REASONS: frozenset[str] = frozenset(
     {
-        # 长度是**我们自己的写作目标**，不是平台的硬限制——这个账号能发得更长。
-        # 发布路径早已不因此拦截（见 app/services/publish.py 里那段说明），
-        # 自动审阅必须与它一致，否则一条比目标长一点、其实完全发得出去的正文
-        # 会被自己的规则挡在自动通道之外。
+        # `too_long` 留在这里，是**因为它已经是多余的那一条**，不是因为长度不要紧。
+        #
+        # guardrail 的 `too_long` 是个布尔式的提示：只知道"超了"，不知道超多少、
+        # 也不知道超的是哪条候选。长度这件事现在有专门的判据（下面 `evaluate_auto_publish`
+        # 的第 2 条），它用同一个尺子（`over_hard_limit`）算出确切字数，并给出
+        # 具名理由。同一件事报两遍、其中一遍还说不清，只会让 `reasons` 变长。
+        #
+        # 所以要保证的**不是**"这个码继续不拦"，而是"长度一定有人拦"——那由那条
+        # 具名判据负责，且它读的是与发布路径同一个上限。谁哪天把那条判据删了，
+        # 这里就会同时失去唯一的拦阻者；改这里之前先看那条判据还在不在。
         "too_long",
     }
 )
@@ -87,7 +98,9 @@ class AutoReviewDecision:
         return VERDICT_APPROVE if self.approved else VERDICT_REJECT
 
 
-def resolve_delivered_verdict(state: Mapping[str, Any]) -> tuple[str | None, Any | None]:
+def resolve_delivered_verdict(
+    state: Mapping[str, Any], *, max_length: int | None = None
+) -> tuple[str | None, Any | None]:
     """找出**实际交付的那条候选**，以及它自己的评审结论。
 
     这是本模块最容易写错的一处。`state["critic_result"]` 是"最近一次评价里
@@ -100,11 +113,23 @@ def resolve_delivered_verdict(state: Mapping[str, Any]) -> tuple[str | None, Any
     两份排序实现迟早会分叉，而分叉的表现是"自动放行的那条和实际发布的那条
     不是同一条"），拿到 candidate_id 再取它的裁决。
 
+    `max_length` 必须与 finalize 用**同一个值**，理由同上：`pick_final_candidate`
+    在给了上限时会优先选不超长的那条，让本函数按纯分数选，就可能盯上**另一条**
+    候选的裁决——于是"自动放行的那条"与"实际交付的那条"分叉，而这次分叉的
+    方向是危险的（放行了一条并未交付的稿子的分数）。调用方（`evaluate_auto_publish`）
+    统一从 `runtime.persona.max_length` 取。
+
     返回 `(candidate_id, CriticResult | None)`。第二条为 `None` 表示这条候选
     **从没被 Critic 评价过**——那种情况下判据是**不放行**（见 evaluate_auto_publish）。
     """
     try:
-        chosen = pick_final_candidate(state)
+        chosen = pick_final_candidate(state, max_length=max_length)
+    except AgentOverlongError as exc:
+        # 候选池里没有一条合格。**不是"没有候选"**，但本函数的返回值表达不了
+        # 这个区别（调用方只认 `None`），所以差异写进日志，理由由
+        # `evaluate_auto_publish` 的长度判据给出——那条判据本来就是为这件事留的。
+        logger.warning("auto review: %s", exc)
+        return None, None
     except AgentIncompleteError:
         # 没有候选就没有交付，也就没有可以放行的东西。
         # 正常流程到不了这里（finalize 会先抛），但本函数是判据的入口，
@@ -126,11 +151,17 @@ def evaluate_auto_publish(
     recent_topics: Iterable[str] = (),
     publish_attempts_today: int = 0,
     config: AutomationConfig,
+    max_length: int | None = None,
 ) -> AutoReviewDecision:
     """逐条判据跑一遍。任一不过 → `approved=False`，理由收进 `reasons`。
 
     参数里的 `state` 是 LangGraph checkpoint 的 `values`（要从中解析**交付候选**
     的评审结论，见 `resolve_delivered_verdict`）。
+
+    `max_length` 是正文的**交付硬上限**（`persona.max_length`），有两个用途：
+    判定这条正文能不能自动放行，以及让"该看哪条候选"与 finalize 保持同一个口径。
+    传 `None` 表示调用方没给出上限（手写 state 的单测、旧调用方）——那时**不判长度**：
+    宁可少判一条，也不要拿一个猜出来的上限去拦。
     """
     checks: dict[str, Any] = {}
     reasons: list[str] = []
@@ -147,10 +178,38 @@ def evaluate_auto_publish(
     if violations:
         reasons.extend(v.detail for v in violations)
 
-    # --- 2. Guardrail 的硬性问题 -------------------------------------------
+    # --- 2. 交付硬上限：与发布路径**同一个尺子** ---------------------------
+    #
+    # 与上一条同样的道理：自动放行必须**保证发布能过**。发布侧现在会拒绝超长
+    # 正文（`PublishService._preflight`），若这里放行、那里被拦，得到的就是
+    # `MANUAL_GO_LIVE_STEPS` 里点名要避免的组合——一条"机器批准了、却发不出去"
+    # 的记录，还会污染影子期的一致率，让转正式的门槛读到一个假的达标。
+    #
+    # 为什么不用 guardrail 的 `too_long`：那是个布尔提示，说不出超了多少字。
+    # 这里用 `over_hard_limit` 自己算——它与发布侧、Critic、finalize 是同一个尺子。
+    over = None if max_length is None else over_hard_limit(content or "", max_length)
+    checks["length"] = (
+        {"passed": True, "checked": False, "why": "调用方没有给出上限，本层不判"}
+        if over is None
+        else {
+            "passed": not over,
+            "checked": True,
+            "limit": max_length,
+            "value": len(content or ""),
+        }
+    )
+    if over:
+        reasons.append(
+            f"{length_detail(content or '', max_length)}，超过交付硬上限，不自动放行。"
+        )
+
+    # --- 3. Guardrail 的硬性问题 -------------------------------------------
     #
     # 只看**不是**提示性的那些码。刻意不读 `guardrail_passed`：那个布尔值
-    # 会被 `too_long` 拉成 False，而长度是我们自己的目标、不是平台的限制。
+    # 会被 `too_long` 拉成 False。长度**确实**是交付条件（上面第 2 条判据就是
+    # 它），但它在这里是提示性的——那条判据用同一个尺子算出确切字数、给出具名
+    # 理由，比一个只有真假的布尔值说得多。两件事分开写，是为了让"长度"这一条
+    # 在 `checks` 里只出现一次、且说的是完整的那一次。
     blocking = [r for r in guardrail_reasons if r not in NON_BLOCKING_GUARDRAIL_REASONS]
     checks["guardrail"] = {
         "passed": not blocking,
@@ -162,8 +221,11 @@ def evaluate_auto_publish(
             "Guardrail 命中了硬性问题（" + "、".join(blocking) + "）。"
         )
 
-    # --- 3. 交付候选的评审结论 ---------------------------------------------
-    candidate_id, verdict = resolve_delivered_verdict(state)
+    # --- 4. 交付候选的评审结论 ---------------------------------------------
+    #
+    # `max_length` 一路带下去：`pick_final_candidate` 给了上限时会优先挑不超长的
+    # 那条，这里必须与 finalize 用同一个值，否则盯上的可能是**另一条**候选。
+    candidate_id, verdict = resolve_delivered_verdict(state, max_length=max_length)
     score = getattr(verdict, "score", None)
     decision = getattr(verdict, "decision", None)
     checks["critic"] = {
@@ -174,15 +236,22 @@ def evaluate_auto_publish(
     }
     if verdict is None:
         # 没被评价过的内容不放行：Critic 没见过它，本层没有任何依据替人担保。
-        reasons.append(
-            "交付的候选没有 Critic 评审记录——没有依据替人放行，交给人看。"
-        )
+        #
+        # 唯一不报这句的情形：候选池里一条不超长的都没有（第 2 条已经拦下并说清了
+        # 原因）。那时 `resolve_delivered_verdict` 返回 `None` 不是"没评价过"，
+        # 是"没有可评价的"——照原样报会给出一个与事实不符的理由，而理由是要给人看的。
+        if over:
+            checks["critic"]["note"] = "候选池里没有不超长的正文，无从取评审结论"
+        else:
+            reasons.append(
+                "交付的候选没有 Critic 评审记录——没有依据替人放行，交给人看。"
+            )
     elif decision != "accept":
         reasons.append(
             f"Critic 对交付候选的结论是「{decision}」，不是 accept，交给人看。"
         )
 
-    # --- 4. 分数下限 --------------------------------------------------------
+    # --- 5. 分数下限 --------------------------------------------------------
     # 只在有分数时判；没分数的情况已经被第 3 条拦下了，不在这里重复报。
     score_ok = score is None or score >= config.min_critic_score
     checks["critic_score"] = {
@@ -196,7 +265,7 @@ def evaluate_auto_publish(
             f"{config.min_critic_score:.1f}，交给人看。"
         )
 
-    # --- 5. 跨帖重复 --------------------------------------------------------
+    # --- 6. 跨帖重复 --------------------------------------------------------
     #
     # 这是整个自动发布里最要紧的一条：重复/近似重复内容会被 X 判为垃圾信息，
     # 而无人值守意味着没人会在发出去之前发现它。
@@ -218,7 +287,7 @@ def evaluate_auto_publish(
     if repetition.blocks:
         reasons.extend(h.detail for h in repetition.hits)
 
-    # --- 6. 当日发布额度 ----------------------------------------------------
+    # --- 7. 当日发布额度 ----------------------------------------------------
     #
     # 计入的是**尝试**次数而不是成功次数：结果未知的那次可能已经发出去了。
     # 这是最后一道兜底——tick 入口还有一道，见 auto_publish.py。

@@ -21,7 +21,7 @@ from typing import Any, Mapping
 import yaml
 from pydantic import BaseModel, Field
 
-from app.agent.schemas import AgentAction
+from app.agent.schemas import AgentAction, TopicQualification
 from app.config import settings
 
 
@@ -102,6 +102,53 @@ def has_evidence(state: Mapping[str, Any]) -> bool:
     return bool(getattr(state.get("evidence_pack"), "facts", None))
 
 
+def is_selectable(topic: Any) -> bool:
+    """这个候选能不能被选中，作为本次运行要写的题目。
+
+    两个条件缺一不可：
+
+    1. `qualification` 是 qualified —— `trends.qualify` 的确定性判定
+       （够多作者、够多可核验来源、分数过线）。
+    2. `goal_relevance` **不是** False —— 材料里真的出现过目标里的话题词
+       （`app/agent/relevance.py`）。`None`（本次没有判定）**放行**：
+       没判定不等于判定为不相关，把两者合并会让"目标写得随便一点"直接变成
+       "一个候选都用不了"。
+
+    "合格"与"相关"是两件独立的事，缺任何一件都不该被拿去写：一个结构上够热闹
+    但与目标无关的簇（Run 20ab360c 的 t1）合格；一个相关但单一来源的簇也不合格。
+    """
+    if getattr(topic, "qualification", None) is not TopicQualification.QUALIFIED:
+        return False
+    return getattr(topic, "goal_relevance", None) is not False
+
+
+def selectable_topics(state: Mapping[str, Any]) -> tuple[Any, ...]:
+    """当前 state 里可被选中的候选。
+
+    **只有这一个定义**。`allowed_actions`、`select_topic`、`research._choose_topic`
+    三处都调它——三处各写一遍的话，"prompt 里说可以选、工具里拒绝"或者反过来
+    是迟早的事，而这个仓库里已经有 RULE-013 那种"两个判据漂移"的教训。
+    """
+    topics = state.get("candidate_topics") or []
+    return tuple(topic for topic in topics if is_selectable(topic))
+
+
+def has_workable_topic(state: Mapping[str, Any]) -> bool:
+    """有没有一个"值得继续做下去"的选题——能不能开始把材料变成证据与观点。
+
+    没有候选列表时返回 True：目标里已经把题目写明的运行（"帮我研究 OpenAI
+    最近发布的某功能"）本来就不经过 discovery，材料就是目标下的材料，这里
+    没有候选可判。
+
+    有候选、但一个都不合格或不相关时返回 False。此时继续往下走，等于拿用户
+    不关心（或系统自己都不认为够格）的材料去写一条帖子；上一轮真正该做的是
+    换一个检索词再找，找不到就安全结束，而不是**硬选**一个。
+    """
+    if not filled(state, "candidate_topics"):
+        return True
+    return bool(selectable_topics(state))
+
+
 def revision_pending(state: Mapping[str, Any]) -> bool:
     """Critic 是否刚刚要求改稿。
 
@@ -150,7 +197,14 @@ def allowed_actions(state: Mapping[str, Any], budget: AgentBudget) -> tuple[Agen
     # 选完之后它不再可行，Planner 换不了题。这是刻意的——换题会让已经取回的
     # 材料、已经形成的证据与新的选题对不上，而 state 里没有任何字段能表达
     # "这些材料属于上一个题"。要换题就得新开一次运行。
-    if filled(state, "candidate_topics") and not filled(state, "selected_topic"):
+    #
+    # 前置条件从 `filled(candidate_topics)` 收紧成"存在一个**可被选中**的候选"
+    # （工作单第三节）。原来是"有候选就能选"，于是 `qualified = 0` 的运行照样
+    # 会把分数最高的那个选出来——Run 20ab360c 就是这么把一篇与目标无关的
+    # 发布会写成了稿子。合格与相关是确定性判定的结论，不是可以"先选上再说"的
+    # 建议；一个都没过关时的正确动作是继续找（见下面 DISCOVER_TOPICS 的条件），
+    # 找不到就按 FALLBACK_ORDER 一路收到安全结束。
+    if selectable_topics(state) and not filled(state, "selected_topic"):
         allowed.append(AgentAction.SELECT_TOPIC)
 
     # research_topic **不再要求先有过候选选题**（Phase 5B.1 第八节）。
@@ -173,7 +227,11 @@ def allowed_actions(state: Mapping[str, Any], budget: AgentBudget) -> tuple[Agen
     ):
         allowed.append(AgentAction.DEEPEN_RESEARCH)
 
-    if filled(state, "research_item_ids"):
+    # 抽证据是把"材料"变成"这条帖子要用的东西"的第一步，所以它同时是
+    # "这个运行到底要不要交付"的闸门（工作单第三节）：手上没有可用的选题时，
+    # 从这里往下走的每一 步都会把一批用户不关心（或系统判定不够格）的材料
+    # 变成一条真发出去的帖子。宁可这一次没有产出，也不能硬塞。
+    if filled(state, "research_item_ids") and has_workable_topic(state):
         allowed.append(AgentAction.EXTRACT_EVIDENCE)
 
     # 生成 Angle 的意义在于"它还能被选中、进而变成候选"。候选一旦写出来，
@@ -185,7 +243,10 @@ def allowed_actions(state: Mapping[str, Any], budget: AgentBudget) -> tuple[Agen
     # 已完成"的收尾会反复重新生成 Angle，直到把 WRAPUP_ALLOWANCE 耗光、
     # 最后被强制 finish（RULE-013 记录的真实场景）。条件与下面的 SELECT_ANGLE
     # 对齐，两者一起表达同一件事：候选写出来之后，角度就定了。
-    if has_evidence(state) and not candidates:
+    # `has_workable_topic` 与 EXTRACT_EVIDENCE 同一条件。证据只可能来自
+    # "可用的选题"，所以这一条在实践中不会被单独触发；写出来是为了不让
+    # "能不能开始写"这件事有两个口径——只改一处时，另一处会安静地放行。
+    if has_evidence(state) and not candidates and has_workable_topic(state):
         allowed.append(AgentAction.GENERATE_ANGLES)
 
     # 已经产出候选之后不再允许重新选 angle：候选池是满的，重新选角度并不能
@@ -205,9 +266,17 @@ def allowed_actions(state: Mapping[str, Any], budget: AgentBudget) -> tuple[Agen
     if revision_pending(state) and revisions < budget.max_revisions:
         allowed.append(AgentAction.REVISE)
 
-    # 先把 discovery 的一次性条件说清楚：还没发现过候选选题时才能发现。
-    # discovery 也计入研究预算——否则"发现不出东西"会变成一个可以无限重试的动作。
-    if not filled(state, "candidate_topics") and research < budget.max_research_calls:
+    # 什么时候还能再发现一次？从"还没发现过候选选题"放宽成"手上没有一个
+    # **可被选中**的候选"（工作单第三节）。
+    #
+    # 放宽是必要的：收紧 SELECT_TOPIC 之后，如果这里仍然要求"候选列表为空"，
+    # 那么"发现了候选、但一个都不合格/不相关"的运行就会被卡死——选不了，
+    # 又不能重新发现，只能靠 pick_fallback 兜到别处去。而这一轮真正该做的
+    # 恰恰是**换一个检索词再发现一次**：Run 20ab360c 的问题不是"最近没什么
+    # 可讨论的"，是"这一批材料与目标无关"。
+    #
+    # 仍然受研究预算约束：否则"发现不出东西"会变成一个可以无限重试的动作。
+    if not selectable_topics(state) and research < budget.max_research_calls:
         allowed.append(AgentAction.DISCOVER_TOPICS)
 
     if ready_to_finish(state):

@@ -24,5 +24,6 @@ max_candidates: 3
 max_revisions: 2
 
 # Writer 一轮产出几条候选。三条必须在**写法定位**上不同
-# （直接观点 / 信息密集 / 反共识），否则只是换三次措辞。
+# （鲜明观点型 / 事实与反差型 / 讨论与不同视角型，见 app/agent/post_structure.py），
+# 否则只是换三次措辞。这个数字与 `ROLE_ORDER` 的长度一致。
 candidates_per_round: 3

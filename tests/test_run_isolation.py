@@ -35,8 +35,13 @@ from test_agent_loop import HAPPY_PATH, config_for, drive, happy_llm
 TOPIC_A = "英伟达为什么今天突然大涨"
 TOPIC_B = "纳斯达克最近为什么大跌"
 
+# 两条目标必须**各自都能被满足**，所以要带上假 X 服务真会返回的那个词：
+# `SAMPLE_X_RESPONSE` 是两条讲 AI coding agent 的英文帖子。目标里的词一个都
+# 不在材料里出现时，相关性闸门（`app/agent/relevance.py`）会**正确地**标记这批
+# 候选与目标无关、拒绝选题，这条运行于是以"没有产出"收场——那是另一条测试要
+# 验的路径（安全结束），不是这里要验的隔离性。
 GOAL_AI = "今天关注 AI，找一个最近最值得讨论的话题"
-GOAL_STOCK = "今天关注美股，找一个最近最值得讨论的话题"
+GOAL_STOCK = "今天关注美股 AI 板块，找一个最近最值得讨论的话题"
 
 #: 脚本里 `select_topic` 选中的那条候选的标题（见 `fakes.topics_payload`）。
 #: 两条 goal 运行共用同一份脚本，所以选出来的题目**本来就该一样**——题目是脚本

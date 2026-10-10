@@ -5,7 +5,8 @@
 1. **输入完整**：Goal + EvidencePack + SelectedAngle + Persona + 中文写作规则。
    缺任何一项都会让 Writer 去补它自己没有的信息——少了证据包它就开始编事实，
    少了 Persona 它就写成通用 AI 腔。
-2. **默认不止一条**。三条候选在**写法**上必须不同（直接观点 / 信息密集 / 反共识），
+2. **默认不止一条**。三条候选在**写法**上必须不同（鲜明观点型 / 事实与反差型 /
+   讨论与不同视角型，定义在 `app/agent/post_structure.py`），
    否则"生成三条"只是同一句话换三种措辞，Critic 面对三条同质候选也无从比较。
 
 候选池是累积的（`max_candidates` 约束的是全池容量，见 app/agent/budget.py 的说明），
@@ -17,7 +18,16 @@ import logging
 
 from app.agent.budget import AgentBudget, counter
 from app.agent.persona import Persona
+from app.agent.post_structure import (
+    evidence_author_count,
+    evidence_shape,
+    render_candidate_roles,
+    render_ending_moves,
+    render_evidence_shape,
+    render_opening_moves,
+)
 from app.agent.prompts import (
+    format_context,
     format_evidence,
     format_feedback_context,
     format_persona,
@@ -97,7 +107,28 @@ def make_candidates_tool(
             load_prompt("candidates"),
             GOAL=state.get("goal") or state.get("topic") or "",
             TOPIC=state.get("selected_topic") or "",
+            # CONTEXT **必须**每次都传，理由同 STYLE / VIEWPOINT：render 不会因为
+            # 缺键报错，漏传会让字面量 `{{CONTEXT}}` 原样进入发给模型的 prompt。
+            # 无背景时它返回的是一段交代清楚的说明文字，不是空串。
+            CONTEXT=format_context(
+                getattr(state.get("evidence_pack"), "context", None)
+            ),
             EVIDENCE=format_evidence(state.get("evidence_pack")),
+            # 证据的**形状**（有没有可核验的数字、事实来自几条材料、几位作者）由
+            # 程序统计后写死成指令。它必须由这里算：让模型自己判断"我手上有没有
+            # 数字"，它在没有数字的时候照样会写出一个「约 30%」。
+            EVIDENCE_SHAPE=render_evidence_shape(
+                evidence_shape(
+                    state.get("evidence_pack"),
+                    author_count=evidence_author_count(state),
+                )
+            ),
+            # 三条候选的三条路 + 开头/结尾形式的清单，全部来自
+            # `app/agent/post_structure.py`：prompt、Critic、测试读同一份定义，
+            # 三处各写一遍必然漂，而漂了不会报错。
+            CANDIDATE_ROLES=render_candidate_roles(),
+            OPENING_MOVES=render_opening_moves(),
+            ENDING_MOVES=render_ending_moves(),
             # VIEWPOINT **必须**每次都传，理由同 STYLE：render 不会因为缺键报错，
             # 漏传会让字面量 {{VIEWPOINT}} 原样进入 prompt。
             # 用同一个渲染函数也是刻意的——Critic 那边读的是同一份文本，
@@ -111,6 +142,10 @@ def make_candidates_tool(
             # 字面量 `{{FEEDBACK}}` 原样进入 prompt。这里给的是**过去结果的观察**，
             # 不是写作要求（工作单第四十二节）。
             FEEDBACK=format_feedback_context(feedback),
+            # 长度**目标区间**的下沿。上沿 `MAX_LENGTH` 同时是 guardrail 与
+            # 发布路径执行的那条线（三处同源），下沿只是写作偏好——见
+            # `Persona.recommended_min_length` 的说明。
+            MIN_LENGTH=persona.recommended_min_length or 0,
             MAX_LENGTH=persona.max_length,
             COUNT=wanted,
         )

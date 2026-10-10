@@ -1657,6 +1657,16 @@ _VIEWPOINT_ASSESSMENT_FIELDS: tuple[str, ...] = (
     "total_materials",
     "unreferenced_materials",
     "breadth_markers",
+    # 两个动机字段与 `breadth_markers` 是同一类东西：**打分时算出来的确定性痕迹**
+    # （`find_motive_markers(claim)` 的逐字命中、以及"独立来源不足 2 条"这个条件性
+    # 下界），由 `angles.py::_assessment_of` 原样摊到 `ViewpointAssessment` 上。
+    # 所以它们的验证方式与前一个字段完全相同——同一组输入复算一遍，逐项对比。
+    #
+    # 顺序照着 `_assessment_of` 的写入顺序排：这两行曾经被漏在这里，于是
+    # RULE-023 从来没查过它们——"漏比"和"比过且相等"在报告里长得一样，
+    # 只有把字段列全了，那个差别才看得出来。
+    "motive_markers",
+    "motive_unsupported",
     "originality_claim",
     "restates_fact",
     "duplicate_group",

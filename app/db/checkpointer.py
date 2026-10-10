@@ -65,6 +65,11 @@ SERDE = JsonPlusSerializer(
         # "少登记一个类型"换成"登记错一个名字"，两种都难查。
         ("app.agent.schemas", "EvidenceFact"),
         ("app.agent.schemas", "EvidencePack"),
+        # Phase 8B：`TopicContext.origin` 是**嵌套枚举**，按本节开头的登记规则必须登记
+        # ——`model_dump()` 不展平枚举，未登记就降级成字符串，实测每次读 checkpoint
+        # 都会刷一条 "Blocked deserialization of app.agent.schemas.ContextOrigin"。
+        # `TopicContext` 自己是嵌套**模型**，会被内联，所以**不**登记。
+        ("app.agent.schemas", "ContextOrigin"),
         ("app.agent.schemas", "Angle"),
         # 注意：Phase 5A 的 `AngleList` **已从这里移除**，理由与 `TopicCandidateList`
         # 完全一样（见上）：它只是 generate_angles 的解析目标，从来没作为 state
@@ -86,6 +91,11 @@ SERDE = JsonPlusSerializer(
         ("app.agent.schemas", "CriticResult"),
         ("app.agent.schemas", "CriticReport"),
         ("app.agent.schemas", "DecisionTraceEntry"),
+        # Phase 8C：`search_attempts` 是 `list[SearchAttempt]`，与 `decision_trace`
+        # 同一形态——**列表元素是顶层 EXT**，所以要登记。不登记的失败模式同样安静：
+        # msgpack 拦下它、返回原始 payload，pydantic 再把 dict 校验回模型，于是
+        # 值看起来全对，只有"加宽检索词"那条判据会在恢复后的 Run 上悄悄失效。
+        ("app.agent.schemas", "SearchAttempt"),
         # Phase 5B.2：StyleRecipe 以**顶层值**进 RunState（state["style_recipe"]），
         # 所以必须登记。
         ("app.style.schemas", "StyleRecipe"),

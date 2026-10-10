@@ -16,6 +16,8 @@ import logging
 from datetime import datetime, timezone
 
 from app.agent.budget import counter
+from app.agent.persona import Persona
+from app.agent.post_structure import length_detail, over_hard_limit
 from app.agent.schemas import Candidate, CriticResult, DecisionTraceEntry
 from app.config import settings
 from app.repositories import create_draft, record_decision_result, set_run_topic
@@ -45,13 +47,41 @@ class AgentIncompleteError(RuntimeError):
     """
 
 
-def pick_final_candidate(state) -> Candidate:
+class AgentOverlongError(AgentIncompleteError):
+    """候选池里每一条都超过正文硬上限，没有一条能交付。
+
+    为什么让它失败而不是"挑最长的那条最接近的送审"：硬上限是**交付条件**，
+    不是打分项——一条 200 字的正文交到人工审核面前，审核者要么替 Agent 删字
+    （那不是审核，那是替它写稿），要么没看见就发出去（那就更糟）。
+    "没有任何一条合格"是这件事的真实状态，把它说出来比用一条不合格的稿子
+    盖过去诚实。
+
+    为什么继承 `AgentIncompleteError` 而不是另起一个基类：这两件事对**下游**
+    是同一件事——"这次 Run 没有可交付的正文"。所有已经写好、已经在跑的
+    兜底路径（run 落 failed + 明确错误信息；`auto_review.resolve_delivered_verdict`
+    捕获后返回 `(None, None)` 即"不自动放行，留给人工"）都应该原样生效，
+    不该因为换了个成因就走出另一条没人测过的分支。唯一多出来的信息是
+    错误文本里逐个候选写清了字数，排查时能直接看出差多少。
+    """
+
+
+def pick_final_candidate(state, *, max_length: int | None = None) -> Candidate:
     """从候选池里选出最终交付的那一条。
 
     排序规则（按优先级）：
     1. Critic 评价过、且不是 reject 的，分数高的优先；
     2. 没被评价过的（分数未知）次之；
     3. 被 reject 的垫底。
+
+    给了 `max_length` 时，上面这三档**只在各自的长度档内**成立：先按
+    是否超过硬上限分两大组，组内再按分数排。极端情况下宁可交付一条分数
+    低一点但合规的稿子，也不交付一条分数高却超长的——超长的那条**发不出去**，
+    分数再高也只是纸面好看。
+
+    `max_length=None`（手写 state 的单测、旧调用方）时退回纯分数排序，
+    行为与加了这条规则之前逐字相同。**真实路径都传了数**：finalize 从
+    persona 取，auto_review 从 tick 运行时取——两边必须是同一个数，
+    否则"自动放行的"和"实际交付的"会不是同一条（见 auto_review 的说明）。
 
     为什么把"被 reject"排到最后而不是直接丢掉：真到只有 reject 候选可选时，
     交一条明确被否过的稿子并**保留这条否决记录**（它还在 critic_results 里，
@@ -62,6 +92,8 @@ def pick_final_candidate(state) -> Candidate:
     被改过的那条带着**改稿前**的分数参与排序。这是可接受的——重新评价在
     正常流程里是允许且更常见的路径（见 budget.allowed_actions 的 writer/critic
     epoch），而按分数取"目前已知最好的那条"在任何时候都不是错的选择。
+
+    选不出来（候选全超长）时抛 `AgentOverlongError`：见那个异常的说明。
     """
     candidates: list[Candidate] = list(state.get("candidates") or [])
     if not candidates:  # pragma: no cover - 调用方已先检查
@@ -71,18 +103,36 @@ def pick_final_candidate(state) -> Candidate:
         r.candidate_id: r for r in (state.get("critic_results") or [])
     }
 
-    def rank(candidate: Candidate) -> tuple[int, float]:
+    def rank(candidate: Candidate) -> tuple[int, int, float]:
         verdict = verdicts.get(candidate.candidate_id)
         if verdict is None:
-            return (1, 0.0)
-        if verdict.decision == "reject":
-            return (2, 0.0)
-        return (0, -verdict.score)
+            score_part = (1, 0.0)
+        elif verdict.decision == "reject":
+            score_part = (2, 0.0)
+        else:
+            score_part = (0, -verdict.score)
+        if max_length is None:
+            over = 0
+        else:
+            over = 1 if over_hard_limit(candidate.content, max_length) else 0
+        return (over, *score_part)
 
-    return sorted(candidates, key=rank)[0]
+    chosen = sorted(candidates, key=rank)[0]
+    if max_length is not None and over_hard_limit(chosen.content, max_length):
+        # 排序已经把"不超长"放在第一档，所以能走到这里说明**每一条**都超长。
+        # 逐个候选写清字数：这条错误信息唯一的下游是运维/开发者，它要回答的是
+        # "离合格还差多少"，而不是"失败了"。
+        raise AgentOverlongError(
+            f"候选池里没有一条不超过交付硬上限的正文（上限 {max_length} 字）："
+            + "；".join(
+                f"{c.candidate_id}（{c.label}）{length_detail(c.content, max_length)}"
+                for c in candidates
+            )
+        )
+    return chosen
 
 
-def make_finalize_node(session_factory):
+def make_finalize_node(session_factory, persona: Persona):
     async def finalize(state) -> dict:
         run_id = state["run_id"]
         candidates = state.get("candidates") or []
@@ -93,7 +143,10 @@ def make_finalize_node(session_factory):
                 f"材料 {len(state.get('research_item_ids') or [])} 条）"
             )
 
-        chosen = pick_final_candidate(state)
+        # 长度按 persona 对，而 persona 是**必填**的：这个节点唯一的存在理由就是
+        # "从候选池里挑一条能交付的"，而"能交付"里包含"不超长"。给它一个不校验
+        # 长度的默认值，等于让"挑出来的这条能不能发"取决于谁来构造这个节点。
+        chosen = pick_final_candidate(state, max_length=persona.max_length)
         step = counter(state, "step_count")
         summary = f"交付候选 {chosen.candidate_id}（{chosen.label}，第 {chosen.revision} 稿，{len(chosen.content)} 字）"
 

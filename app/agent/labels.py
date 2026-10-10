@@ -18,8 +18,10 @@ from typing import Any
 
 __all__ = [
     "CLAIM_SCOPE_LABELS",
+    "CONTEXT_ORIGIN_LABELS",
     "VIEWPOINT_STANCE_LABELS",
     "claim_scope_label",
+    "context_origin_label",
     "viewpoint_stance_label",
 ]
 
@@ -59,3 +61,19 @@ def claim_scope_label(value: Any) -> str:
     """取值 → 中文。认不出来的取值原样回退成它的字符串值。"""
     key = _label(value)
     return CLAIM_SCOPE_LABELS.get(key, key)
+
+
+#: 背景的来源（工作单第五节）。措辞刻意写成**完整的一句限制**而不是一个名词，
+#: 因为它进 prompt 是要被执行成一条约束的：看到"用户前提"就该知道
+#: "这可以拿来起头，但不可以拿来当论证"。
+CONTEXT_ORIGIN_LABELS: dict[str, str] = {
+    "fact": "外部事实（材料里查得到出处）",
+    "premise": "用户前提（来自本次目标，不是已证实的公开事实）",
+    "inference": "Agent 推断（你自己的合理推断，不是材料里的话）",
+}
+
+
+def context_origin_label(value: Any) -> str:
+    """取值 → 中文。认不出来的取值原样回退成它的字符串值。"""
+    key = _label(value)
+    return CONTEXT_ORIGIN_LABELS.get(key, key)

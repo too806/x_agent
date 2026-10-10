@@ -14,6 +14,7 @@ from app.api.admin import create_admin_router
 from app.config import settings
 from app.db.checkpointer import create_checkpointer
 from app.db.session import async_session_factory
+from app.logging_setup import configure_logging
 from app.repositories import (
     create_agent_run,
     get_agent_run,
@@ -57,7 +58,10 @@ from app.services.review import (
 from app.services.x_api import RealXApiClient, XApiError
 from app.services.x_service import XService
 
-logging.basicConfig(level=logging.INFO)
+# 只配 console。**落盘由启动入口 `run.py` 打开**（`configure_logging(to_file=True)`）：
+# 这个模块会被 pytest 直接 import，在这里开文件日志等于让每次跑测试都往仓库的
+# logs/ 里写。初始化逻辑本身在 `app/logging_setup.py`，不散在这里。
+configure_logging()
 logger = logging.getLogger(__name__)
 
 # 上游依赖（X API / LLM）失败 → 502 Bad Gateway：本服务本身正常，是外部提供方
@@ -76,13 +80,14 @@ class Runtime:
     graph: object
     session_factory: async_sessionmaker[AsyncSession]
     publish_service: PublishService
-    # persona 是**写作目标**的来源（Graph 的依赖里传一份），也留在 Runtime 上：
-    # 控制台需要把"编辑稿写多长为宜"原样显示出来，而这个目标属于配置
-    # （config/persona.yaml），不该在界面上再抄一份。
+    # persona 是**写作目标**的来源，也是长度这件事的唯一口径：Graph 的依赖里传
+    # 一份（Writer / Critic / revise 用它），PublishService 取它的 `max_length`
+    # 做发布前的最后一道交付校验，控制台把"编辑稿写多长为宜"原样显示出来。
+    # 三处读的都是同一份配置（config/persona.yaml），谁都不在界面上另抄一份。
     #
-    # 它**不再是发布门禁**：以前 PublishService 也拿一份 persona 去做超长 422，
-    # 现在那道闸门撤了（见 app/services/publish.py 的 `_preflight`）。所以这里
-    # 只是显示用，`content_max_length` 是提示不是保证。
+    # 两边必须是**同一个值**：如果 Runtime 显示 140、而发布那边按别的数校验，
+    # 就会出现"界面上说你合格、点发布却被拦"这种自相矛盾。所以这里不放第二个
+    # 长度字段，需要的人直接读 `persona.max_length`。
     #
     # 默认值是为了让已有的构造点（含测试）无需改动；生产路径显式传入。
     persona: Persona = field(default_factory=load_persona)
@@ -109,6 +114,7 @@ def build_runtime(checkpointer) -> Runtime:
             x_service=x_service,
             session_factory=session_factory,
             graph=graph,
+            content_max_length=persona.max_length,
         ),
         persona=persona,
     )

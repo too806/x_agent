@@ -23,7 +23,7 @@ Phase 5B.3 把这条判断补上边界：一个观点不再只是 `claim` 一句
 
 import logging
 
-from app.agent.prompts import format_evidence, load_prompt, render
+from app.agent.prompts import format_context, format_evidence, load_prompt, render
 from app.agent import viewpoint
 from app.agent.schemas import Angle, AngleDraftList, ViewpointAssessment
 from app.agent.tools.base import ToolResult, complete_json
@@ -58,6 +58,8 @@ def _assessment_of(score: viewpoint.ViewpointScore) -> ViewpointAssessment:
         total_materials=score.total_materials,
         unreferenced_materials=score.unreferenced_materials,
         breadth_markers=list(score.breadth_markers),
+        motive_markers=list(score.motive_markers),
+        motive_unsupported=score.motive_unsupported,
         originality_claim=score.originality_claim,
         restates_fact=score.restates_fact,
         duplicate_group=score.duplicate_group,
@@ -79,6 +81,10 @@ def make_angles_tool(llm_service: LLMService):
             MIN_ANGLES=MIN_ANGLES,
             MAX_ANGLES=MAX_ANGLES,
             EVIDENCE=format_evidence(pack),
+            # 观点环节拿到的是**同一段背景**，但用另一句用途说明（`for_reader=False`）：
+            # 这里要防的是"从背景推出一个结论"，而那是另一件事——见工作单第七节。
+            # 同一份内容 + 两套说明，比抄两份文本安全：抄两份必然漂，漂了不报错。
+            CONTEXT=format_context(getattr(pack, "context", None), for_reader=False),
         )
         parsed: AngleDraftList = await complete_json(
             llm_service, prompt, AngleDraftList

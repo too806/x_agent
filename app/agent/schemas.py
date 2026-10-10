@@ -199,6 +199,25 @@ class CandidateTopic(BaseModel):
     qualification: TopicQualification = TopicQualification.LOW_SIGNAL
     lifecycle: TopicLifecycle = TopicLifecycle.DISCOVERED
 
+    # --- Phase 8C：与用户目标的相关性（工作单第四节）---
+    #
+    # 三态，**不是布尔**：
+    #   True  = 材料里真的出现了目标里的词
+    #   False = 没有出现（这个候选不能再被选中，也不会被拿去研究）
+    #   None  = 本次不判定（目标里没有可核对的话题词，或这是旧 checkpoint）
+    #
+    # `None` 与 `False` 必须分得开。合起来的话，"目标写得随便一点"会变成
+    # "所有候选都不相关"，一次运行什么都发现不了——而那不是判定，是没判定
+    # 被当成了否定结论。`budget.qualified_topics` 据此只拦 `False`。
+    #
+    # 判据只有材料正文（见 app/agent/relevance.py）：标题与描述是模型写的，
+    # 让它们参与判定等于允许模型用一句话把无关材料说成相关。
+    goal_relevance: bool | None = None
+    #: 一句话说明判定依据（命中了哪些词 / 为什么没命中 / 为什么没判定）。
+    #: 写进 tool summary 与 Planner 的 state 渲染——不写出来，"没选这个候选"
+    #: 和"这个候选根本没被发现"在界面上是一样的。
+    goal_relevance_note: str = ""
+
 
 # Phase 5A 的类名。历史 checkpoint 里的 candidate_topics 是**按类名**反序列化的
 # （见 app/db/checkpointer.py），留着这个名字，那些 Run 恢复时才能拿到对象而不是
@@ -223,6 +242,68 @@ class EvidenceFact(BaseModel):
     timestamp: datetime | None = None
 
 
+class ContextOrigin(str, Enum):
+    """TopicContext 里那段背景**主要**是从哪来的。
+
+    工作单第五节要求 Context 服从 Claim Boundary：外部事实 / 用户前提 / Agent 推断。
+    三者不是可信度高低，而是**必须分开声明的来源**——用户说"今天关注美股"是前提，
+    不是事实；模型自己把两件事连起来是推断，不是材料里的话。
+    """
+
+    #: 材料里查得到出处（必须给出 `source_ids`，由工具核验）
+    FACT = "fact"
+    #: 来自用户目标（GOAL）。**不需要出处，也不能拿它当论证**
+    PREMISE = "premise"
+    #: Agent 的合理推断。**必须标成推断**，正文里不许写成"事实是"
+    INFERENCE = "inference"
+
+
+class TopicContext(BaseModel):
+    """话题的最小必要背景（工作单第三、六、九节）。
+
+    ## 它解决的那个真实故障
+
+    真机上出现过这样一份稿子：选题是"华尔街热议的新型云"，而草稿第一句是
+    「2.2 万星的开源库，把行情、财报、资金流几千个接口免费开放」，
+    接着直接跳到一个结论。作者（Agent）在**研究过程里**已经知道"新型云"指什么、
+    这件事跟它什么关系；但**读者不知道**——读者第一句就被一个陌生的具体项目拦住，
+    看不出这整篇在讲哪个话题。
+
+    所以 Context 的任务只有一件：**把"研究过程中已经知道的"补成"读者进入这个话题
+    所需要知道的那一点点"**。它不承担说服、不承担论证、不承担新颖性。
+
+    ## 四个字段都是"最小必要"
+
+    `subject`（在讲什么）/ `definition`（必要的概念解释）/ `why_now`（为什么现在
+    值得看）/ `core_tension`（里面真正的矛盾是什么）。**不要求四个都填满**——
+    工作单第六节明确允许空着，因为编一段背景比留白更糟。字段名刻意不照搬工作单
+    的举例：工作单要的是这四类信息，不是这四个名字。
+
+    ## 它不是 Angle，也不是 Evidence
+
+    - **不是 Angle**（工作单第七节）：这里没有一个判断，没有一个可以被反驳的结论。
+      写进 Context 的应该是"谁都得同意的话"——不同意的那部分属于 Angle。
+    - **不是 Evidence**（工作单第四节）：事实编号是给论证用的，Context 是给读者
+      进门用的。把一条事实搬进 Context 来当入口，就是工作单第十二节禁止的
+      "证据劫持"。
+    """
+
+    #: 这个话题在讲什么。一句话，写给**没读过研究材料的人**。
+    subject: str = ""
+    #: 必要的概念解释（"新型云"这类说法指什么）。不需要解释的不写。
+    definition: str = ""
+    #: 为什么是现在。可以是材料里的时间点，也可以是用户目标里的关注点。
+    why_now: str = ""
+    #: 这个话题里真正的矛盾是什么（读者为什么该在意）。**不含本文的判断**。
+    core_tension: str = ""
+    #: 上面这段背景的主要来源。默认 `INFERENCE`——最保守的那档：
+    #: 模型没有明确申报时，不许它冒充事实。
+    origin: ContextOrigin = ContextOrigin.INFERENCE
+    #: 只有 `origin=fact` 时才可能有值，且必须落在本次真实的 research_item id 上。
+    #: 核验不上的由工具清空**并把 origin 降级为 inference**（见 tools/evidence.py）。
+    source_ids: list[str] = Field(default_factory=list)
+
+
 class EvidencePack(BaseModel):
     """证据包：观点只能长在这上面，不能长在"帖子印象"上（工作单第九节）。"""
 
@@ -236,6 +317,17 @@ class EvidencePack(BaseModel):
     unknowns: list[str] = Field(default_factory=list)
     # 整包里出现过的 research_item id 并集（由工具汇总，不采信 LLM）
     source_ids: list[str] = Field(default_factory=list)
+    # 这个话题**对陌生读者**的最小必要背景（见 `TopicContext`）。
+    #
+    # 容器是证据包，只因为两者出自同一次 LLM 调用（extract_evidence）——
+    # **不是**因为 Context 是"又一条证据"。`format_evidence` 绝不印它：
+    # Writer / Critic 拿到的是一段单独渲染、另一套契约的文本块。
+    # 混进证据清单里，它立刻退化成"多了一条可以引用的事实"，
+    # 而那正是工作单第四节要挡住的。
+    #
+    # 默认 None 而不是 `TopicContext()`：Phase 6 之前的 checkpoint、手写的
+    # fixture 里都没有这一项，而"本次没有背景"与"背景是空的"必须分得开。
+    context: TopicContext | None = None
 
 
 class ViewpointStance(str, Enum):
@@ -316,6 +408,11 @@ class ViewpointAssessment(BaseModel):
     # ---- 确定性痕迹 ----
     #: 正文里出现的全称量词，逐字回传，方便人核对误报。
     breadth_markers: list[str] = Field(default_factory=list)
+    #: 正文里出现的动机/意图断言，逐字回传（工作单第六节）。命中不等于错，
+    #: 触发的是"只能写成解读"那条条件性下界。
+    motive_markers: list[str] = Field(default_factory=list)
+    #: 断言的动机没有被独立来源托住。critic 的 accept 上界读它。
+    motive_unsupported: bool = False
     #: 用了"全网/首创"这类**无法核验**的表述。不作为新颖性加分，只作参考信号。
     originality_claim: bool | None = None
     restates_fact: bool | None = None
@@ -447,9 +544,13 @@ class Angle(BaseModel):
 class Candidate(BaseModel):
     """一条候选正文。
 
-    `label` 是候选的写法定位（直接观点 / 信息密集 / 反共识），不是标题：
+    `label` 是候选的写法定位（鲜明观点型 / 事实与反差型 / 讨论与不同视角型，
+    见 `app/agent/post_structure.py` 的 `CandidateRole`），不是标题：
     三条候选必须在**写法**上真的不同，否则"生成 3 个候选"只是把同一句话
     换了三次措辞，Critic 也就无从比较。
+
+    `label` 是**给人和评估看**的：流程从不按它分支（分支只认 `candidate_id`
+    与 `decision`），所以模型填错它不会让运行走岔，只会让报告难读。
     """
 
     candidate_id: str = ""
@@ -501,6 +602,48 @@ class ViewpointFit(BaseModel):
     overclaim_risk: float | None = Field(None, ge=0.0, le=10.0)
 
 
+class ContextFit(BaseModel):
+    """正文对**陌生读者**的可进入性（工作单第十、十四节）。
+
+    与 `ViewpointFit` 并排的一栏，理由相同：独立成一组，才能和"观点对不对"分开看——
+    一条正文完全可以观点正确、证据扎实，同时让读者根本进不去。
+
+    ## 闸门：一个是非题，不是打分
+
+    `reader_can_follow`：**一个不知道这个话题的人，读完前两句，能不能说出"这篇在
+    讲什么"？** 能 = true，不能 = false；**false 直接是 P1**。
+
+    为什么不用 0–10 分：分数里的"7 分"是给分的人自己校准的，没有任何东西规定几分
+    算过关，于是一条真人读不懂的稿子可以拿到 7 分照常交付。bool 没有中间档，也就
+    没有可校准的余地。这条是真机上一个真实故障的补丁——一条草稿把背景里的术语
+    （"创作者收益规则""违规风险"）原样抄了一遍却一个都没解释，词汇重合度满分、
+    `context_missing` 判无异常，LLM 也给了 7 分，而人第一眼根本不知道它在说什么。
+
+    ## 三个参考分与方向
+
+    - `context_missing`：**越高越差**。正文假设了读者已经知道背景（"众所周知"
+      "业内都清楚"、或者直接从一个没解释过的具体项目/数字起步）。
+    - `concept_jump`：**越高越差**。从一个概念跳到另一个，中间那步解释省了。
+    - `evidence_hijacking`：**越高越差**（工作单第十二节）。把一条事实当成"话题的
+      入口"——「有一个 2.2 万星的项目 ↓ 所以这就是新型云的入口」：读者被一条具体
+      事实拦住，而这条事实与话题的关系全靠他自己猜。
+
+    **判的是"读者进不进得来"，不是"词汇专不专业"**（工作单第十一节）：
+    术语本身不是问题，没有交代才是问题。专业词用对了、读者照样能跟上，这一项就该高。
+
+    嵌套模型**不登记**进 SERDE（同 `ViewpointFit`）：它嵌在一个已登记模型的类型化
+    字段里，会被 `model_dump()` 内联。默认 `None` 而不是 `ContextFit()`：
+    "没评"与"评分为 0"必须分得开。
+    """
+
+    # 唯一的闸门项：false 即 P1。默认 None（"没评"）而不是 False——
+    # 老 checkpoint 与非 Agent 运行没有这一项，不能把"没评"读成"读不懂"。
+    reader_can_follow: bool | None = None
+    context_missing: float | None = Field(None, ge=0.0, le=10.0)
+    concept_jump: float | None = Field(None, ge=0.0, le=10.0)
+    evidence_hijacking: float | None = Field(None, ge=0.0, le=10.0)
+
+
 class CriticResult(BaseModel):
     """Critic 对某一轮候选的结构化评价。
 
@@ -547,6 +690,47 @@ class CriticResult(BaseModel):
     # 可判，而"没评"与"评分为 0"必须分得开。
     viewpoint_fit: ViewpointFit | None = None
 
+    # --- Phase 8B 前置：陌生读者可进入性（工作单第十节）---
+    # 单独一栏，与 viewpoint_fit 并排：观点对不对与读者进不进得来是两回事，
+    # 合成一个分就再也分不开"这条观点站不住"和"这条观点没问题但没人读得懂"。
+    context_fit: ContextFit | None = None
+
+    # --- 逐条可见的传播面观察（工作单第六节）---
+    #
+    # 「这条有没有留下一个读者能接上的话头」是**单条**就判得了的，所以它在这
+    # 一栏，和只在整批才判得了的 `CriticReport.candidate_distinctness` 分开。
+    #
+    # **越高越好**，与 `overclaim_risk`/`context_missing` 那些"越高越差"的项
+    # 方向相反，所以名字里不带风险意味。
+    #
+    # 它**不是门禁**，也**不是爆款的预测**：10 分的意思是"这条读完会有人想
+    # 补充一句自己的经验或反对意见"，不是"这条会火"。点赞与曝光受账号、时间、
+    # 分发影响，把文案结构说成它们的原因是把相关性当因果（工作单第四十节）。
+    # 所以它只出现在报告里，不参与 `decision`。
+    #
+    # 用 `float | None` 而同栏其它七项用 `float`：那七项是 5B.1 就在的字段，
+    # 老 checkpoint 里它们是 0.0 有意义的"评过、得分 0"；这一项是本轮新增，
+    # 老 checkpoint 里没有它，`None`（没评）与 0.0（评了、很差）必须分得开。
+    discussion_potential: float | None = Field(None, ge=0.0, le=10.0)
+
+
+class SearchAttempt(BaseModel):
+    """一次检索尝试：用了什么检索词、取回几条材料。
+
+    **只进 checkpoint，不落库**（同 `style_recipe` / `feedback_context`）：
+    它是"这次运行问过什么"，不是业务资产。
+
+    存在的理由只有一个：**"连续空结果"是只能从历史里看出来的一件事**。
+    `research_results` 是累加的材料、`research_count` 是调用次数，
+    两者都推不出"最近两次是不是都空"，而这件事正是
+    `app/agent/query_broadening.py` 决定要不要加宽检索词的唯一依据。
+    检索词此前只活在日志与 trace 的散文里（`decision.arguments` 不落库），
+    读不出来，所以这里给它一个结构化字段。
+    """
+
+    query: str = ""
+    result_count: int = 0
+
 
 class DecisionTraceEntry(BaseModel):
     """Graph state 里的一条决策记录（step、动作、理由、结果）。
@@ -590,7 +774,7 @@ class CriticReport(BaseModel):
 
     为什么是一批而不是一条一条评：
 
-    1. 三条候选的差别是"写法"上的（直接观点 / 信息密集 / 反共识），
+    1. 三条候选的差别是"写法"上的（鲜明观点 / 事实与反差 / 讨论与不同视角），
        分开评价时 Critic 看不到彼此，就无法回答"哪一条更适合这个角度"——
        而那正是生成三条的意义。
     2. 一条一评要把同样的证据包送进模型三次，最贵的一步做三遍。
@@ -602,3 +786,20 @@ class CriticReport(BaseModel):
 
     results: list[CriticResult] = Field(default_factory=list)
     focus_candidate_id: str = ""
+
+    # --- 整批才判得了的两个观察（工作单第六节）---
+    #
+    # 「三条候选是不是真的走了三条路」只有在**看得到三条**的地方才判得出来。
+    # 放进 `CriticReport` 而不是 `CriticResult`，正是这个理由：分开评时
+    # 每条都"看起来没问题"，而三条其实是同一句话的三种措辞。
+    #
+    # **它不是门禁**。理由是改稿预算：改稿一次只能重写一条，把"三条太像"
+    # 判成 P1 会让每一轮都判 revise，预算空转两轮之后照样交付，而质量并不更好。
+    # 生成的差异由 Writer prompt 保证，这里只负责**让它可见**——
+    # 控制台与离线评估都读得到，而不是靠读稿子时的感觉。
+    #
+    # `None` = 本次没评（旧 checkpoint、非 Agent 运行），与"评出来是 0 分"
+    # 必须分得开——同 `StyleFit` 里全部用 `float | None` 的理由。
+    candidate_distinctness: float | None = Field(None, ge=0.0, le=10.0)
+    #: 一句话说明差异在哪里 / 差在哪里。空串表示本次没有可说的。
+    distinctness_note: str = ""

@@ -126,7 +126,7 @@ def build_graph(deps: GraphDeps, checkpointer, budget: AgentBudget | None = None
     for action in TOOL_ACTIONS:
         graph.add_node(action.value, make_tool_node(action, tools, deps.session_factory))
         graph.add_edge(action.value, "planner")  # 执行完回到 Planner：这是循环
-    graph.add_node(FINALIZE, make_finalize_node(deps.session_factory))
+    graph.add_node(FINALIZE, make_finalize_node(deps.session_factory, deps.persona))
     graph.add_edge(FINALIZE, "guardrail")
 
     # --- 两条链路的汇合点 ---

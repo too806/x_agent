@@ -25,5 +25,8 @@ __all__ = ["__version__"]
 # 口径不同而被 compare.py 当成"Agent 变了"——那是这类工具最典型的假阳性。
 #
 # 1.1.0：`app/style/features.py` 新增 `CLICKBAIT_PHRASES` 与 `find_internal_refs`。
+# 1.2.0：`EMPTY_CONNECTIVES` 补进一批"总结腔"连接词（这意味着 / 本质上 /
+#   换句话说 …）。同一段正文的 `empty_connective_count` 会因此变高，
+#   两份 JSON 不进位就会被误读成"Agent 的 AI 味变重了"。
 # 该文件明写"改词表要同时进位这里"，两者必须是同一次进位。
-__version__ = "1.1.0"
+__version__ = "1.2.0"

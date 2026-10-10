@@ -23,6 +23,7 @@ from app.agent.schemas import (
     CriticResult,
     DecisionTraceEntry,
     EvidencePack,
+    SearchAttempt,
 )
 from app.agent.schemas import merge_trace
 from app.feedback.schema import FeedbackContext
@@ -57,6 +58,8 @@ class RunState(TypedDict, total=False):
     - candidates: 候选正文池（revise 原地替换其中一条）。
     - critic_result: 最近一次评价里"该关注的那条"；critic_results 是整批。
     - revision_count / research_count / step_count: 三个预算计数。
+    - search_attempts: 每一次检索尝试（检索词 + 取回条数）。**不是**预算计数：
+      它是"刚才那几次搜索到底取回了什么"的记录，连续空结果时据此把检索词加宽。
     - writer_epoch / critic_epoch: "候选池改过几次"与"评价过几轮"，用来判断
       某批候选是否已经被评价过（见 app/agent/budget.py）。
     - critic_tally: 整轮运行里 Critic 各结论的累计次数（accept/revise/reject）。
@@ -106,6 +109,11 @@ class RunState(TypedDict, total=False):
     critic_results: list[CriticResult]
     revision_count: int
     research_count: int
+    #: 每一次检索尝试（检索词 + 取回几条），按发生顺序追加。
+    #: 只由 `app.agent.tools.base.append_attempts` 改动（同 `research_results` 的
+    #: 约定）。用来回答"最近是不是连着几次一条材料都没取回"——连续空结果时
+    #: 检索词必须**加宽**而不是换一组同样窄的词（见 query_broadening.py）。
+    search_attempts: list[SearchAttempt]
     step_count: int
     writer_epoch: int
     critic_epoch: int

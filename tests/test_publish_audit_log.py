@@ -1,17 +1,18 @@
-"""发布审计日志。
+"""发布审计日志与日志落盘。
 
-这是为"下次事故复盘"补的眼睛，不是业务能力。
+这两条是为"下次事故复盘"补的眼睛，不是业务能力。
 
 2026-10-06 调查一条真实 X 帖子的来源时，能拿到的证据只有数据库时间线：后端
 没有请求日志，也没有落盘（`cmd /k` 的滚动缓冲区随进程一起没了）。那次只能靠
 `auto_review.acted` 反推"不是自动化发的"，却回答不了"是谁发的"。
 
-这里钉住三件事：
+这里钉住四件事：
 
 1. `/publish` 那一行**必须**带请求上下文——否则等于没记；
 2. 缺 User-Agent / Referer / client 时不能把发布打成 500——审计信息永远
    不该成为故障点；
-3. 这一行**不能**出现凭据、Cookie 或正文。
+3. 这一行**不能**出现凭据、Cookie 或正文；
+4. 落盘会自己建目录、能轮转，且测试**不会**写进仓库的 logs/。
 """
 
 import logging
@@ -20,6 +21,7 @@ import os
 import pytest
 from fastapi import Request
 
+from app.logging_setup import LOG_FILE_NAME, configure_logging
 from app.main import _audit_header, _client_host
 from app.services.x_service import XService
 from fakes import FakeXApiClient
@@ -81,6 +83,22 @@ def _request(headers: dict[str, str], client=None) -> Request:
     if client is not None:
         scope["client"] = client
     return Request(scope)
+
+
+@pytest.fixture
+def _restore_root_handlers():
+    """用完把测试挂上的 handler 摘掉并关闭。
+
+    必须关：Windows 上打开中的文件删不掉，pytest 清理 tmp_path 会失败；而且
+    它会一直挂在 root 上，把后面所有测试的日志都写进一个已被删掉的临时文件。
+    """
+    root = logging.getLogger()
+    before = list(root.handlers)
+    yield
+    for handler in list(root.handlers):
+        if handler not in before:
+            root.removeHandler(handler)
+            handler.close()
 
 
 # ---------- 1. 审计日志带请求上下文 ----------
@@ -185,3 +203,49 @@ async def test_publish_log_does_not_leak_secrets_or_content(session_factory, cap
     assert "super-secret-token" not in text
     assert "super-secret-cookie" not in text
     assert draft_content not in text
+
+
+# ---------- 4 / 5. 落盘与轮转（用临时目录，不碰仓库的 logs/） ----------
+
+
+def test_configure_logging_creates_dir_and_writes(tmp_path, _restore_root_handlers):
+    target = tmp_path / "nested" / "logs"
+    assert not target.exists()
+
+    path = configure_logging(log_dir=target, to_file=True)
+
+    assert path == target / LOG_FILE_NAME
+    assert target.is_dir()  # 目录不存在时自动建
+    logging.getLogger("app.audit_probe").info("hello from tmp log")
+    assert path.exists()  # delay=True：写第一条才真正建文件
+    assert "hello from tmp log" in path.read_text(encoding="utf-8")
+
+
+def test_configure_logging_is_idempotent(tmp_path, _restore_root_handlers):
+    """重复调用不能挂第二个 handler——否则每条日志会被写两遍。"""
+    root = logging.getLogger()
+    configure_logging(log_dir=tmp_path, to_file=True)
+    after_first = len(root.handlers)
+    configure_logging(log_dir=tmp_path, to_file=True)
+    assert len(root.handlers) == after_first
+
+
+def test_rotating_handler_rolls_over(tmp_path, _restore_root_handlers):
+    path = configure_logging(log_dir=tmp_path, to_file=True, max_bytes=512, backup_count=2)
+
+    probe = logging.getLogger("app.rotation_probe")
+    for i in range(50):
+        probe.info("%s %d", "x" * 120, i)
+
+    assert path.exists()
+    assert (tmp_path / f"{LOG_FILE_NAME}.1").exists()
+    # backupCount 是上限：不该无限增长。
+    assert not (tmp_path / f"{LOG_FILE_NAME}.3").exists()
+    total = sum(p.stat().st_size for p in tmp_path.glob(f"{LOG_FILE_NAME}*"))
+    assert total < 50 * 140  # 确实被轮转削过，不是全堆在一个文件里
+
+
+def test_configure_logging_without_file_returns_none(tmp_path, _restore_root_handlers):
+    """默认（`to_file=False`）不落盘——`app.main` 被 pytest import 时的行为。"""
+    assert configure_logging(log_dir=tmp_path) is None
+    assert not (tmp_path / LOG_FILE_NAME).exists()

@@ -705,8 +705,12 @@ async def set_run_topic(session: AsyncSession, run_id: str, topic: str) -> None:
 # 在 Python 里切"——Run 数量会随时间无界增长，那种写法今天能跑，明天就是把库拖垮。
 # ---------------------------------------------------------------------------
 
-# Review Queue 的排序方向：最老的排最前。人工审核是工作队列，先进先出才不会被
-# 新 Run 淹没（按最新排序的话，积压的旧 Run 会永远沉在列表底部）。
+# Review Queue 的排序方向：**默认**最老的排最前。人工审核是工作队列，先进先出才
+# 不会被新 Run 淹没（按最新排序的话，积压的旧 Run 会永远沉在列表底部）。
+#
+# `order="newest"` 是给另一条路径用的：刚跑完就想审这一条。队列深到几十条时，
+# 它在默认顺序里排在最后一页，而"我刚跑的那条去哪了"是最常见的一问。两种顺序都
+# 是正当需求，所以做成开关而不是把默认改掉——默认改了，积压就再没人顺手从头清。
 REVIEW_QUEUE_RUN_STATUS = "waiting_for_review"
 
 
@@ -962,25 +966,60 @@ async def average_run_duration(session: AsyncSession) -> tuple[float | None, int
     return (float(average) if average is not None else None, int(sampled), total)
 
 
-async def count_review_queue(session: AsyncSession) -> int:
+def _review_queue_clauses(*, topic: str | None = None) -> list:
+    """待审队列的过滤条件。COUNT 与 SELECT 共用，保证两者口径永远一致。
+
+    这不是形式主义：`total` 由 COUNT 出、条目由 SELECT 出，两者一旦分叉，界面就会
+    出现"显示命中 3 条、翻到第 2 页是空的"或"总数说有 20 条、实际只列出 2 条"。
+    谓词的写法与 `_run_filter_clauses` 保持逐字一致（含 `_escape_like`）。
+    """
+    clauses = [AgentRun.status == REVIEW_QUEUE_RUN_STATUS]
+    if topic:
+        clauses.append(AgentRun.topic.ilike(f"%{_escape_like(topic)}%", escape="\\"))
+    return clauses
+
+
+async def count_review_queue(session: AsyncSession, *, topic: str | None = None) -> int:
     result = await session.execute(
-        select(func.count())
-        .select_from(AgentRun)
-        .where(AgentRun.status == REVIEW_QUEUE_RUN_STATUS)
+        select(func.count()).select_from(AgentRun).where(*_review_queue_clauses(topic=topic))
     )
     return int(result.scalar() or 0)
 
 
-async def list_review_queue(session: AsyncSession, *, limit: int, offset: int) -> list[AgentRun]:
-    """待人工审核的 Run，最老的在前（先进先出，见 REVIEW_QUEUE_RUN_STATUS 说明）。"""
-    result = await session.execute(
-        select(AgentRun)
-        .where(AgentRun.status == REVIEW_QUEUE_RUN_STATUS)
-        .order_by(AgentRun.created_at.asc(), AgentRun.id.asc())
-        .limit(limit)
-        .offset(offset)
+async def list_review_queue(
+    session: AsyncSession,
+    *,
+    limit: int,
+    offset: int,
+    topic: str | None = None,
+    order: str = "oldest",
+) -> list[AgentRun]:
+    """待人工审核的 Run，默认最老的在前（先进先出，见 REVIEW_QUEUE_RUN_STATUS 说明）。
+
+    `order="newest"` 反转方向，第二键（`id`）也跟着反转——理由与 `list_runs_page`
+    相同：`created_at` 精度有限，同一秒内建的多个 Run 若只按单键排序，PostgreSQL
+    没有义务在两次查询间给出相同顺序，翻页时会漏条或重条。
+
+    未知的 `order` 落到默认值，不报错：接口层已经用 `Literal` 挡过了，这里再兜一层
+    是为了让直接调用仓库层的代码（测试、脚本）不必先校验一次。
+    """
+    descending = order == "newest"
+    return list(
+        (
+            await session.execute(
+                select(AgentRun)
+                .where(*_review_queue_clauses(topic=topic))
+                .order_by(
+                    AgentRun.created_at.desc() if descending else AgentRun.created_at.asc(),
+                    AgentRun.id.desc() if descending else AgentRun.id.asc(),
+                )
+                .limit(limit)
+                .offset(offset)
+            )
+        )
+        .scalars()
+        .all()
     )
-    return list(result.scalars().all())
 
 
 async def count_unresolved_publications(session: AsyncSession) -> int:

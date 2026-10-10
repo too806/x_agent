@@ -24,10 +24,12 @@ from app.agent.viewpoint import (
     SINGLE_SOURCE_EVIDENCE_CAP,
     TIE_MARGIN,
     VIEWPOINT_WEIGHTS,
+    accept_ceiling_for,
     authors_of,
     evidence_index,
     evidence_scope_for,
     find_breadth_markers,
+    find_motive_markers,
     rank_key,
     score_counterpoint_awareness,
     score_source_diversity,
@@ -892,3 +894,138 @@ def test_the_scorer_actually_moves_with_its_inputs():
         [draft("GPT-5 与 Claude 在 2026 年同周降价四成", evidence_ids=["f1"])], index
     )[0]
     assert specific.specificity > base.specificity
+
+
+# --------------------------------------------------------------------------
+# 动机/意图断言的上界（工作单第六、七节）
+# --------------------------------------------------------------------------
+
+
+MOTIVE_CLAIM = "这次发布更像一次公关动作。"
+MOTIVE_ASSERTION = "他们发这 9 款产品，目的就是先把股价托住。"
+
+
+def test_motive_markers_are_found_in_the_written_text():
+    """判据是**正文里写出来的字**，不是模型当初想说什么。
+
+    这一栏是确定性闸门（`accept_ceiling_for`）的输入，所以它只能靠逐字命中：
+    一条正文写了"目的就是"，不管它上面那一栏标着"谨慎判断"，读者看到的都是
+    一个被当成事实讲出来的动机。
+    """
+    assert "目的就是" in find_motive_markers(MOTIVE_ASSERTION)
+    assert "本质上想要" in find_motive_markers("他们本质上想要一个说法。")
+    # 单纯描述行为、没有替对方说目的时，一个都不该命中。
+    assert not find_motive_markers("他们发布了 9 款产品。")
+
+
+def test_a_motive_assertion_without_a_second_source_is_refused():
+    """独立来源不足 2 条时，断言动机的正文不能被 accept。
+
+    材料证实得了"发布了 9 款产品"，证实不了"是为了托股价"。这条判据只用
+    量得出的量：逐字命中的动机词 + min(来源数, 作者数)。
+    """
+    allowed, why = accept_ceiling_for(
+        content=MOTIVE_ASSERTION,
+        claim=MOTIVE_CLAIM,
+        bound_sources=1,
+        bound_authors=1,
+        stance=ViewpointStance.CAUTIOUS,
+        stance_declared=ViewpointStance.CAUTIOUS,
+        max_stance=ViewpointStance.CAUTIOUS,
+    )
+
+    assert allowed is False
+    assert "独立的来源只有 1 条" in why
+
+
+def test_writing_the_motive_as_a_reading_clears_the_ceiling():
+    """写成解读就放行——闸门判的是"写出来的东西"（工作单第六节）。
+
+    没有这条，任何提到动机的稿子都会被永远改判成 revise：改稿预算空转两轮，
+    最后交付的还是同一句话。判据要求"没有对冲"正是为了避免这件事。
+    """
+    allowed, why = accept_ceiling_for(
+        content="他们发布这 9 款产品，更像是在给股价留个记录。",
+        claim=MOTIVE_CLAIM,
+        bound_sources=1,
+        bound_authors=1,
+        stance=ViewpointStance.CAUTIOUS,
+        stance_declared=ViewpointStance.CAUTIOUS,
+        max_stance=ViewpointStance.CAUTIOUS,
+    )
+
+    assert allowed is True
+    assert why == ""
+
+
+def test_two_independent_sources_lift_the_motive_ceiling():
+    """两条互相独立的来源都这么说时，动机可以当事实写。
+
+    独立 = min(来源数, **作者数**)：同一位作者的两条帖子不是第二份独立来源。
+    """
+    common = dict(
+        content=MOTIVE_ASSERTION,
+        claim=MOTIVE_CLAIM,
+        stance=ViewpointStance.CAUTIOUS,
+        stance_declared=ViewpointStance.CAUTIOUS,
+        max_stance=ViewpointStance.CAUTIOUS,
+    )
+
+    assert accept_ceiling_for(bound_sources=2, bound_authors=2, **common)[0] is True
+    # 两条来源、同一位作者 → 独立来源仍然只有 1 条，照样拦下。
+    assert accept_ceiling_for(bound_sources=2, bound_authors=1, **common)[0] is False
+
+
+def test_a_stance_stronger_than_the_ladder_is_refused():
+    """第二条判据：申报的立场强于证据允许的上界。
+
+    `stance` 已经被钳到上界了，所以只看它发现不了；`stance_declared` 记着模型
+    原本想要的那一档，它比上界强，说明这条判断是按比证据更笃定的调子写的。
+    """
+    allowed, why = accept_ceiling_for(
+        content="这条路径走不通，别再往这边投钱了。",
+        claim="这条路径走不通。",
+        bound_sources=3,
+        bound_authors=3,
+        stance=ViewpointStance.CAUTIOUS,
+        stance_declared=ViewpointStance.STRONG,
+        max_stance=ViewpointStance.CAUTIOUS,
+    )
+
+    assert allowed is False
+    assert "strong" in why and "cautious" in why
+
+
+def test_the_ceiling_says_yes_when_nothing_is_wrong():
+    """正常的一条必须放行。
+
+    闸门只能**减**结论，不能自己发明问题：一条正常的稿子被这条规则拦下，
+    说明在验证它的不是证据，而是一个过度敏感的规则。
+    """
+    allowed, why = accept_ceiling_for(
+        content="这条路径走不通，别再往这边投钱了。",
+        claim="这条路径走不通。",
+        bound_sources=1,
+        bound_authors=1,
+        stance=ViewpointStance.CAUTIOUS,
+        stance_declared=ViewpointStance.CAUTIOUS,
+        max_stance=ViewpointStance.CAUTIOUS,
+    )
+
+    assert (allowed, why) == (True, "")
+
+
+def test_score_viewpoints_reports_the_motive_verdict_it_used():
+    """打分与闸门用**同一份**判定：`ViewpointScore` 上带着它。
+
+    两处各算一遍的话，"评分报告里写着动机没有托住"与"闸门放行"可以同时成立，
+    而没有人能解释为什么。所以判定算一次、两边都用。
+    """
+    index = make_index(THREE_FACTS, THREE_MATERIALS)
+    score = score_viewpoints(
+        [draft(MOTIVE_ASSERTION, evidence_ids=["f1"])], index
+    )[0]
+
+    assert score.motive_markers
+    # 只绑了一条来源（s1）→ 独立来源不足，闸门会拦。
+    assert score.motive_unsupported is True

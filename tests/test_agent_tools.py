@@ -19,6 +19,9 @@ from app.agent.schemas import (
     CriticResult,
     EvidenceFact,
     EvidencePack,
+    TopicQualification,
+    ViewpointAssessment,
+    ViewpointStance,
 )
 from app.agent.tools.angles import make_angles_tool, make_select_angle_tool
 from app.agent.tools.critic import _bind_to_candidates, _choose_focus, make_critic_tool
@@ -128,7 +131,13 @@ def test_facts_without_any_source_are_never_kept():
 
 
 def topics(count: int = 3) -> list[CandidateTopic]:
-    """候选选题，分数递减——"取分数最高的那个"于是有唯一正确答案。"""
+    """候选选题，分数递减——"取分数最高的那个"于是有唯一正确答案。
+
+    `qualification` 必须显式给成 QUALIFIED：`_choose_topic` 现在只在一批
+    **可被选中**的候选里找 target（见 `budget.is_selectable`），默认的
+    LOW_SIGNAL 会让它们全部落空，于是每个用例都"回退到目标文本"——
+    那样测的就不是 target 解析，而是回退路径。
+    """
     return [
         CandidateTopic(
             topic_id=f"t{i}",
@@ -136,6 +145,7 @@ def topics(count: int = 3) -> list[CandidateTopic]:
             trend_score=round(90.0 - i * 10, 2),
             author_count=2,
             discussion_count=2,
+            qualification=TopicQualification.QUALIFIED,
         )
         for i in range(1, count + 1)
     ]
@@ -252,6 +262,192 @@ def test_revise_targets_the_critic_verdict_by_default():
     candidates = pool()
     target = _pick_target(candidates, verdict("c2", "revise"), None)
     assert target.candidate_id == "c2"
+
+
+# --------------------------------------------------------------------------
+# 证据上界：观点强度 ≤ 证据强度（工作单第七节）
+# --------------------------------------------------------------------------
+
+
+MOTIVE_CONTENT = "这次发布 9 款机器人，目的就是先把股价托住。"
+HEDGED_MOTIVE_CONTENT = "这次发布 9 款机器人，更像是在给股价留个记录。"
+
+
+def scored_angle(
+    *,
+    bound_sources: int,
+    bound_authors: int,
+    claim: str = "这次发布更像一次公关动作，产品本身没有新东西。",
+    stance: str = "cautious",
+    stance_declared: str = "cautious",
+    max_stance: str = "cautious",
+) -> Angle:
+    """一个带着确定性评估明细的观点。
+
+    `bound_sources` / `bound_authors` 就是 `viewpoint.score_viewpoints` 算出来、
+    也印进 Critic prompt 的那两个数（`format_scope_signals`），所以这里给的
+    必须与真实打分口径一致：独立来源 = min(来源数, 作者数)。
+    """
+    return Angle(
+        angle_id="a1",
+        claim=claim,
+        reasoning="从 f1 推得",
+        why_it_matters="关系到这次发布该怎么看",
+        evidence_ids=["f1"],
+        risk="若产品确有新东西则不成立",
+        counterpoints=[],
+        counterpoint_evidence_ids=[],
+        assumptions=[],
+        implications=[],
+        stance=ViewpointStance(stance),
+        stance_declared=ViewpointStance(stance_declared),
+        max_stance=ViewpointStance(max_stance),
+        assessment=ViewpointAssessment(
+            bound_facts=1,
+            total_facts=1,
+            bound_sources=bound_sources,
+            bound_authors=bound_authors,
+        ),
+    )
+
+
+def ceiling_state(content: str, angle: Angle) -> dict:
+    candidates = [
+        Candidate(candidate_id=f"c{i}", label="直接观点", content=content)
+        for i in (1, 2, 3)
+    ]
+    return {
+        "run_id": "run-1",
+        "goal": "目标",
+        "candidates": candidates,
+        "selected_angle": angle,
+        "writer_epoch": 1,
+        "critic_epoch": 0,
+        "evidence_pack": EvidencePack(
+            facts=[EvidenceFact(fact="发布了 9 款产品", source_ids=["s1"])]
+        ),
+    }
+
+
+async def test_accept_is_overruled_when_a_motive_claim_has_one_source():
+    """模型的 accept 不是最终结论（工作单第七节）。
+
+    材料证实得了"发布了 9 款产品"，证实不了"是为了托股价"。一条把动机写成
+    事实的正文，即使评审判 accept，也必须被改判成 revise——否则它会一路走到
+    发布，而报告里"评审通过"这句话本身就成了误导。
+
+    改判要**可执行**：`revision_targets` 里必须有具体改法，不能只丢一句
+    "重写"。分数一个都不改——那评的是"稿子好不好"，这里判的是"现在能不能发"。
+    """
+    angle = scored_angle(bound_sources=1, bound_authors=1)
+    llm = ScriptedLLMService(responses={"critic": critic_payload("accept", score=9.0)})
+    tool = make_critic_tool(llm, load_persona())
+
+    delta = (
+        await tool(
+            ceiling_state(MOTIVE_CONTENT, angle),
+            AgentDecision(action="criticize", reason="评"),
+        )
+    ).delta
+
+    assert delta["critic_result"].decision == "revise"
+    assert "evidence_ceiling" in delta["critic_result"].flags
+    assert delta["critic_result"].revision_targets
+    # 三条候选的正文都断言了动机 → 三条都被改判，tally 记的是**生效后**的结论。
+    assert {r.decision for r in delta["critic_results"]} == {"revise"}
+    assert delta["critic_tally"] == {"revise": 3}
+    # 分数没被程序改过：改判的是"能不能接受"，不是"好不好"。
+    assert {r.score for r in delta["critic_results"]} == {9.0}
+
+
+async def test_a_motive_claim_written_as_a_reading_is_still_accepted():
+    """写成解读的动机判断照旧 accept（工作单第六节）。
+
+    这条不是给模型开后门，而是这条闸门**必须可满足**：判的是正文写出来的东西。
+    一条"更像是在给股价留个记录"的稿子，读者不会被误导成"作者知道内情"，
+    没有理由拦它。不这样做的话，任何提到动机的稿子都会被永远改判成 revise，
+    改稿预算空转两轮，最后交付的还是同一句话。
+    """
+    angle = scored_angle(bound_sources=1, bound_authors=1)
+    llm = ScriptedLLMService(responses={"critic": critic_payload("accept", score=9.0)})
+    tool = make_critic_tool(llm, load_persona())
+
+    delta = (
+        await tool(
+            ceiling_state(HEDGED_MOTIVE_CONTENT, angle),
+            AgentDecision(action="criticize", reason="评"),
+        )
+    ).delta
+
+    assert {r.decision for r in delta["critic_results"]} == {"accept"}
+    assert delta["critic_tally"] == {"accept": 3}
+    assert "evidence_ceiling" not in delta["critic_result"].flags
+
+
+async def test_two_independent_sources_lift_the_motive_ceiling():
+    """独立来源够两条时，动机可以当事实写——闸门看的是**独立**来源数。"""
+    angle = scored_angle(bound_sources=2, bound_authors=2)
+    llm = ScriptedLLMService(responses={"critic": critic_payload("accept", score=9.0)})
+    tool = make_critic_tool(llm, load_persona())
+
+    delta = (
+        await tool(
+            ceiling_state(MOTIVE_CONTENT, angle),
+            AgentDecision(action="criticize", reason="评"),
+        )
+    ).delta
+
+    assert {r.decision for r in delta["critic_results"]} == {"accept"}
+
+
+async def test_a_declared_stance_stronger_than_the_evidence_is_overruled():
+    """第二条判据：正文按比证据上界更笃定的调子写出来的。
+
+    正文与判断都没有动机断言，走的是另一条判据——`stance_declared` 记着模型
+    原本想要的那一档，它比证据允许的上界强，说明这条判断是按更笃定的调子写的。
+    （`stance` 自己已经被钳到上界了，所以只看它发现不了这件事。）
+    """
+    angle = scored_angle(
+        bound_sources=1,
+        bound_authors=1,
+        claim="这条路径走不通。",
+        stance="cautious",
+        stance_declared="strong",
+        max_stance="cautious",
+    )
+    llm = ScriptedLLMService(responses={"critic": critic_payload("accept", score=9.0)})
+    tool = make_critic_tool(llm, load_persona())
+
+    delta = (
+        await tool(
+            ceiling_state("这条路径走不通，别再往这边投钱了。", angle),
+            AgentDecision(action="criticize", reason="评"),
+        )
+    ).delta
+
+    assert delta["critic_result"].decision == "revise"
+    assert "evidence_ceiling" in delta["critic_result"].flags
+
+
+async def test_a_plain_claim_is_not_touched_by_the_ceiling():
+    """没有动机断言、立场也没超标时，accept 照旧是 accept。
+
+    闸门只能**减**结论，不能自己发明问题：一条正常的稿子被这条规则改判，
+    意味着验证它的不是证据，而是一个过度敏感的规则。
+    """
+    angle = scored_angle(bound_sources=1, bound_authors=1)
+    llm = ScriptedLLMService(responses={"critic": critic_payload("accept", score=9.0)})
+    tool = make_critic_tool(llm, load_persona())
+
+    delta = (
+        await tool(
+            ceiling_state("这条路径走不通，别再往这边投钱了。", angle),
+            AgentDecision(action="criticize", reason="评"),
+        )
+    ).delta
+
+    assert {r.decision for r in delta["critic_results"]} == {"accept"}
+    assert delta["critic_result"].revision_targets == []
 
 
 def test_revise_honours_an_explicit_target_but_never_a_bogus_one():

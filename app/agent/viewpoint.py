@@ -233,6 +233,81 @@ ORIGINALITY_MARKERS: tuple[str, ...] = (
     "颠覆了",
 )
 
+#: 断言"谁出于什么目的做了什么"的词（工作单第六节）。
+#:
+#: 这类判断与全称量词不是一回事：`BREADTH_MARKERS` 管的是**范围**说大了
+#: （"所有/整个行业"），这里管的是**读心**——公司的动机、人物的意图、资本
+#: 的目的、发布的真实原因。它们在本系统里有一个共同性质：**材料几乎不可能
+#: 直接证实**。一条帖子可以证实"发布了 9 款产品"，证实不了"他们是为了留个记录"。
+#:
+#: 命中不等于错。它触发的是那个**条件性下界**：没有 ≥2 条互相独立的来源时，
+#: 这条判断只能写成"一种解读"，不能写成事实（`motive_unsupported`）。
+MOTIVE_MARKERS: tuple[str, ...] = (
+    "动机",
+    "意图",
+    "战略目的",
+    "真实目的",
+    "真实意图",
+    "首要目标",
+    "最主要的目的",
+    "目的就是",
+    "本意",
+    "冲着",
+    "本质上想要",
+    "本质上就是",
+    "实际上是在",
+    "真正想要",
+    "想证明",
+    "为了证明",
+    "为了掩盖",
+    "为了洗白",
+    "不打算",
+    "并不打算",
+    "根本没打算",
+    "醉翁之意",
+)
+
+#: 允许一条动机判断达到"可以被接受"的下界：**≥2 条互相独立的场景**（来源与
+#: 作者都要够，因为同一个人发的两条帖子不是两条独立证据）。
+MIN_SOURCES_FOR_MOTIVE_CLAIM = 2
+
+#: 对冲措辞：把这些判断写成"一种解读"而不是事实的说法。
+#:
+#: 复用 `features.HEDGES`（"可能/或许/一定程度上"）而不是另造一套，是因为
+#: "有没有对冲"在两处必须是同一个判断。额外补的几条来自工作单第六节点名的
+#: 降级写法："更像/一种解读/值得怀疑/从目前材料看"。
+MOTIVE_HEDGES: tuple[str, ...] = features.HEDGES + (
+    "更像",
+    "看起来更像",
+    "一种解读",
+    "一种可能",
+    "可以理解为",
+    "值得怀疑",
+    "从目前材料看",
+    "从现有材料看",
+    "未必",
+    "不一定",
+    "至少可以说",
+)
+
+
+def find_motive_markers(text: str) -> list[str]:
+    """正文里出现的动机/意图断言，逐字回传（同 `find_breadth_markers`）。
+
+    回传命中的词而不是布尔值：`"不打算"` 与 `"并不打算"` 同时命中同一条正文时，
+    人要能一眼看出是哪一个触发的，才判得了误报。
+    """
+    if not isinstance(text, str):
+        return []
+    return [marker for marker in MOTIVE_MARKERS if marker in text]
+
+
+def find_motive_hedges(text: str) -> list[str]:
+    """正文里出现的对冲措辞。命中即认为这条动机判断**已经写成了解读**。"""
+    if not isinstance(text, str):
+        return []
+    return [hedge for hedge in MOTIVE_HEDGES if hedge in text]
+
 # --- 排序 -------------------------------------------------------------------
 
 #: 前二名分差小于等于这个值就判为 ambiguous。
@@ -316,6 +391,12 @@ class ViewpointScore:
     claim_scope: ClaimScope | None
     scope_exceeds_evidence: bool
     scope_declared_missing: bool
+    #: 正文里的动机/意图断言，逐字回传（工作单第六节）。带默认值：老 checkpoint、
+    #: 手写 fixture 与本次改动之前的调用都不给这两个字段。
+    motive_markers: tuple[str, ...] = field(default=())
+    #: 断言的动机**没有被证据托住**（独立来源 < `MIN_SOURCES_FOR_MOTIVE_CLAIM`）。
+    #: 命中时立场上界降到 cautious，并作为参考信号送进 Critic 的 accept 上界。
+    motive_unsupported: bool = field(default=False)
     reasons: tuple[str, ...] = field(default=())
 
 
@@ -682,12 +763,18 @@ def max_stance_for(
     unknown_pressure: float,
     scope_exceeds_evidence: bool,
     scope_gap: int,
+    motive_unsupported: bool = False,
 ) -> tuple[ViewpointStance, list[str]]:
     """证据允许的立场上界，以及为什么。
 
     工作单第九、十节要求"允许 cautious / no_strong_viewpoint"必须是一条
     **策略**，不能取决于模型当天的心情。所以上界由证据推出，模型只能在
     上界之内选择更保守的表达，不能更笃定。
+
+    `motive_unsupported` 是一条**独立的**下界（工作单第六节）：断言的动机没有
+    独立来源托住时，上界直接降到 cautious。它与"范围超过证据"共用同一档
+    （cautious）而不是新增一档枚举值——枚举值每加一个，下游所有按档位分支的
+    地方都要多判一次，而这里要表达的仍然是同一件事："这条判断说得比材料笃定"。
     """
     reasons: list[str] = []
     if (
@@ -733,7 +820,81 @@ def max_stance_for(
             reasons.append(
                 f"主张范围超过证据范围 {scope_gap} 档，上界下调为 {cap.value}"
             )
+
+    if motive_unsupported and _STANCE_INDEX[ViewpointStance.CAUTIOUS] < _STANCE_INDEX[ceiling]:
+        ceiling = ViewpointStance.CAUTIOUS
+        reasons.append(
+            f"判断在说动机/意图，而独立来源不足 {MIN_SOURCES_FOR_MOTIVE_CLAIM} 条，"
+            f"上界下调为 cautious（只能写成一种解读，不能写成事实）"
+        )
     return ceiling, reasons
+
+
+# ---------------------------------------------------------------------------
+# Critic 的 accept 上界
+# ---------------------------------------------------------------------------
+
+
+def accept_ceiling_for(
+    *,
+    content: str,
+    claim: str,
+    bound_sources: int,
+    bound_authors: int,
+    stance: ViewpointStance | None,
+    stance_declared: ViewpointStance | None,
+    max_stance: ViewpointStance | None,
+) -> tuple[bool, str]:
+    """这条正文现在能不能被 accept。返回 `(能不能, 不能的理由)`。
+
+    工作单第七节把这条写成硬要求：**观点强度 ≤ 证据强度**。而在此之前，
+    `accept` 是 Critic 的 LLM 自由选择——`viewpoint.py` 算出的上界、单一来源
+    上限、范围超出证据，全都只是渲染给模型看的**参考事实**。模型说 accept，
+    流程就走 accept。
+
+    这里不改 Critic 的评分，只给"结论"加一个确定性的上界，与 `max_stance_for`
+    对立场做的事完全一样：模型可以在上界之内更保守，不能更笃定。
+
+    两条判据，都要求正文**没有**对冲措辞：
+
+    1. **动机判断没有独立来源托住**（`MIN_SOURCES_FOR_MOTIVE_CLAIM`）。
+       材料证实得了"发布了 9 款产品"，证实不了"他们是为了留个记录"。
+    2. **申报的立场强于证据允许的上界**。`stance` 已经被钳到上界了，但
+       `stance_declared` 记着模型原本想要的那一档——它比上界强，说明这条判断
+       是按比证据更笃定的调子写出来的。
+
+    为什么要求"没有对冲"：这两条判据都能靠**改写成解读**来满足（"更像""可能"
+    "一种解读"），也就是工作单第五节要求的那种降级。不要求对冲的话，一条已经
+    写成"更像留个记录"的稿子会被永远改判成 revise——改稿预算空转两轮，最后
+    交付的还是同一句话。判的是**写出来的东西**，不是模型当初想说什么。
+
+    判据里没有"分数低"这种含糊的项：两条都用量得出的量（独立来源数、两档
+    立场的先后、逐字回传的对冲词）。
+    """
+    independent = min(bound_sources, bound_authors)
+    markers = find_motive_markers(content) or find_motive_markers(claim)
+    if markers and independent < MIN_SOURCES_FOR_MOTIVE_CLAIM and not find_motive_hedges(content):
+        return False, (
+            f"正文在断言动机/意图（{'、'.join(markers)}），而互相独立的来源只有 "
+            f"{independent} 条（来源 {bound_sources} / 作者 {bound_authors}）——"
+            f"把'他们是为了……'写成了事实。改写方向：加对冲（更像 / 可能 / "
+            f"一种解读 / 从目前材料看），或者补第二个独立来源"
+        )
+
+    if (
+        stance_declared is not None
+        and max_stance is not None
+        and _STANCE_INDEX[stance_declared] > _STANCE_INDEX[max_stance]
+        and not find_motive_hedges(content)
+    ):
+        return False, (
+            f"这条判断原本按 {stance_declared.value} 的强度申报，而证据只支持到 "
+            f"{max_stance.value}（生效立场 {stance.value if stance else '未定'}）——"
+            f"正文把结论说得比证据笃定。改写方向：按 {max_stance.value} 的口径重写，"
+            f"或者补足材料让上界抬起来"
+        )
+
+    return True, ""
 
 
 # ---------------------------------------------------------------------------
@@ -889,6 +1050,24 @@ def score_viewpoints(
                 f"{'、'.join(breadth_markers)}"
             )
 
+        # 动机/意图断言（工作单第六节）。判它需要**独立**来源，所以取来源数与
+        # 作者数的较小值：同一个人发的两条帖子不是两条互相独立的证据，而
+        # "他们是为了……"这种判断最容易被同一个人反复说的话托住。
+        motive_markers = find_motive_markers(claim)
+        independent_sources = min(len(sources), len(authors))
+        motive_unsupported = (
+            bool(motive_markers)
+            and independent_sources < MIN_SOURCES_FOR_MOTIVE_CLAIM
+        )
+        if motive_unsupported:
+            reasons.append(
+                f"判断在断言动机/意图（{'、'.join(motive_markers)}），"
+                f"而互相独立的来源只有 {independent_sources} 条"
+                f"（作者 {len(authors)} 位 / 来源 {len(sources)} 条）；"
+                f"材料证实得了「做了什么」，证实不了「为了什么」——"
+                f"只能写成一种解读"
+            )
+
         confidence_raw = sum(
             weight
             * {
@@ -921,6 +1100,7 @@ def score_viewpoints(
             unknown_pressure=unknown_pressure,
             scope_exceeds_evidence=scope_exceeds_evidence,
             scope_gap=scope_gap,
+            motive_unsupported=motive_unsupported,
         )
         reasons.extend(stance_reasons)
 
@@ -986,6 +1166,8 @@ def score_viewpoints(
                 total_materials=countable_total,
                 unreferenced_materials=unreferenced,
                 breadth_markers=tuple(breadth_markers),
+                motive_markers=tuple(motive_markers),
+                motive_unsupported=motive_unsupported,
                 originality_claim=originality_claim,
                 restates_fact=restates_fact,
                 duplicate_group=duplicate_group,
@@ -1084,6 +1266,7 @@ __all__ = [
     "EvidenceIndex",
     "ViewpointScore",
     "ViewpointSelection",
+    "accept_ceiling_for",
     "author_index",
     "bound_fact_ids",
     "bound_sources_of",
@@ -1091,6 +1274,8 @@ __all__ = [
     "evidence_index",
     "evidence_scope_for",
     "find_breadth_markers",
+    "find_motive_hedges",
+    "find_motive_markers",
     "find_originality_markers",
     "max_stance_for",
     "rank_key",

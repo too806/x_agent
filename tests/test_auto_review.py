@@ -134,6 +134,23 @@ def test_resolve_delivered_verdict_without_candidates():
     assert resolve_delivered_verdict(state(candidates=[])) == (None, None)
 
 
+def test_resolve_delivered_verdict_on_an_all_overlong_pool():
+    """全池超长 → 也是 `(None, None)`，不抛 `AgentOverlongError`。
+
+    `AgentOverlongError` 继承 `AgentIncompleteError`，所以这一条其实是靠
+    继承关系成立的——但**正是这一点需要钉住**：哪天有人把它改成另起一个
+    基类，这个 except 就接不住了，而"接不住"的表现是 tick 整个炸掉，
+    不是某条判据红。这里直接暴露给调用方看的是"没有可交付的候选"。
+    """
+    overlong = "字" * (140 + 5)
+    st = state(
+        candidates=[candidate("c1", overlong)],
+        critic_results=[verdict("c1")],
+    )
+
+    assert resolve_delivered_verdict(st, max_length=140) == (None, None)
+
+
 # ---------------------------------------------------------------------------
 # 2. 六条判据，每条一个反例
 # ---------------------------------------------------------------------------
@@ -151,6 +168,10 @@ def test_approves_when_every_criterion_passes():
     # 只知道"被拒了"是回答不了的。
     assert set(decision.checks) == {
         "content_gate",
+        # 第 2 条：交付硬上限。这里没有传 `max_length`，所以它会留下一条
+        # `checked: False` 的痕迹——**判据列表是完整的**这件事本身要能看出来，
+        # 而不是"没传就不出现"。少一个 key 和"这条判据不存在"在排查时看起来一样。
+        "length",
         "guardrail",
         "critic",
         "critic_score",
@@ -252,12 +273,14 @@ def test_zero_publish_cap_blocks_everything():
 
 
 def test_too_long_alone_does_not_block():
-    """长度是**我们自己的写作目标**，不是平台的硬限制。
+    """`too_long` 这个 guardrail 原因码仍然只是**提示**，它不拦人。
 
-    发布路径早就撤掉了那道 422（账号能发更长），自动审阅必须与它一致：
-    一条比目标长一点、其实完全发得出去的正文不该被自己的规则挡在门外。
-    直接把 `guardrail_passed` 当判据就会犯这个错——那个布尔值会被 `too_long`
-    拉成 False。
+    它拦不住也不该拦：它只说"比写作目标长"，说不清"到底超了多少字"，
+    而超一点、其实完全发得出去的正文不该被它挡在门外（这个账号是 Premium）。
+    把关的是下面那条**专门的**长度判据（`checks["length"]`）——它读同一个尺子
+    （`over_hard_limit`）、说得清超了多少字，而且只在调用方给出 `max_length`
+    时才生效。这条测试钉住"两个东西不是一回事"，防止有人图省事把
+    `guardrail_passed` 直接当判据——那个布尔值会被 `too_long` 拉成 False。
     """
     st = state(candidates=[candidate("c1")], critic_results=[verdict("c1")])
 
@@ -266,6 +289,60 @@ def test_too_long_alone_does_not_block():
     assert decision.approved is True
     assert decision.checks["guardrail"]["advisory"] == ["too_long"]
     assert decision.checks["guardrail"]["blocking"] == []
+
+
+def test_rejects_when_content_exceeds_the_delivery_hard_limit():
+    """判据 2：交付硬上限。与发布预检是**同一个尺子**。
+
+    这里必须与发布侧一致：发布侧会拒绝超长正文（`PublishService._preflight`），
+    若自动审阅放行、发布被拦，得到的就是 `MANUAL_GO_LIVE_STEPS` 里点名要避免的
+    组合——一条"机器批准了、却发不出去"的记录，还会污染影子期的一致率。
+    """
+    overlong = "字" * (140 + 7)
+    st = state(candidates=[candidate("c1", overlong)], critic_results=[verdict("c1")])
+
+    decision = evaluate(st, content=overlong, max_length=140)
+
+    assert decision.approved is False
+    assert decision.checks["length"]["checked"] is True
+    assert decision.checks["length"]["limit"] == 140
+    assert decision.checks["length"]["value"] == 147
+    assert any("硬上限" in reason for reason in decision.reasons)
+
+
+def test_approves_content_exactly_at_the_hard_limit():
+    """边界是 `>`：正好 140 字合规。
+
+    差一个字符的边界判错会制造一条**永远无法自动放行**的正文——它明明
+    发得出去，只在自动审阅这里被判超长。
+    """
+    exact = "字" * 140
+    st = state(candidates=[candidate("c1", exact)], critic_results=[verdict("c1")])
+
+    decision = evaluate(st, content=exact, max_length=140)
+
+    assert decision.approved is True
+    assert decision.checks["length"] == {"passed": True, "checked": True, "limit": 140, "value": 140}
+
+
+def test_the_length_criterion_is_not_a_second_content_gate():
+    """长度判据只从 `content` 读数，不去候选池里另找一条。
+
+    它判的是**马上要被自动发出去的那条**（调用方传进来的 `content`），
+    不是"池子里最好看的那条"。去池子里挑一条短的再放行，等于发布一条
+    与审阅对象不同的正文。
+    """
+    overlong = "字" * (140 + 3)
+    st = state(
+        # 池子里有一条合规的短候选；但这次要发的是那条超长的。
+        candidates=[candidate("short", "短的。"), candidate("c1", overlong)],
+        critic_results=[verdict("short"), verdict("c1")],
+    )
+
+    decision = evaluate(st, content=overlong, max_length=140)
+
+    assert decision.approved is False
+    assert decision.checks["length"]["value"] == 143
 
 
 def test_hard_guardrail_reason_blocks():

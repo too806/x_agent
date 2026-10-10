@@ -17,13 +17,15 @@ from sqlalchemy import select
 
 from app.agent.budget import AgentBudget
 from app.agent.metrics import quality_metrics
-from app.agent.nodes.finalize import make_finalize_node
+from app.agent.nodes.finalize import AgentOverlongError, make_finalize_node
 from app.models import AgentRun, Draft, ResearchItem, Review
 from app.agent.schemas import (
     Candidate,
     CandidateTopic,
     ClaimScope,
+    CriticResult,
     EvidencePack,
+    SearchAttempt,
     ViewpointAssessment,
     ViewpointStance,
 )
@@ -41,7 +43,7 @@ from fakes import (
     revise_payload,
     topics_payload,
 )
-from support import FIXED_NOW, api_for, runtime_with_checkpointer
+from support import FIXED_NOW, PERSONA, api_for, runtime_with_checkpointer
 
 GOAL = "今天帮我找一个值得在中文科技 X 圈讨论的 AI 话题，并形成一条有明确观点的中文帖子。"
 
@@ -154,7 +156,7 @@ async def test_finalize_persists_the_selected_topic(session_factory):
     题目以 `selected_topic` 为准（那才是 Agent 实际选的），不是按分数重挑一个。
     """
     run_id = await start_goal_run(session_factory)
-    node = make_finalize_node(session_factory)
+    node = make_finalize_node(session_factory, PERSONA)
 
     await node(
         {
@@ -180,7 +182,7 @@ async def test_finalize_falls_back_to_the_top_scoring_candidate(session_factory)
     这一列会进运行记录列表，编一个等于让历史记录失真。
     """
     run_id = await start_goal_run(session_factory)
-    node = make_finalize_node(session_factory)
+    node = make_finalize_node(session_factory, PERSONA)
 
     await node(
         {
@@ -200,6 +202,70 @@ async def test_finalize_falls_back_to_the_top_scoring_candidate(session_factory)
         assert run.topic == "高分候选"
 
 
+async def test_finalize_never_delivers_an_overlong_candidate(session_factory):
+    """候选池里有一条合规的，就绝不让超长的那条进 draft——即使它分更高。
+
+    这是"最终送审的正文一定 ≤ 硬上限"这条保证在**节点**这一层的样子：
+    `draft.content` 是下游（人工审核、发布、控制台）唯一读到的正文，
+    它一旦写长了，后面所有环节要么替 Agent 删字，要么把一篇发不出去的稿子
+    发出去。
+    """
+    run_id = await start_goal_run(session_factory)
+    overlong = "字" * (PERSONA.max_length + 40)
+    node = make_finalize_node(session_factory, PERSONA)
+
+    await node(
+        {
+            "run_id": run_id,
+            "goal": GOAL,
+            "selected_topic": "题目",
+            "candidates": [
+                Candidate(candidate_id="c-long", label="直接观点", content=overlong),
+                Candidate(candidate_id="c-short", label="冲突对比", content="正文。"),
+            ],
+            "critic_results": [
+                CriticResult(candidate_id="c-long", decision="accept", score=9.5),
+                CriticResult(candidate_id="c-short", decision="accept", score=6.0),
+            ],
+            "step_count": 3,
+        }
+    )
+
+    async with session_factory() as session:
+        drafts = (await session.execute(select(Draft))).scalars().all()
+        assert len(drafts) == 1
+        assert drafts[0].content == "正文。"
+
+
+async def test_finalize_fails_safely_when_every_candidate_is_overlong(session_factory):
+    """全池超长 → 抛 `AgentOverlongError`，且**一条 draft 都不写**。
+
+    "不写 draft"是这条路径的关键：下游是把 `draft` 的存在当作"有东西可以审"的
+    信号的。写一条超长的草稿进去，就等于让这次 Run 看起来产出了可交付的内容，
+    而人工审核会照单接收一篇发不出去的正文。
+    """
+    run_id = await start_goal_run(session_factory)
+    node = make_finalize_node(session_factory, PERSONA)
+
+    with pytest.raises(AgentOverlongError):
+        await node(
+            {
+                "run_id": run_id,
+                "goal": GOAL,
+                "selected_topic": "题目",
+                "candidates": [
+                    Candidate(candidate_id="c1", label="直接观点", content="字" * (PERSONA.max_length + 80)),
+                    Candidate(candidate_id="c2", label="冲突对比", content="字" * (PERSONA.max_length + 10)),
+                ],
+                "critic_results": [],
+                "step_count": 3,
+            }
+        )
+
+    async with session_factory() as session:
+        assert (await session.execute(select(Draft))).scalars().all() == []
+
+
 async def test_finalize_does_not_overwrite_a_topic_that_is_already_set(session_factory):
     """库里已经有题目时不覆盖它。
 
@@ -211,7 +277,7 @@ async def test_finalize_does_not_overwrite_a_topic_that_is_already_set(session_f
     async with session_factory() as session:
         await set_run_topic(session, run_id, "早就定下来的题目")
 
-    node = make_finalize_node(session_factory)
+    node = make_finalize_node(session_factory, PERSONA)
     await node(
         {
             "run_id": run_id,
@@ -374,6 +440,45 @@ async def test_agent_without_any_candidate_fails_loudly(session_factory):
             )
 
     assert "未产出任何候选正文" in str(excinfo.value)
+
+
+async def test_a_goal_the_materials_cannot_answer_ends_safely(session_factory):
+    """目标与材料对不上时**安全结束**，而不是硬塞一篇（工作单第三、四节）。
+
+    目标用 Run 20ab360c 的原文。假 X 服务返回的是两条讲 AI coding agent 的英文
+    帖子，里面没有任何目标词，所以正确的行为是：
+
+    1. 候选被标记为「与目标无关」，`select_topic` **拒绝**——不再是"回退到候选里
+       分最高的那个"（那正是那次真机运行交付了一篇讲 FF 发布会的分析的原因）；
+    2. 往下的写作链全部不可行，于是把预算花在"换一个检索词再找"上；
+    3. 找不到就以「未产出任何候选正文」收场：**不编造材料、不产出伪造正文**。
+
+    宁可这一次没有产出，也不要把用户没要的东西做成稿子。
+    """
+    goal = "今天想关注香港"
+    llm = happy_llm()
+
+    async with runtime_with_checkpointer(session_factory, llm_service=llm) as runtime:
+        run_id = await start_goal_run(session_factory, goal)
+        with pytest.raises(Exception) as excinfo:
+            await runtime.graph.ainvoke(
+                {"run_id": run_id, "goal": goal}, config=config_for(run_id)
+            )
+        snapshot = await runtime.graph.aget_state(config_for(run_id))
+
+    assert "未产出任何候选正文" in str(excinfo.value)
+
+    trace = snapshot.values["decision_trace"]
+    # 选题这一步**从未被执行**：没有一个候选可被选中。
+    assert all(row.action != "select_topic" for row in trace)
+    # 拒绝必须是**响的**：发现那一步的结论里要写清"淘汰了与目标无关的候选"，
+    # 以及下一步该做什么，而不是只说"最近没什么可讨论的"。
+    discovered = [row for row in trace if row.action == "discover_topics"]
+    assert discovered
+    assert any("换一个检索词" in (row.result_summary or "") for row in discovered)
+    # 空就是空：没有候选、没有正文。
+    assert not snapshot.values.get("candidates")
+    assert not snapshot.values.get("draft_content")
 
 
 # --------------------------------------------------------------------------
@@ -611,7 +716,13 @@ async def test_agent_run_resumes_through_review_and_publish(session_factory):
     client = FakeXApiClient()
     llm = happy_llm()
     async with runtime_with_checkpointer(
-        session_factory, llm_service=llm, x_service=XService(client)
+        # 观察时刻与其它 Agent 用例一样钉死（见 support.FIXED_NOW）：`SAMPLE_X_RESPONSE`
+        # 的 created_at 是写死的，用真实挂钟时那两条帖子早已超出 72 小时窗口、
+        # 判成 stale，候选一个都不达标。这条用例本来靠"回退到分最高的候选"跑通，
+        # 而那条回退已被工作单第三节取消（不达标的候选不允许被选中）。
+        session_factory,
+        llm_service=llm,
+        x_service=XService(client, clock=lambda: FIXED_NOW),
     ) as runtime:
         async with api_for(runtime) as api:
             created = await api.post("/api/runs", json={"goal": GOAL})
@@ -687,6 +798,17 @@ async def test_agent_run_state_is_resumable_from_checkpoint(session_factory):
         # 断言全部照常通过，只有恢复时下游按属性读才炸。这一条 isinstance 是唯一
         # 能抓住它的断言。
         assert isinstance(snapshot.values["style_recipe"], StyleRecipe)
+        # `search_attempts` 与 style_recipe 同一种失败模式，而且更容易漏：它是
+        # 一个 **list**，退化发生在**元素**上——msgpack 把每个 SearchAttempt 还成
+        # 原始 payload，pydantic 在 `list[SearchAttempt]` 上又把它校验回模型，
+        # 所以连 isinstance(list 元素) 都要单独断言才算验过。
+        # 它值的是加宽的输入（`consecutive_empty` 读 result_count），
+        # 退化成 dict 之后 `_field()` 的容错分支会接住、加宽静默失效——
+        # 不报错，只是这个功能在真机上再也不发生。
+        assert all(
+            isinstance(attempt, SearchAttempt)
+            for attempt in snapshot.values["search_attempts"]
+        )
         assert len(snapshot.values["decision_trace"]) == len(HAPPY_PATH)
 
         resumed = await runtime.graph.ainvoke(

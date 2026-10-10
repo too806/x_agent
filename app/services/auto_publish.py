@@ -324,6 +324,14 @@ class AutoPublishService:
         draft_id = state.get("draft_id")
         content = state.get("draft_content")
 
+        # 长度上限从运行时取，**不在这里另设一个数**：它必须与发布侧
+        # （`PublishService` 的 `content_max_length`）和 finalize 用同一个值，
+        # 否则会出现"这里放行、那里拦下"。`getattr` 兜底只是为了让没有 persona
+        # 的测试替身仍然能跑——真那个数缺失时下面的判据会如实记下"没判"，
+        # 而不是悄悄按 0 或 140 去判。
+        persona = getattr(self._runtime, "persona", None)
+        max_length = getattr(persona, "max_length", None)
+
         decision = None
         try:
             decision = evaluate_auto_publish(
@@ -335,6 +343,7 @@ class AutoPublishService:
                 recent_topics=await self._recent_topics(config, run_id),
                 publish_attempts_today=result.publishes_today,
                 config=config,
+                max_length=max_length,
             )
         except Exception as exc:  # noqa: BLE001
             # 判据本身抛异常 = 出现了没预料到的输入形状。**按不通过处理**，

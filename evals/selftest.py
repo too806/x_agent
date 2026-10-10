@@ -1102,6 +1102,45 @@ def check_scorecard_has_no_total() -> list[str]:
     return ["分数卡里没有 score / total / overall 之类的总分字段"]
 
 
+def check_chinese_topic_cases_line_up() -> list[str]:
+    """中文题评价样例必须与生产的结构契约对得上。
+
+    这份样例回答的是"一条帖子该怎么被评"，而"有哪几条路、有哪几种开头"
+    归 `app/agent/post_structure.py` 管。样例里引用一个已经不存在的角色或
+    开头形式，**不会**报错——它只会悄悄变成一份过时的参考标准，而参考标准
+    过时是最难发现的一种坏：它还在被人照着用。
+
+    依赖方向也在这里被验一次：样例 import `app`，`app` 不 import 样例。
+    """
+    from app.agent.post_structure import ROLE_ORDER, OpeningMove
+    from evals.content.topics import CASES, CRITERIA
+
+    _check(len(CRITERIA) == 8, f"参考判据应当是八条（工作单第六节），实际 {len(CRITERIA)}")
+    _check(
+        len({c.question for c in CRITERIA}) == len(CRITERIA),
+        "参考判据里有重复的判定问题",
+    )
+    for criterion in CRITERIA:
+        _check(bool(criterion.fail_signal.strip()), f"判据「{criterion.question}」没写什么算不合格")
+
+    _check(len(CASES) == 6, f"固定选题应当是六个类别，实际 {len(CASES)}")
+    _check(len({c.case_id for c in CASES}) == len(CASES), "选题样例里有重复的 case_id")
+    _check(len({c.category for c in CASES}) == len(CASES), "选题样例里有重复的类别名")
+
+    for case in CASES:
+        _check(bool(case.goal.strip()), f"{case.case_id} 没有固定选题")
+        _check(bool(case.risks), f"{case.case_id} 没写这一类特有的失手方式")
+        for role in case.fit_roles:
+            _check(role in ROLE_ORDER, f"{case.case_id} 引用了不存在的候选角色 {role}")
+        for opening in case.fit_openings:
+            _check(
+                opening in tuple(OpeningMove),
+                f"{case.case_id} 引用了不存在的开头形式 {opening}",
+            )
+
+    return [f"六个中文选题类别、八条参考判据，与 post_structure 的角色/开头集合一致"]
+
+
 CHECKS: tuple[tuple[str, Any], ...] = (
     ("生产的固定措辞能被解析", check_marker_regexes_match_production),
     ("allowed= 的缺失/空/正常三种情况被区分", check_allowed_parsing_distinguishes_missing_and_empty),
@@ -1116,6 +1155,7 @@ CHECKS: tuple[tuple[str, Any], ...] = (
     ("观点规则两边都能判", check_viewpoint_rules_discriminate),
     ("反馈规则两边都能判", check_feedback_rule_discriminates),
     ("观点分逐项都可复算", check_every_scored_field_is_reproduced),
+    ("中文题评价样例与生产契约没有漂开", check_chinese_topic_cases_line_up),
     ("--live 被拒绝", check_live_mode_is_refused),
     ("分数卡没有总分", check_scorecard_has_no_total),
 )

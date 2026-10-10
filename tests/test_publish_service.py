@@ -93,11 +93,12 @@ async def _run_status(session_factory, run_id: str) -> str:
     return run.status
 
 
-def _service(session_factory, x_service, final_content):
+def _service(session_factory, x_service, final_content, *, max_length=PERSONA.max_length):
     return PublishService(
         x_service=x_service,
         session_factory=session_factory,
         graph=StubGraph({"final_content": final_content}),
+        content_max_length=max_length,
     )
 
 
@@ -285,18 +286,18 @@ async def test_run_not_approved_cannot_be_published(session_factory):
     assert x.published == []
 
 
-async def test_overlong_content_is_published_anyway(session_factory):
-    """超过 persona.max_length **不再**被本地拒绝。
+async def test_overlong_content_is_never_published(session_factory):
+    """超过硬上限的正文，**在任何情况下**都不许发出去。
 
-    这道闸门曾经存在：`_preflight` 对超长返回 422，理由是"能本地判定就别浪费一次
-    外部调用去换 X 的 400"。理由本身没错，错的是它拦的东西——`persona.max_length`
-    是我们**自己的写作目标**，不是平台的硬限制，这个账号能发得比它长。于是一条其实
-    发得出去、只是没达到目标的稿子，会在点发布的那一刻被自己的规则挡下，而审核者
-    拿到的是一个他改不了的错。
+    这条闸门走过一个来回，两次的理由都值得记住（详见 `publish.py::_preflight`
+    的说明）：起初它在，拦的是"其实发得出去、只是没写够长"的稿子，那个理由错了；
+    后来撤掉，理由是"`max_length` 是我们自己的写作目标"——这句话没错，但由此撤掉
+    执行是错的，因为它是**交付条件**，不是平台限制。
 
-    现在长度只是守卫的一条提示（`too_long`），交给审核者判断要不要压短。这条用例
-    钉住的正是"提示归提示"：别哪天顺手又把它变成阻断。真发不出去时 X 会回 4xx，
-    那走 `_fail`（确定没发出去、可重试），不是本地 422，也不会落进"结果未知"。
+    这条用例钉两件事：
+    1. 超长 → 不发（`x.published` 为空，一次外部调用都不浪费）；
+    2. `edit` 路径也拦。人是可以手改正文的，但不能用"改长"绕过上限，否则
+       "过不了就手工改"就成了默认操作。
     """
     long_content = "a" * (PERSONA.max_length + 1)
     run_id, final_content = await _prepare(
@@ -307,15 +308,43 @@ async def test_overlong_content_is_published_anyway(session_factory):
 
     result = await service.publish(run_id)
 
-    assert result.outcome == OUTCOME_PUBLISHED
-    assert x.published == [long_content]
+    assert result.outcome == OUTCOME_INVALID
+    assert x.published == []
+    # 拦在抢占之前：Run 状态与发布行都不动，所以既不会留下 publishing 残留，
+    # 也不会被当成"结果未知"进人工裁决——它根本不是一次尝试。
+    assert result.outcome != OUTCOME_UNKNOWN
+    assert await _run_status(session_factory, run_id) == "edited"
+    assert await _row(session_factory, run_id) is None
+
+
+async def test_an_overlong_approved_draft_is_still_refused_at_publish_time(session_factory):
+    """**没被人改过**的超长草稿（approve 路径）同样发不出去。
+
+    与上一条是两件事：上一条拦的是"人手动改长了"，这一条拦的是"草稿本来就长、
+    人只是点了批准"。后者是真会出现的状态——生成阶段那道闸门是这一轮才补上的，
+    在此之前（以及任何绕过它写进来的数据）队列里就躺着这样的 Run，而发布预检是
+    它们之后唯一的机会。两处读的是同一条 `review.original_content` 分支。
+    """
+    long_content = "a" * (PERSONA.max_length + 1)
+    run_id, final_content = await _prepare(
+        session_factory, draft_content=long_content, action="approve"
+    )
+    x = FakePublishingXService()
+    service = _service(session_factory, x, final_content)
+
+    result = await service.publish(run_id)
+
+    assert result.outcome == OUTCOME_INVALID
+    assert x.published == []
+    assert result.outcome != OUTCOME_UNKNOWN
+    assert await _row(session_factory, run_id) is None
 
 
 async def test_content_at_max_length_is_allowed(session_factory):
-    """上限本身不再是特殊值——它和超上限一样，都直接发。
+    """恰好等于上限的正文照发——分界是 `>`，不是 `>=`。
 
-    留着这条是因为"恰好等于上限"曾经是两条分支的分界（`>` 而非 `>=`）。现在没有
-    分界了，它退化成一个普通的成功路径，但改回去时它会立刻红。
+    上限是"不许超过"，不是"不许达到"。差一个字符的判定如果反了，表现是所有
+    刚好写满 140 字的稿子全部发不出去，而这在真机上只会被当成"发布偶尔失败"。
     """
     boundary = "a" * PERSONA.max_length
     run_id, final_content = await _prepare(
@@ -328,15 +357,32 @@ async def test_content_at_max_length_is_allowed(session_factory):
     assert x.published == [boundary]
 
 
+async def test_length_gate_reads_its_own_limit(session_factory):
+    """闸门用的是构造时传进来的那个数，不是哪一层写死的。
+
+    发布侧和界面侧必须是同一个口径（都来自 `persona.max_length`）。把上限调到
+    `content_max_length=200` 时，同样一条 141 字的正文就该发得出去——如果它仍然
+    被拦，说明校验读的是别处写死的 140，那两处迟早会漂开。
+    """
+    content = "a" * (PERSONA.max_length + 1)
+    run_id, final_content = await _prepare(
+        session_factory, action="edit", edited_content=content
+    )
+    x = FakePublishingXService()
+    service = _service(session_factory, x, final_content, max_length=PERSONA.max_length + 60)
+
+    assert (await service.publish(run_id)).outcome == OUTCOME_PUBLISHED
+    assert x.published == [content]
+
+
 async def test_content_gate_still_blocks_before_x(session_factory):
-    """长度撤了，**内容门禁没撤**——两条不是一回事。
+    """长度闸门和内容门禁是**两道**闸，各自拦自己的东西。
 
-    看门禁的说明：它只拦"正文里泄漏内部事实编号"和"无歧义的低质诱饵词"，都是
-    **读者拿不到、或者拿到了会被骗**的东西，改成多长都改变不了它的不合规。长度
-    不一样：那是我们自己的写作目标，写长一点读者照样看得懂，平台也收得下。
+    长度拦的是"超过我们定的交付上限"；门禁拦的是"正文里泄漏内部事实编号"和
+    "无歧义的低质诱饵词"——后者与长短无关，一篇 50 字带编号的稿子照样过不了。
 
-    上面两条用例证明长度不再阻断，这一条钉住"撤的只有长度"——顺带补上一个此前
-    没人测的路径：门禁是 `_preflight` 现在**唯一**会返回 `OUTCOME_INVALID` 的地方。
+    上面那条用例证明超长被拦，这一条证明**拦的不只是长度**：把长度那道闸门
+    放回去之后，很容易顺手以为 `_preflight` 现在只剩一条判据了。两条都在。
     """
     leaked = "这条判断（f4）来自内部核对。"
     run_id, final_content = await _prepare(

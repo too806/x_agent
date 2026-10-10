@@ -19,7 +19,14 @@ from app.agent.budget import (
     steps_hard_exhausted,
 )
 from app.agent.prompts import ACTION_HINTS, format_allowed, load_prompt
-from app.agent.schemas import AgentAction, AgentDecision
+from app.agent.schemas import (
+    AgentAction,
+    AgentDecision,
+    CandidateTopic,
+    EvidenceFact,
+    EvidencePack,
+    TopicQualification,
+)
 from app.agent.tools.base import complete_json
 from app.services.llm import LLMError
 from fakes import PROMPT_MARKERS, ScriptedLLMService
@@ -27,6 +34,27 @@ from fakes import PROMPT_MARKERS, ScriptedLLMService
 BUDGET = AgentBudget(
     max_steps=12, max_research_calls=4, max_candidates=3, max_revisions=2
 )
+
+
+def selectable_topic(
+    topic_id: str = "t1",
+    *,
+    score: float = 80.0,
+    relevance: bool | None = True,
+) -> CandidateTopic:
+    """一个**可被选中**的候选：达标（qualified）且与目标相关。
+
+    `allowed_actions` 里的几个条件现在判的是"有没有一个可被选中的候选"
+    （工作单第二、三节），所以预算测试必须拿真实的候选对象当输入——
+    `object()` 在那套判据下等于"一个都不达标"，测出来的是另一件事。
+    """
+    return CandidateTopic(
+        topic_id=topic_id,
+        title=f"候选选题 {topic_id}",
+        trend_score=score,
+        qualification=TopicQualification.QUALIFIED,
+        goal_relevance=relevance,
+    )
 
 
 # --------------------------------------------------------------------------
@@ -60,10 +88,16 @@ def test_decision_requires_a_non_empty_reason():
 
 
 async def test_invalid_decision_surfaces_as_llm_error():
-    """非法输出与"LLM 调用失败"同类（上游故障 → 502），不是代码缺陷。"""
-    llm = ScriptedLLMService(decisions=['{"action": "do_magic", "reason": "x"}'])
+    """非法输出与"LLM 调用失败"同类（上游故障 → 502），不是代码缺陷。
+
+    脚本给两条，是因为 `complete_json` 会为重写结构化输出**再调一次**（见
+    `MAX_STRUCTURED_OUTPUT_ATTEMPTS`）。两条都非法，重试也用完，才落到 LLMError。
+    """
+    bad = '{"action": "do_magic", "reason": "x"}'
+    llm = ScriptedLLMService(decisions=[bad, bad])
     with pytest.raises(LLMError):
         await complete_json(llm, "你是这个内容 Agent 的 Planner", AgentDecision)
+    assert llm.planner_calls() == 2
 
 
 # --------------------------------------------------------------------------
@@ -93,28 +127,125 @@ def test_select_topic_is_available_only_between_discovery_and_selection():
     换题会让已经取回的材料、已经形成的证据与新的选题对不上，而 state 里没有
     任何字段能表达"这些材料属于上一个题"。要换题就得新开一次运行。
     """
-    discovered = {"candidate_topics": [object()]}
+    discovered = {"candidate_topics": [selectable_topic()]}
     assert AgentAction.SELECT_TOPIC in allowed_actions(discovered, BUDGET)
 
     chosen = {**discovered, "selected_topic": "题目"}
     assert AgentAction.SELECT_TOPIC not in allowed_actions(chosen, BUDGET)
 
 
+def test_select_topic_needs_a_qualified_and_relevant_candidate():
+    """有候选**不等于**可以选：达标与相关缺一不可（工作单第二、三节）。
+
+    Run 20ab360c 的目标是「今天想关注香港」，两个候选一个达标分数都没有、
+    材料里也没有出现过「香港」，但 `allowed_actions` 照旧把 select_topic
+    摆了出来，于是"分最高的那个"被选中，写成了一篇与目标无关的分析。
+    """
+    weak = {
+        "candidate_topics": [
+            selectable_topic(score=40.0),
+        ]
+    }
+    # 把达标这一条改掉：分数再高也不能选。
+    weak["candidate_topics"][0] = weak["candidate_topics"][0].model_copy(
+        update={"qualification": TopicQualification.WEAK_SUPPORT}
+    )
+    assert AgentAction.SELECT_TOPIC not in allowed_actions(weak, BUDGET)
+
+    irrelevant = {
+        "candidate_topics": [selectable_topic(relevance=False)],
+    }
+    assert AgentAction.SELECT_TOPIC not in allowed_actions(irrelevant, BUDGET)
+
+    # `None` = 本次没有判定相关性，**放行**：没判定不等于判定为不相关。
+    undecided = {"candidate_topics": [selectable_topic(relevance=None)]}
+    assert AgentAction.SELECT_TOPIC in allowed_actions(undecided, BUDGET)
+
+
+def test_no_usable_candidate_blocks_writing():
+    """手上没有可用选题时不许往下写（工作单第三节）。
+
+    `extract_evidence` 是"材料"变成"要发出去的东西"的第一步。一个都不合格仍
+    继续抽证据、形成观点、写出正文，等于把用户不关心的材料做成了稿子——
+    这一次的运行应当以"没有产出"收场，而不是硬塞。
+
+    整条写作链都要挡住，不只是第一步：只要有一环漏掉，"不许写"就变成"晚一点写"。
+    材料齐、还没有候选的运行照旧放行（用户直接指定了题目那条路径）。
+    """
+    materials = {"research_item_ids": ["m1"], "research_results": [object()]}
+    assert AgentAction.EXTRACT_EVIDENCE in allowed_actions(materials, BUDGET)
+
+    unrelated = {**materials, "candidate_topics": [selectable_topic(relevance=False)]}
+    assert AgentAction.EXTRACT_EVIDENCE not in allowed_actions(unrelated, BUDGET)
+
+    # 一整批都不合格（未达标 / 不相关混在一起）时，往下每一步都不可行。
+    dead_batch = {
+        **materials,
+        "candidate_topics": [
+            selectable_topic(relevance=False),
+            selectable_topic(topic_id="t2").model_copy(
+                update={"qualification": TopicQualification.WEAK_SUPPORT}
+            ),
+        ],
+    }
+    assert AgentAction.SELECT_TOPIC not in allowed_actions(dead_batch, BUDGET)
+    assert AgentAction.EXTRACT_EVIDENCE not in allowed_actions(dead_batch, BUDGET)
+    # 发现仍然可行——正确的下一步是换检索词再找一次。
+    assert AgentAction.DISCOVER_TOPICS in allowed_actions(dead_batch, BUDGET)
+
+    # 目标里已经写明了题目的运行不经过 discovery，没有候选就是没有候选。
+    assert AgentAction.EXTRACT_EVIDENCE in allowed_actions(
+        {**materials, "candidate_topics": []}, BUDGET
+    )
+
+    # 有可用候选但证据还没抽时，链上每一步照旧可行。
+    usable = {
+        **materials,
+        "candidate_topics": [selectable_topic()],
+        "selected_topic": "题目",
+        "evidence_pack": EvidencePack(facts=[EvidenceFact(fact="事实", source_ids=["m1"])]),
+    }
+    assert AgentAction.GENERATE_ANGLES in allowed_actions(usable, BUDGET)
+
+
 def test_topic_selection_beats_research_in_the_fallback_order():
     """回退顺序里 select_topic 排在 research_topic 前面。
 
-    没有候选时两者都不可行，测不出差别；有候选而还没选时，正确的一步是**先选**：
-    直接去 research 会绕开打分排序，等于把确定性排序丢掉。
+    没有候选时两者都不可行，测不出差别；有可选的候选而还没选时，正确的一步是
+    **先选**：直接去 research 会绕开打分排序，等于把确定性排序丢掉。
     """
-    state = {"candidate_topics": [object()]}
+    state = {"candidate_topics": [selectable_topic()]}
     assert pick_fallback(state, BUDGET) is AgentAction.SELECT_TOPIC
 
 
-def test_discovery_is_closed_once_topics_exist():
-    """发现过一次就不再发现：否则"没发现出好东西"会变成一个可以无限重试的动作。"""
+def test_discovery_stays_open_until_a_usable_topic_exists():
+    """"发现过一次就不再发现"改成了"发现出**可用的**候选才不再发现"（工作单第三节）。
+
+    原规则（候选列表非空即关闭）在 Run 20ab360c 里把运行卡在一个死角：候选都在，
+    但一个都不该被选中。此时唯一正确的动作是**换一个检索词再发现一次**。
+    重新发现仍然受研究预算约束——否则"发现不出好东西"会变成一个可以无限重试
+    的动作，而那正是原规则要防的事。
+    """
+    assert AgentAction.DISCOVER_TOPICS in allowed_actions({}, BUDGET)
+
+    # 候选都在，但一个都不达标/不相关 → 还可以再发现。
+    dead_end = {
+        "candidate_topics": [
+            selectable_topic(relevance=False),
+            selectable_topic(topic_id="t2").model_copy(
+                update={"qualification": TopicQualification.WEAK_SUPPORT}
+            ),
+        ]
+    }
+    assert AgentAction.DISCOVER_TOPICS in allowed_actions(dead_end, BUDGET)
+    # 预算用尽后不再放宽：这一步不能被无限重试。
     assert AgentAction.DISCOVER_TOPICS not in allowed_actions(
-        {"candidate_topics": [object()]}, BUDGET
+        {**dead_end, "research_count": BUDGET.max_research_calls}, BUDGET
     )
+
+    # 有一个可用的候选 → 发现关闭（该选它，或研究它）。
+    usable = {"candidate_topics": [selectable_topic(relevance=False), selectable_topic("t2")]}
+    assert AgentAction.DISCOVER_TOPICS not in allowed_actions(usable, BUDGET)
 
 
 def test_finish_is_blocked_until_candidates_are_critiqued():
@@ -148,7 +279,7 @@ def test_revision_reopens_the_need_for_a_critique():
 
 def test_research_budget_closes_the_research_actions():
     state = {
-        "candidate_topics": [object()],
+        "candidate_topics": [selectable_topic()],
         "selected_topic": "题目",
         "research_item_ids": ["id-1"],
         "research_count": BUDGET.max_research_calls,
@@ -203,7 +334,7 @@ def test_wrapup_finishes_instead_of_repeating_angles():
     按老顺序走，选中它就是同一种"重做已完成的工作"，所以这里断的是结果不是顺序。
     """
     state = {
-        "candidate_topics": [object()],
+        "candidate_topics": [selectable_topic()],
         "selected_topic": "题目",
         "research_item_ids": ["id-1"],
         "research_count": BUDGET.max_research_calls,  # 研究预算已用尽
@@ -227,7 +358,7 @@ def test_wrapup_still_advances_before_anything_is_written():
     "优先 finish"只在**确实已经完成**时成立。
     """
     researching = {
-        "candidate_topics": [object()],
+        "candidate_topics": [selectable_topic()],
         "selected_topic": "题目",
         "research_item_ids": ["id-1"],
         "research_count": BUDGET.max_research_calls,
@@ -249,7 +380,7 @@ def test_ready_to_finish_needs_actual_content():
 def test_fallback_picks_the_most_advanced_available_action():
     """预算用尽又还在研究时，正确答案不是"结束"，而是"用手上的材料往下走"。"""
     state = {
-        "candidate_topics": [object()],
+        "candidate_topics": [selectable_topic()],
         "selected_topic": "题目",
         "research_item_ids": ["id-1"],
         "research_count": BUDGET.max_research_calls,

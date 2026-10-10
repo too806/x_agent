@@ -32,8 +32,8 @@ import logging
 import re
 from datetime import datetime
 
-from app.agent import search_query
-from app.agent.budget import counter
+from app.agent import relevance
+from app.agent.budget import counter, is_selectable
 from app.agent.prompts import format_sources, load_prompt, render
 from app.agent.schemas import (
     CandidateTopic,
@@ -41,7 +41,14 @@ from app.agent.schemas import (
     TopicLifecycle,
     TopicQualification,
 )
-from app.agent.tools.base import ToolResult, append_research, complete_json, pairs
+from app.agent.tools.base import (
+    ToolResult,
+    append_attempts,
+    append_research,
+    complete_json,
+    pairs,
+    plan_search,
+)
 from app.agent.trends import (
     LINK_ONLY_TITLE,
     TREND_WINDOW_HOURS,
@@ -251,6 +258,39 @@ def _attr(draft, name: str):
     return getattr(draft, name) if hasattr(draft, name) else draft.get(name)
 
 
+def _apply_goal_relevance(
+    topics: list[CandidateTopic],
+    contents: dict[str, str],
+    goal: str,
+) -> tuple[list[CandidateTopic], int, tuple[str, ...]]:
+    """给每个候选打上与目标相关性的**判定**，返回 (标记后的候选, 不相关数, 话题词)。
+
+    打标而不是删除，理由有两条：
+
+    1. **删除会丢掉"发现过但不可用"这个事实**。候选列表空着与"发现了六个
+       候选、全部与目标无关"在界面上必须能分开——前者是"没找到"，后者是
+       "找到的不是你要的，该换检索词了"。后者正是要让人看见的信号。
+    2. **删除会改变 `budget.allowed_actions` 的语义**：`discover_topics` 原本
+       靠"候选列表为空"判断"还没发现过"。把候选删光会让它变回"从没发现过"，
+       于是重新发现与首次发现混成同一件事。
+
+    不相关不是"不能出现在界面上"，而是**不能被选中、不能被拿去研究**
+    （见 `budget.qualified_topics` 与 `research._choose_topic`）。
+    """
+    terms = relevance.goal_terms(goal)
+    marked: list[CandidateTopic] = []
+    rejected = 0
+    for topic in topics:
+        material_text = "\n".join(
+            contents.get(source_id, "") for source_id in topic.source_post_ids
+        )
+        relevant, note = relevance.judge(material_text, terms)
+        if relevant is False:
+            rejected += 1
+        marked.append(topic.model_copy(update={"goal_relevance": relevant, "goal_relevance_note": note}))
+    return marked, rejected, terms
+
+
 def make_discover_tool(x_service: XService, llm_service: LLMService, session_factory):
     async def discover(state, decision) -> ToolResult:
         run_id = state["run_id"]
@@ -260,14 +300,17 @@ def make_discover_tool(x_service: XService, llm_service: LLMService, session_fac
         # AI 话题"这种自然语言目标直接丢给 X 搜索效果很差——X 只按字面分词匹配，
         # 回来的材料与用户想看的内容没有关系。target 与 goal 是逐级降级的兜底。
         #
-        # 每一级还要过一遍 `search_query`：目标里完全可能带 `/`（"MCP/Agent"）
-        # 或一条链接，而那样的 query 会被 X 判成非法参数、整次运行直接失败。
-        query, note = search_query.choose(
+        # 每一级还要过一遍 `plan_search()`，它管两件事：字符合法性（目标里完全可能
+        # 带 `/`，如 "MCP/Agent"，或一条链接，而那样的 query 会被 X 判成非法参数、
+        # 整次运行直接失败），以及**连续空结果时的加宽**（X 把空格当 AND，词越多
+        # 召回越窄；连着两次一条材料都取不回时，要降的是词数而不是换一组词）。
+        query, note = plan_search(
+            state,
             [
                 ("决策指定的检索词", str(decision.arguments.get("query") or "")),
                 ("决策指定的目标", str(decision.target or "")),
                 ("目标", goal),
-            ]
+            ],
         )
         if note != "决策指定的检索词":
             # 降级路径要留痕：检索词退化成整句目标（或者被换掉非法字符）时，
@@ -303,6 +346,7 @@ def make_discover_tool(x_service: XService, llm_service: LLMService, session_fac
             item_ids = await create_research_items(session, run_id, results)
 
         delta = append_research(state, results, item_ids)
+        delta.update(append_attempts(state, query, len(results)))
 
         aliases = _material_aliases(item_ids)
         prompt = render(
@@ -326,6 +370,8 @@ def make_discover_tool(x_service: XService, llm_service: LLMService, session_fac
 
         items = _scan_items(item_ids, results)
         items_by_id = {item.item_id: item for item in items}
+        # 材料正文：打分不需要它，相关性判定与兜底分组需要。
+        contents = {item_id: r.content for item_id, r in zip(item_ids, results)}
         topics, dropped = _build_topics(parsed.topics, items_by_id, observed_at)
 
         fallback_note = ""
@@ -339,7 +385,6 @@ def make_discover_tool(x_service: XService, llm_service: LLMService, session_fac
                 kept_from_llm,
                 dropped,
             )
-            contents = {item_id: r.content for item_id, r in zip(item_ids, results)}
             topics, _ = _build_topics(
                 _fallback_cluster(items, contents), items_by_id, observed_at
             )
@@ -347,10 +392,30 @@ def make_discover_tool(x_service: XService, llm_service: LLMService, session_fac
                 f"（模型只给出 {kept_from_llm} 个可用选题，已退化为按帖子分组）"
             )
 
+        # 相关性闸门放在**兜底之后**：兜底出来的候选同样是候选，同样不能被
+        # 塞给用户。放在前面的话，一次分组失败就会让整轮绕过闸门。
+        topics, irrelevant, terms = _apply_goal_relevance(topics, contents, goal)
+        if irrelevant:
+            logger.warning(
+                "agent discover found %d/%d topics unrelated to the goal "
+                "(run_id=%s, query=%r, rejected=%d, goal_terms=%s)",
+                irrelevant,
+                len(topics),
+                run_id,
+                query,
+                irrelevant,
+                "、".join(terms[:8]) or "（无）",
+            )
+
         delta["candidate_topics"] = topics
         delta["research_count"] = counter(state, "research_count") + 1
 
         qualified = sum(1 for t in topics if t.qualification is TopicQualification.QUALIFIED)
+        selectable = sum(
+            1
+            for t in topics
+            if t.qualification is TopicQualification.QUALIFIED and t.goal_relevance is not False
+        )
         names = "；".join(f"{t.topic_id} {t.title}（{t.trend_score:.1f} 分）" for t in topics[:5]) or "无"
         logger.info("agent discover completed (run_id=%s, topics=%d)", run_id, len(topics))
         summary = (
@@ -359,6 +424,16 @@ def make_discover_tool(x_service: XService, llm_service: LLMService, session_fac
         )
         if dropped:
             summary += f"（丢弃 {dropped} 个引用核验不上的候选）"
+        if irrelevant:
+            # 必须在界面上说出来：这一批候选与目标无关，是"换检索词"的信号，
+            # 而不是"最近没什么可讨论的"。两者的处置完全相反。
+            summary += (
+                f"；淘汰 {irrelevant} 个与目标无关的候选"
+                f"（材料里没有出现目标里的话题词：{'、'.join(terms[:6]) or '（目标里没有可核对的话题词）'}），"
+                f"它们不会被选中，请换一个检索词再试"
+            )
+        elif selectable == 0 and topics:
+            summary += "；没有任何候选同时满足「达标」与「与目标相关」"
         return ToolResult(delta=delta, summary=summary + fallback_note)
 
     return discover
@@ -372,8 +447,17 @@ def make_select_topic_tool():
     记下的"为什么选它"就变成了模型的自述而不是分数。
 
     target 认两种写法：`topic_id`（t1、t2…）或标题原文。都认不全就回退到
-    **分数最高的 qualified 候选**，并在 summary 里写明发生了回退——
-    宁可研究一个达标的，也不要研究一个被判定为不值得继续的。
+    **分数最高的可选中候选**，并在 summary 里写明发生了回退。
+
+    "可选中"= 达标（qualified）**且**与目标相关（见 `budget.is_selectable`）。
+    一个都不可选时**拒绝选题**：这不是把动作做失败，而是把"这批候选都不能用"
+    这件事确定性地表达出来——不选之后，`allowed_actions` 会把
+    `discover_topics` 放回选项里（换检索词再找），找不到就安全结束。
+
+    原先这里是 `qualified or topics`：一个都不达标时回退到**分最高的那个**。
+    那正是 Run 20ab360c 的执行路径——目标是「今天想关注香港」，写出来的却是
+    一篇关于 FF 发布会的分析，而当时的 trace 里写着"回退到候选里最高分"，
+    看上去完全正常。
     """
 
     async def select_topic(state, decision) -> ToolResult:
@@ -381,18 +465,41 @@ def make_select_topic_tool():
         if not topics:  # pragma: no cover - 前置条件已挡住，防御性分支
             return ToolResult(delta={}, summary="没有可选的话题")
 
+        selectable = [t for t in topics if is_selectable(t)]
+        if not selectable:
+            # 拒绝是**响的**：把每个候选为什么不能用写进 summary，而不是只写
+            # "没有合格的"。前者能让人当场判断该换检索词还是该改判定，
+            # 后者只会让人以为"最近没什么可讨论的"。
+            reasons = "；".join(
+                f"{t.topic_id} {t.title}（{t.qualification.value}"
+                + (f"，{t.goal_relevance_note}" if t.goal_relevance_note else "")
+                + "）"
+                for t in topics[:5]
+            )
+            logger.warning(
+                "agent topic selection refused (run_id=%s, candidates=%d, selectable=0)",
+                state["run_id"],
+                len(topics),
+            )
+            return ToolResult(
+                delta={},
+                summary=(
+                    f"没有可用的候选选题（{len(topics)} 个候选没有一个同时满足"
+                    f"「达标」与「与目标相关」）：{reasons}。"
+                    "不要在这些候选里选——换一个检索词重新发现，找不到就结束。"
+                ),
+            )
+
         target = (decision.target or "").strip()
         chosen = next(
-            (t for t in topics if t.topic_id == target or t.title == target), None
+            (t for t in selectable if t.topic_id == target or t.title == target), None
         )
         how = "按决策选定"
         if chosen is None:
-            qualified = [t for t in topics if t.qualification is TopicQualification.QUALIFIED]
-            pool = qualified or topics
-            chosen = max(pool, key=lambda t: t.trend_score)
+            chosen = max(selectable, key=lambda t: t.trend_score)
             how = (
                 f"决策给的「{target or '（空）'}」不是有效候选，"
-                f"回退到{'达标的' if qualified else '候选里'}最高分"
+                f"回退到可选中候选里最高分"
             )
 
         # 生命周期前进一步：被选中意味着接下来会围绕它做研究。
@@ -411,7 +518,8 @@ def make_select_topic_tool():
             summary=(
                 f"{how} {chosen.topic_id}：{chosen.title}"
                 f"（trend {chosen.trend_score:.1f} 分，{chosen.author_count} 位作者，"
-                f"{len(chosen.source_post_ids)} 条来源，判定 {chosen.qualification.value}）"
+                f"{len(chosen.source_post_ids)} 条来源，判定 {chosen.qualification.value}；"
+                f"{chosen.goal_relevance_note or '相关性未判定'}）"
             ),
         )
 
