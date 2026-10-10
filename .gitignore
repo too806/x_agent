@@ -33,6 +33,10 @@ htmlcov/
 .DS_Store
 Thumbs.db
 
+# 后端运行日志（app/logging_setup.py 写到这里，见 run.py）。
+# 内容随每次运行增长、且含运行期上下文，不是仓库内容。
+logs/
+
 # Migration / session artifacts —— 不要进仓库
 # *.bundle：旧机器迁移用的仓库快照，内容已在本仓历史里
 # *.zip：会话转录等本地产物
