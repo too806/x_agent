@@ -29,7 +29,7 @@
 import secrets
 import uuid
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 
@@ -126,21 +126,33 @@ def create_admin_router(runtime_dep) -> APIRouter:
     async def list_reviews(
         page: int = Query(1, ge=1),
         page_size: int = Query(PAGE_SIZE_DEFAULT, ge=1, le=PAGE_SIZE_MAX),
+        topic: str | None = Query(None, max_length=200, description="topic 模糊匹配"),
+        order: Literal["oldest", "newest"] = Query(
+            "oldest", description="队列排序：oldest 先进先出（默认），newest 最近创建在前"
+        ),
         service: AdminService = Depends(get_admin_service),
         runtime=Depends(runtime_dep),
     ) -> ReviewQueuePage:
-        """待人工审核的队列（`waiting_for_review`），最老的排最前。
+        """待人工审核的队列（`waiting_for_review`），**默认**最老的排最前。
 
         只返回"待办"本身。审核**决定**要提交请调用既有的
         `POST /api/runs/{run_id}/review` —— 控制台不实现第二套审核入口。
 
         `content_max_length` 在这里补上：审核队列本身不关心它，但审核工作台要用它
         渲染字数计数，而它是 persona 配置、不属于 AdminService 的查询职责。
+
+        `order` 是这里唯一约束取值的查询参数（`Literal`）。`/runs` 的 `status` 刻意
+        不做白名单，理由写在那个 handler 里：那需要在两处维护同一份状态枚举。这条
+        理由在这里不成立 —— `order` 不是数据库里的枚举，它只是这个接口的两种排序
+        形状，没有第二个源头可以漂移。默认值仍是 FIFO，`newest` 只服务于"刚跑完
+        就想审这一条"：队列几十条深时，那一条在默认顺序里排在最后一页。
         """
         return await service.review_queue(
             page=page,
             page_size=page_size,
             content_max_length=runtime.persona.max_length,
+            topic=topic,
+            order=order,
         )
 
     @router.get("/published", response_model=PublishedListPage)

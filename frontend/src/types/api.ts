@@ -155,12 +155,51 @@ export interface DraftRecord {
 // Overview
 // ---------------------------------------------------------------------------
 
+/** `agent_run.origin`。见 `RunSummary.origin` 的说明：不要用 `goal` 去推断它。 */
+export type RunOrigin = 'manual' | 'scheduled'
+
+/**
+ * 一次自动审阅判断（`auto_review` 表），缩成界面上要用的几个字段。
+ *
+ * **它和「规则检查」不是一回事，不要合并展示。** `guardrail_passed` 是 Graph 每一步
+ * 都在算的内容闸门，只存在于 checkpoint 里；这一块是**自动发布这套功能自己的判断**
+ * ——内容闸门 + 交付候选的 Critic 裁决 + 重复检测 + 当日额度，四项全过才算通过。
+ * 所以一块说"通过"、另一块说"不通过"是完全可能的，而且那种组合正是人要知道的。
+ *
+ * `critic_score` 是 `number | null`：`null` = **交付候选压根没被 Critic 评价过**，
+ * 不是 0 分。判据在这种情况下是**拒绝**，所以界面上显示 0 会把它说成"评了，很差"。
+ */
+export interface AutoReviewSummary {
+  /** `'shadow'` = 只记录不动作；`'live'` = 通过就真的发了。 */
+  mode: string
+  /** `'approve'` / `'reject'`。见 `utils/autoReview.ts` 的文案映射。 */
+  verdict: string
+  /**
+   * 逐条理由（后端下发的中文短句）。
+   *
+   * **原样展示，不要在服务层或这里整理成一句概括**：转正式前要回答"哪条判据在误拦"，
+   * 靠的就是这几句。通过时它是空数组，不是 null。
+   */
+  reasons: string[]
+  critic_score: number | null
+  /** 这次判断有没有真的导致动作。影子模式恒为 `false`。 */
+  acted: boolean
+}
+
 export interface RunSummary {
   run_id: string
   /** null = Agent 模式（Phase 5A）的 Run 还没选出主题。不要拿 goal 顶替它。 */
   topic: string | null
   /** 人给 Agent 的目标。null = 这条 Run 走的是既有 topic 链路。 */
   goal: string | null
+  /**
+   * 谁发起的这条 Run：`'manual'` = 人（控制台 / API / smoke 脚本），
+   * `'scheduled'` = 定时自动发布。
+   *
+   * 这是个**写下来的事实**，不是从 `goal` 相等推断出来的——人可以提交同一个 goal。
+   * 向后兼容地恒有值（既有行的 server_default 就是 `'manual'`），不要写成可选。
+   */
+  origin: RunOrigin
   run_status: RunStatus
   /** null = 还没有人工决定。 */
   review_status: ReviewStatus | null
@@ -177,6 +216,36 @@ export interface RunListPage {
   page: Page
 }
 
+/**
+ * 新建 Run 的请求体。**两个字段恰好给一个**——写成交叉 `never` 的判别联合，
+ * 而不是 `{ topic?: string; goal?: string }`：后者允许 `{}`，也允许两个都给，
+ * 而这两种在 `app/schemas.py::RunRequest` 里都是 422。用可选字段描述它，等于把
+ * 这个错误从编译期推到运行期——界面上就是"点了开始才报错"。
+ *
+ * `topic` = 人已经决定写什么（Phase 1–4 的固定链路）；
+ * `goal`  = 只给方向，题目由 Agent 自己发现（Phase 5A）。
+ */
+export type CreateRunPayload = { topic: string; goal?: never } | { goal: string; topic?: never }
+
+/**
+ * `POST /api/runs` 成功时的响应。
+ *
+ * **这条链路是同步的**：它返回时这次运行已经跑到人工审核（`waiting_for_review`）
+ * 或跑完（`completed`）——所以创建之后就**没有第二步**了，这里不提供"触发执行"
+ * 之类的东西。其余字段（`research_results` / `draft_content` / `review` …）控制台
+ * 在创建时用不上，要看它们的地方是 Run 详情。
+ *
+ * 失败时后端返回的是**同一个结构的非 2xx**（`app/main.py::_failure_response`，
+ * 因为 `Run` 行在跑之前就已经建好了）。所以 `run_id` 与 `error` 同时出现，意味着
+ * "Run 已经建好了，但这次运行跑失败了"——两种失败必须分开说，见
+ * `utils/newRun.ts` 的 `createRunFailureMessage`。
+ */
+export interface CreatedRunResponse {
+  run_id: string
+  status: string
+  error: string | null
+}
+
 export interface ReviewQueueItem {
   run_id: string
   /** Agent 在选定主题之前 topic 就是 null —— 真实的中间态，不是脏数据。null 显示成 `—`。 */
@@ -188,6 +257,16 @@ export interface ReviewQueueItem {
   /** 来自 LangGraph checkpoint，数据库里没有这一列。null = **读不到**，不是"没通过"。 */
   guardrail_passed: boolean | null
   guardrail_reasons: string[]
+  /** 见 `RunSummary.origin`。队列里靠它标出"这条是机器自己排出来的"。 */
+  origin: RunOrigin
+  /**
+   * 自动审阅者的判断。`null` = **没有自动审阅者看过这条**（人建的 Run 就是这种）。
+   *
+   * 与 `guardrail_passed` 的 `null` 含义不同但取值恰好都是 null：那个 null 是"读不到
+   * checkpoint"（数据缺口），这个 null 是"本来就没有"（事实）。两者都**不能**用 0
+   * 或 `{}` 冒充。
+   */
+  auto_review: AutoReviewSummary | null
 }
 
 export interface ResolutionQueueItem {
@@ -513,6 +592,8 @@ export interface AdminRunDetail {
   topic: string | null
   /** 人给 Agent 的目标。null = 不是 Agent 模式的 Run。两者不可互相顶替。 */
   goal: string | null
+  /** 见 `RunSummary.origin`。 */
+  origin: RunOrigin
   run_status: RunStatus
   review_status: ReviewStatus | null
   publish_status: PublishStatus | null
@@ -526,6 +607,9 @@ export interface AdminRunDetail {
   guardrail_reasons: string[]
   human_action: string | null
   final_content: string | null
+
+  /** 自动审阅者的判断；`null` = 没有自动审阅者看过这条。见 `ReviewQueueItem`。 */
+  auto_review: AutoReviewSummary | null
 
   research_items: ResearchItemRecord[]
   /** 来自 agent_decision 表（不是 checkpoint），按 step 升序。空数组 = 没有决策记录。 */
@@ -869,3 +953,81 @@ export interface ProposalsOverview {
 export type ProposalReviewDecision =
   | { action: 'approve'; note?: string }
   | { action: 'reject'; note: string }
+
+// ---------------------------------------------------------------------------
+// 自动发布（`GET /api/admin/auto-publish/status`）
+// ---------------------------------------------------------------------------
+
+/**
+ * 自动判断与人的决定的对照，折成几个计数。
+ *
+ * **两个比率都是 `number | null`，`null` 严格不等于 0。**
+ * "还没有已决配对"和"有配对但一致率为零"是两件事：前者说明影子模式还没攒够数据
+ * （去催人审队列），后者说明自动判断和人系统性不一致（**不该翻正**）。用 0 冒充
+ * 前者，界面就会在一个什么都没发生的系统上显示"一致率 0%"。
+ */
+export interface AutoPublishAgreement {
+  decided_pairs: number
+  agreed: number
+  /** **最危险的那个错**：自动放行 + 人拒绝。转正式门槛里它是硬阻断项。 */
+  false_approve: number
+  /** 自动放行 + 人编辑。不算错，但说明机器接受的稿子人不会原样接受。 */
+  soft_mismatch: number
+  /** 自动拦下、但人本会发。代价只是一条队列记录。 */
+  false_reject: number
+  auto_approvals: number
+  agreement_rate: number | null
+  soft_mismatch_rate: number | null
+}
+
+export interface AutoPublishGateCriterion {
+  /** 稳定标识，不是给人看的文案。 */
+  key: string
+  /** 给人看的一项一句话。 */
+  label: string
+  met: boolean
+  /** 这一项现在的实际取值（"7/20 个已决配对"这种）。 */
+  detail: string
+}
+
+/**
+ * 影子转正式的可行性。
+ *
+ * `ready` **只**表示机器能算的那几项全过了，**不代表可以翻正**——`manual_steps`
+ * 每次都会一起下发，那几步（人工复核、金丝雀观察）机器算不出来。把 `ready` 念成
+ * "可以发布了"是这个接口最容易被误读的地方。
+ */
+export interface AutoPublishGate {
+  ready: boolean
+  criteria: AutoPublishGateCriterion[]
+  manual_steps: string[]
+}
+
+/**
+ * `GET /api/admin/auto-publish/status` 的响应：**当前配置 + 已有数据 + 门槛结论**。
+ *
+ * 配置随数据一起下发，是因为门槛结论只有在"当时配置是什么"的前提下才成立
+ * —— `min_critic_score` 调高一次，之前攒的一致率就不再能用来判断当前这套阈值了。
+ */
+export interface AutoPublishStatus {
+  /** 总开关。**关着 = 定时脚本连 run 都不建**，这是唯一的刹车。 */
+  enabled: boolean
+  /** `'shadow'` / `'live'`。配置文件读不了时是 null（不是"没有模式"）。 */
+  mode: string | null
+  goals: string[]
+  max_auto_runs_per_day: number | null
+  max_publishes_per_day: number | null
+  min_critic_score: number | null
+  recent_window_days: number | null
+  /**
+   * 配置文件读不了时非空。**非空不代表这个接口坏了**：`agreement` 与 `gate`
+   * 读的是库里的既有数据，与配置能不能读无关，它们照样算得出来。
+   */
+  config_error: string | null
+  agreement: AutoPublishAgreement
+  gate: AutoPublishGate
+  /** 三个词不对等的映射说明，后端随数据下发，免得有人重新推一遍。 */
+  mapping_note: string
+  /** 这一版**测不出**的东西（真·语义改写、同一主张换证据等）。如实展示，别藏。 */
+  limitations: string[]
+}

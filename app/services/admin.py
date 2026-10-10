@@ -1094,16 +1094,31 @@ class AdminService:
     # ---------- Review 队列 ----------
 
     async def review_queue(
-        self, *, page: int, page_size: int, content_max_length: int
+        self,
+        *,
+        page: int,
+        page_size: int,
+        content_max_length: int,
+        topic: str | None = None,
+        order: str = "oldest",
     ) -> ReviewQueuePage:
         """`content_max_length` 由**调用方**（HTTP 层从已加载的 runtime.persona 取）
         传进来，而不是在这里现读配置：本服务只碰数据库，配置不归它管，每次请求
         重读一遍 YAML 也没有道理。字段本身是必填的——没有一个"未设置"的合法状态。
+
+        `topic` / `order` 与 `/api/admin/runs` 的两个筛选参数同源同义：`topic` 是
+        子串模糊匹配，`order` 只在 `oldest`（默认，先进先出）与 `newest` 之间取值。
+        `topic` 同时作用于 COUNT 与 SELECT（见 `_review_queue_clauses`），所以
+        `page.total` 说的是**筛选后**的条数。
         """
         async with self._session_factory() as session:
-            total = await count_review_queue(session)
+            total = await count_review_queue(session, topic=topic)
             runs = await list_review_queue(
-                session, limit=page_size, offset=(page - 1) * page_size
+                session,
+                limit=page_size,
+                offset=(page - 1) * page_size,
+                topic=topic,
+                order=order,
             )
         return ReviewQueuePage(
             items=await self._queue_items(runs),

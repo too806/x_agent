@@ -2,12 +2,14 @@ import { useState } from 'react'
 
 import { api } from '../api/client'
 import { ConfirmDialog } from './ConfirmDialog'
+import { AutoReviewBlock, RunDetailPanel } from './RunDetailDrawer'
 import { ErrorDetail, ErrorState, LoadingState } from './States'
 import { StatusBadge } from './StatusBadge'
 import { CopyButton } from './ui/CopyButton'
 import { ResearchList } from './ui/ResearchList'
 import { Section } from './ui/Section'
 import { useAsync } from '../hooks/useAsync'
+import { useConsole } from '../hooks/useConsole'
 import { useMutation } from '../hooks/useMutation'
 import { EMPTY, codePointLength, dateTime, httpStatusLabel, text } from '../utils/format'
 import type { AdminRunDetail, ReviewDecision } from '../types/api'
@@ -28,6 +30,12 @@ import type { AdminRunDetail, ReviewDecision } from '../types/api'
  * 滚到底再滚回来，效率损失是实打实的。现在它们固定在视口底部，滚动时一直在。
  * 编辑框和拒绝理由仍然长在正文里（那是"填内容"的地方），但提交 / 取消跟着动作条走，
  * 和按钮永远在同一屏——这也正是字数计数器该待的位置：它和"提交"按钮是一对。
+ *
+ * **能不能审是这条 Run 自己的属性，不是"它是否恰好落在左栏当前这一页"。**
+ * 判据就是 `data.run_status === 'waiting_for_review'`，与后端待审队列的谓词
+ * （`app/repositories.py` 的 `REVIEW_QUEUE_RUN_STATUS`）是同一个。不等待审核的
+ * Run 在这里退化成只读详情（`RunDetailPanel`，与抽屉里同一套渲染），而不是递上
+ * 三个必然 409 的按钮。父组件不再需要为了这个判断去比对队列。
  */
 
 type Mode = 'approve' | 'edit' | 'reject'
@@ -37,13 +45,18 @@ interface Props {
   /** 后端下发的编辑字数上限。**不是**前端常量，见 types/api.ts 的说明。 */
   contentMaxLength: number
   /**
-   * 决定提交成功后回调，带上**提交的是哪个决定**。
+   * 决定提交成功后回调，带上**提交的是哪个决定**与**这条 Run 的题目**。
    *
    * **队列不归这个组件管**：它只知道当前这一个 Run，"接下来该选哪条"由持有队列的
    * 父组件决定。至于为什么要带上 action：三条路径成功后要说的话不一样（批准 /
    * 改稿已存 / 不会再发出去），父组件没法从别处推断出人刚按的是哪个按钮。
+   *
+   * 题目也要一起带上去，因为父组件**查不到**：它从仓库里找题目只能靠扫描当前页的
+   * `items`，而 `/review?run=<id>` 深链进来的那条（运行记录抽屉的「去审核 →」、
+   * 总览页的「审核 →」）多半不在当前页——那样找出来的题目是空的，提示语会变成
+   * "—：已批准"。这一份是唯一确定有的。
    */
-  onDecided: (action: Mode) => void
+  onDecided: (action: Mode, topic: string | null) => void
 }
 
 function GuardrailBlock({ detail }: { detail: AdminRunDetail }) {
@@ -75,6 +88,7 @@ function GuardrailBlock({ detail }: { detail: AdminRunDetail }) {
 
 export function ReviewPane({ runId, contentMaxLength, onDecided }: Props) {
   const { data, loading, error, reload } = useAsync(() => api.getRunDetail(runId), [runId])
+  const { refresh } = useConsole()
   const submit = useMutation((decision: ReviewDecision) => api.submitReview(runId, decision))
 
   const [mode, setMode] = useState<Mode | null>(null)
@@ -84,11 +98,31 @@ export function ReviewPane({ runId, contentMaxLength, onDecided }: Props) {
   // 只会让人盯着它猜为什么点不动，说不清楚缺的是什么。
   const [rejectReasonMissing, setRejectReasonMissing] = useState(false)
 
+  // 只读那一支里也能发生写操作（发布、重发、裁决未知结果都在 `DetailBody` 里）。
+  // 那些写完之后要重取这条 Run、并且刷新侧栏的待办计数——与抽屉里的做法一致。
+  //
+  // **队列本身不用跟着刷新**：那些写操作改的都不是 `waiting_for_review`，队列的
+  // 成员不会因此变化。
+  function onSettled() {
+    reload()
+    refresh()
+  }
+
   if (loading) return <LoadingState message="正在加载这个 Run…" />
   if (error) return <ErrorState error={error} what="加载该 Run 失败。" onRetry={reload} />
   if (!data) return null
 
+  // 不等待审核 → 只读详情。用同一个 `RunDetailPanel`，所以右栏看到的字段与运行记录
+  // 抽屉里**逐字一致**（不是又铺一遍头部标记的两份实现）。
+  if (data.run_status !== 'waiting_for_review') {
+    return <RunDetailPanel detail={data} onSettled={onSettled} />
+  }
+
   const draftContent = data.draft?.content ?? ''
+  // 取成一个局部常量，供下面那个闭包用：`data` 是可变的绑定，闭包里读它 TS 不会
+  // 保留上面的收窄（会报 possibly null），而这里的收窄是**真的**——上面那个分支
+  // 已经把非 `waiting_for_review` 的情形返回掉了。
+  const runTopic = data.topic
   const editedLength = codePointLength(editText)
   // 超出目标长度**只是提示，不拦提交**。`contentMaxLength` 是写作目标
   // （config/persona.yaml 的 max_length），不是平台的硬限制——这个账号是 Premium，
@@ -128,7 +162,23 @@ export function ReviewPane({ runId, contentMaxLength, onDecided }: Props) {
     // 失败时停在原地：错误信息就在本组件里显示着（含 HTTP 状态与后端文案），
     // 跳到下一个 Run 会把这条错误一起带走，人只会看到"点了没反应"。
     if (result === null) return
-    onDecided(decision.action)
+
+    onDecided(decision.action, runTopic)
+
+    // **必须自己重新取一次，否则面板会停在一个不再成立的状态上。**
+    //
+    // 从前面部组件在 `queue.reload()` 之后把 `ReviewPane` 换成另一个组件类型，
+    // React 因此重新挂载，`data` 自然是新的——所以这里从不刷新也看不出问题。
+    // 现在判据（`run_status === 'waiting_for_review'`）长在本组件里，那个 swap
+    // 没有了：`key` 不变就不会重新挂载，`data.run_status` 还是旧的"待审核"，
+    // 三个按钮照旧递上来 —— 再点一下就是 409。
+    //
+    // 这不只影响越页深链，**队列里最后一条**走的也是这条路径：`nextSelection`
+    // 在没有下一条时有意保留选中项（`utils/queue.ts` 的重点保护对象）。
+    //
+    // 顺序上 `onDecided` 在前：它只负责"接下来选哪条"和提示语，不依赖这次重取。
+    reload()
+    refresh()
   }
 
   return (
@@ -187,6 +237,12 @@ export function ReviewPane({ runId, contentMaxLength, onDecided }: Props) {
       <Section title="规则检查" hint="来自 LangGraph checkpoint">
         <GuardrailBlock detail={data} />
       </Section>
+
+      {data.auto_review ? (
+        <Section title="自动审阅" hint="自动发布这套功能自己的判断 · 与上面的规则检查不是同一件事">
+          <AutoReviewBlock auto={data.auto_review} />
+        </Section>
+      ) : null}
 
       <Section
         title="人工决定"

@@ -7,6 +7,16 @@ import { StatusBadge } from '../components/StatusBadge'
 import { TrendChart } from '../components/TrendChart'
 import { IconRefresh } from '../components/ui/icons'
 import { useAsync } from '../hooks/useAsync'
+import {
+  AUTO_PUBLISH_GATE_DISCLAIMER,
+  agreementHeadline,
+  falseApproveLine,
+  falseRejectLine,
+  gateSummary,
+  modeLabel,
+  rateLabel,
+  switchSentence,
+} from '../utils/autoReview'
 import { FEEDBACK_DISCLAIMER, signalHeadline } from '../utils/feedback'
 import { EMPTY, dateTime, duration } from '../utils/format'
 import {
@@ -33,6 +43,7 @@ import {
   versionLine,
 } from '../utils/proposals'
 import type {
+  AutoPublishStatus,
   AverageRunDuration,
   FeedbackOverview,
   LearningOverview,
@@ -171,6 +182,163 @@ function Bars({ rows, empty }: { rows: Row[]; empty: { title: string; hint: stri
 }
 
 /** 明确"算不出来"。**不给 0，也不给一个空占位符**——两者都会被当成一个数值读。 */
+/**
+ * 无人值守自动发布现在处在哪一步（Phase auto-publish）。
+ *
+ * 这一块回答的是一个**只有一个数**的问题：影子模式和真人能不能对得上，够不够格
+ * 转正式。刻意的克制——不做大盘、不做趋势图、不做每条自动 Run 的列表。理由：
+ *
+ *   - 影子期的**唯一**产出就是这个混淆矩阵。多画一张图不会让它更快被填满，
+ *     只会让人以为在看一个已经运行起来的系统；
+ *   - 门槛的结论只有 7 项判据 + 3 步人工动作，一张表就能说完；
+ *   - 这一页已经很长了，加一节大盘只会把"现在能不能翻正"这个唯一待办冲淡。
+ *
+ * 三条诚实性约束，每条都在 `utils/autoReview.ts` 里有测试钉着：
+ *
+ *   1. **`null` 不等于 0。** 一致率没有数据时显示 `—` 并说明原因，绝不显示
+ *      `0.0%`——那会被读成"机器完全不可信"，而事实是还没有数据。
+ *   2. **`auto_approvals == 0` 时的"零误放行"什么也没证明。** 分母是 0。
+ *   3. **`gate.ready` 不是"可以转正式了"。** 它只覆盖机器算得出来的那几项，
+ *      剩下三步（人工复核、金丝雀、归因误拦）一起显示，缺一不可。
+ */
+function AutoPublishBlock({
+  data,
+  loading,
+  error,
+  onRetry,
+}: {
+  data: AutoPublishStatus | null
+  loading: boolean
+  error: ApiError | null
+  onRetry: () => void
+}) {
+  if (error && !data) {
+    return <ErrorState error={error} what="加载自动发布状态失败。" onRetry={onRetry} />
+  }
+  if (!data) {
+    return loading ? <LoadingState message="正在加载自动发布状态…" /> : null
+  }
+
+  const { agreement, gate } = data
+  const missed = gate.criteria.filter((criterion) => !criterion.met)
+
+  return (
+    <div className="stack">
+      {/* 开关状态摆在最前面：这是整页唯一一处能回答"它现在到底会不会自己发"的地方。
+          它**不是**一个开关控件——刹车是 config/automation.yaml 里的 enabled 行，
+          每个 tick 重读一次。给一个会写那个文件的按钮要连注释一起保住，那件事不该
+          长在一个网页请求里（见 api/client.ts 的 getAutoPublishStatus）。 */}
+      <div className={data.enabled ? 'notice notice--warn' : 'notice'}>
+        <div className="notice__title">
+          {data.enabled ? '自动发布已开启' : '自动发布已关闭'}
+          {data.mode ? ` · ${modeLabel(data.mode)}` : ''}
+        </div>
+        <div>{switchSentence(data)}</div>
+      </div>
+
+      <div className="kpi-grid">
+        {/* 一致率是这个功能能不能翻正的**唯一**判据来源，所以给它一个 KPI 位，
+            而不是塞进下面的表里当一行。 */}
+        <div className="kpi">
+          <div className="kpi__label">自动判断与人的一致率</div>
+          <div className={agreement.agreement_rate === null ? 'kpi__value kpi__value--none' : 'kpi__value'}>
+            {rateLabel(agreement.agreement_rate)}
+          </div>
+          <div className="kpi__sub">{agreementHeadline(agreement)}</div>
+        </div>
+        <CountKpi
+          label="已决配对"
+          value={agreement.decided_pairs}
+          sub="机器说过话、人也做过决定的那些 Run"
+        />
+        {/* 口径是"**已决配对里**机器判通过的次数"，不是"机器一共放行了多少次"：
+            正式模式下自己放行又自己发出去的那些 Run 没有人的决定可对照，不进这一列
+            （否则机器等于拿自己的判断给自己打分）。这个数同时是改稿率的分母。 */}
+        <CountKpi
+          label="机器判通过"
+          value={agreement.auto_approvals}
+          sub="已决配对里，机器判通过的那些"
+        />
+        <CountKpi
+          label="机器拦下但人会发"
+          value={agreement.false_reject}
+          sub="误拦：代价只是一条队列记录"
+        />
+      </div>
+
+      <div className="notice notice--info">
+        <div className="notice__title">这几个数怎么读</div>
+        <div>{falseApproveLine(agreement)}</div>
+        <div>{falseRejectLine(agreement)}</div>
+        <div className="cell-muted">{data.mapping_note}</div>
+      </div>
+
+      <div>
+        <div className="row row--between">
+          <h4 className="block__title">影子转正式的门槛</h4>
+          <span className="cell-muted">
+            {gateSummary(gate)}
+            {data.enabled && data.mode === 'live' ? '（当前已经是正式模式）' : ''}
+          </span>
+        </div>
+        <div className={gate.ready ? 'notice notice--warn' : 'notice'}>
+          <div className="notice__title">
+            {gate.ready ? '机器能算的判据全部达标' : `还差 ${missed.length} 项`}
+          </div>
+          <div>{AUTO_PUBLISH_GATE_DISCLAIMER}</div>
+        </div>
+        <div className="table-wrap">
+          <table className="table table--compact">
+            <thead>
+              <tr>
+                <th>判据</th>
+                <th>是否达标</th>
+                <th>现在的取值</th>
+              </tr>
+            </thead>
+            <tbody>
+              {gate.criteria.map((criterion) => (
+                <tr key={criterion.key}>
+                  <td>{criterion.label}</td>
+                  <td>
+                    {/* 达标与不达标都**写出文字**，不只用颜色 / 图标区分。 */}
+                    <span className={criterion.met ? 'guard guard--pass' : 'guard guard--fail'}>
+                      {criterion.met ? '达标' : '未达标'}
+                    </span>
+                  </td>
+                  <td className="cell-muted">{criterion.detail}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* 机器算不出来的那几步必须**和结论一起显示**，否则 `ready: true` 会被读成
+          "可以翻正了"。 */}
+      <div>
+        <h4 className="block__title">门槛以外，还要人来做</h4>
+        <ul className="reason-list">
+          {gate.manual_steps.map((step, index) => (
+            <li key={index}>{step}</li>
+          ))}
+        </ul>
+      </div>
+
+      {data.limitations.length ? (
+        <div className="notice">
+          <div className="notice__title">这一版测不出来的东西</div>
+          <ul className="reason-list">
+            {data.limitations.map((limitation, index) => (
+              <li key={index}>{limitation}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 function NotAvailable({ what, reason }: { what: ReactNode; reason?: ReactNode }) {
   return (
     <div className="na">
@@ -819,6 +987,11 @@ export function Analytics() {
   // 最多的那一档取，同一个决定，所以两边不会落到不同的窗口上。真要让它们错开，
   // 裁决记录就会因为提案 id 变了而看起来集体"过期"。
   const proposals = useAsync(() => api.getLearningProposals(), [])
+  // 自动发布状态是**第五个**接口，同样单独取、单独失败。它比前面几个都轻（不读
+  // checkpoint、不跑 LLM），但它与它们的**结论类型**都不一样：前面全部是"过去
+  // 发生了什么"的观察，这一个还带着"现在能不能放开自动发"的门槛判定。混进任何
+  // 一块都会让那个判定看起来像又一个统计数字。
+  const autoPublish = useAsync(() => api.getAutoPublishStatus(), [])
 
   const decisions = data ? reviewRows(data.review_decisions) : []
   const outcomes = data ? publishRows(data.publish_outcomes) : []
@@ -1078,6 +1251,24 @@ export function Analytics() {
                   // 不重拉准备度——它一个字段都不会因裁决而变，重拉只是再读一遍
                   // checkpoint，而那是这一页最贵的一次读。
                   onReviewed={proposals.reload}
+                />
+              </Block>
+            </div>
+
+            {/* 自动发布紧跟着提案，但**单独成块**：上面两块回答"系统学到什么、
+                可以试什么"，这一块回答"敢不敢让它自己发"。前者是观察与建议，
+                后者会**产生对外可见的产出**——混在一块里，人会拿看建议的心态
+                去看一个真的会发帖的开关。 */}
+            <div className="block-gap">
+              <Block
+                title="无人值守自动发布"
+                hint="影子模式先行 · 一致率是唯一的翻正判据 · 本层不发任何内容"
+              >
+                <AutoPublishBlock
+                  data={autoPublish.data}
+                  loading={autoPublish.loading}
+                  error={autoPublish.error}
+                  onRetry={autoPublish.reload}
                 />
               </Block>
             </div>

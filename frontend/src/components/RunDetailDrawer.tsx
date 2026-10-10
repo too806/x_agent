@@ -1,3 +1,5 @@
+import { Link } from 'react-router-dom'
+
 import { api, xPostUrl } from '../api/client'
 import { useAsync } from '../hooks/useAsync'
 import { useConsole } from '../hooks/useConsole'
@@ -19,6 +21,12 @@ import {
   observationLine,
   signalHeadline,
 } from '../utils/feedback'
+import {
+  autoReviewHeadline,
+  autoReviewHint,
+  criticScoreLabel,
+  originLabel,
+} from '../utils/autoReview'
 import { buildLifecycle } from '../utils/lifecycle'
 import { LEARNING_DISCLAIMER, compactReadiness } from '../utils/learning'
 import { proposalsHeadline } from '../utils/proposals'
@@ -38,11 +46,13 @@ import {
   dateTime,
   draftStatusLabel,
   duration,
+  readOnlyNotice,
   text,
 } from '../utils/format'
 import type {
   AdminRunDetail,
   AiStyleSignals,
+  AutoReviewSummary,
   PublishRecord,
   RunStyleSummary,
   RunViewpointSummary,
@@ -77,6 +87,46 @@ import type {
  * 反过来的顺序（先铺材料、结论沉在最下面）正是"渲染 API 的页面"和"给人用的
  * 控制台"之间的差别：人来这里通常是为了回答一个具体问题，而不是为了通读一遍。
  */
+
+/**
+ * 自动审阅者说了什么（`auto_review` 表）。**导出供审核页共用**——右栏与抽屉必须
+ * 说同一件事，两处各写一份迟早会漂开。
+ *
+ * 摆在这里而不是 `ReviewPane` 里：`DetailBody` 是两者的共同底座（审核页的只读
+ * 分支直接渲染 `RunDetailPanel`），所以共用块应当长在底座这一侧。
+ *
+ * 三件必须说清、也都有测试钉着的事（措辞全在 `utils/autoReview.ts`）：
+ *
+ *   1. 机器的"不通过"**不是拒绝**——Run 还停在待审状态，人照样可以批准；
+ *   2. `critic_score` 为 `null` 是"没评价过"，不是 0 分；
+ *   3. 影子模式下判通过也什么都不发。
+ */
+export function AutoReviewBlock({ auto }: { auto: AutoReviewSummary }) {
+  const score = criticScoreLabel(auto.critic_score)
+  return (
+    <div className={auto.verdict === 'approve' ? 'notice notice--ok' : 'notice notice--warn'}>
+      <div className="notice__title">{autoReviewHeadline(auto)}</div>
+      <div className="row row--tight auto-review__meta">
+        <span>
+          Critic 分数：<strong>{score ?? '未评价'}</strong>
+        </span>
+        <span>
+          是否真的动作：<strong>{auto.acted ? '是' : '否'}</strong>
+        </span>
+      </div>
+      {auto.reasons.length ? (
+        <ul className="reason-list">
+          {auto.reasons.map((reason, index) => (
+            <li key={index}>{reason}</li>
+          ))}
+        </ul>
+      ) : (
+        <div>机器没有留下理由文本。</div>
+      )}
+      <div className="notice__follow">{autoReviewHint(auto)}</div>
+    </div>
+  )
+}
 
 function PublishBlock({ publish }: { publish: PublishRecord }) {
   return (
@@ -1005,6 +1055,22 @@ export function DetailBody({ detail, onSettled }: { detail: AdminRunDetail; onSe
           )}
         </DetailSection>
 
+        {/* 自动审阅**紧跟在规则检查后面、但单独成节**：两块都是在说"机器怎么看
+            这条稿子"，但它们是两套完全不同的判断——上面是 checkpoint 里每一步都
+            在算的内容闸门，这里是自动发布那四项判据的合取。一块红一块绿是正常
+            组合，并成一块就会看起来像同一件事自相矛盾。
+
+            没有自动结论时整节不渲染：这条 Run 根本没有自动审阅者看过（人建的全是
+            这种），画个"无"会让人以为机器看过并且什么都没说。 */}
+        {detail.auto_review ? (
+          <DetailSection
+            title="自动审阅"
+            hint={`${originLabel(detail.origin)} · 与上面的规则检查不是同一件事`}
+          >
+            <AutoReviewBlock auto={detail.auto_review} />
+          </DetailSection>
+        ) : null}
+
         <DetailSection title="发布">
           {publish ? (
             <PublishBlock publish={publish} />
@@ -1054,55 +1120,51 @@ export function DetailBody({ detail, onSettled }: { detail: AdminRunDetail; onSe
 }
 
 /**
- * Run 详情（不带抽屉外壳）。
+ * Run 详情（不带抽屉外壳）—— **纯展示组件，自己不发请求**。
  *
- * 审核工作台在「刚决定的这条 Run 已经离开待审队列、而且后面没有下一条」时需要它。
- * 这时右侧不能空掉 —— 人刚做的决定、存下来的编辑稿、以及发布入口都在这上面 ——
- * 也不适合弹一个盖住队列的抽屉。渲染的内容与抽屉里**完全一致**，两边共用同一个
- * `DetailBody`，所以不会出现"抽屉里看得到、工作台上看不到"的字段。
+ * 审核工作台在右栏渲染"这条 Run 不等人决定"时用它。渲染的内容与抽屉里**完全一致**，
+ * 两边共用同一个 `DetailBody`，所以不会出现"抽屉里看得到、工作台上看不到"的字段。
+ *
+ * `detail` 由调用方（`ReviewPane`）传进来，因为**它自己已经取过一次了**：从前这里
+ * 自己 `useAsync(api.getRunDetail)`，于是同一条 Run 在一次渲染里被取两遍，页头和
+ * 正文还可能落在两个不同的快照上（其中之一正好在两次请求之间被改了）。数据只有
+ * 一个来源，就不存在"哪一份是对的"这个问题。同理 `onSettled` 也由调用方给 ——
+ * 它手里才有那个 `reload()`。
+ *
+ * 顶部那句说明**按状态生成**（`readOnlyNotice`），不是一句通用话：现在的 `/review`
+ * 可以深链到任何一条 Run，包括从没进过待审队列的 `running` / `failed`。
  */
 export function RunDetailPanel({
-  runId,
-  onSettled: notifyParent,
+  detail,
+  onSettled,
 }: {
-  runId: string
-  onSettled?: () => void
+  detail: AdminRunDetail
+  /** 写操作成功后重取数据。**必填**：详情正文里的发布 / 裁决按钮要用它，
+   *  而这里已经不再自己持有 `useAsync`，没有可退的默认值。 */
+  onSettled: () => void
 }) {
-  const { data, loading, error, reload } = useAsync(() => api.getRunDetail(runId), [runId])
-  const { refresh } = useConsole()
-
-  function onSettled() {
-    reload()
-    refresh()
-    notifyParent?.()
-  }
-
-  if (loading) return <LoadingState message="正在加载这个 Run…" />
-  if (error) return <ErrorState error={error} what="加载该 Run 失败。" onRetry={reload} />
-  if (!data) return null
-
   return (
     <div className="stack">
       <div className="card">
         <div className="card__body">
-          <h2 className="drawer__title">{data.topic ?? 'Run 详情'}</h2>
+          <h2 className="drawer__title">{detail.topic ?? 'Run 详情'}</h2>
           <div className="row row--tight review-head">
-            <StatusBadge status={data.run_status} kind="run" />
+            <StatusBadge status={detail.run_status} kind="run" />
             <span className="row row--tight review-head__id">
-              <span className="mono" title={data.run_id}>
-                {data.run_id}
+              <span className="mono" title={detail.run_id}>
+                {detail.run_id}
               </span>
-              <CopyButton value={data.run_id} label="复制 Run ID" />
+              <CopyButton value={detail.run_id} label="复制 Run ID" />
             </span>
           </div>
           <div className="cell-muted review-head__note">
-            这个 Run 已经决定了，不再出现在左侧待审队列里。下面是它的完整记录。
+            {readOnlyNotice(detail.run_status)}
           </div>
         </div>
       </div>
       <div className="card">
         <div className="card__body">
-          <DetailBody detail={data} onSettled={onSettled} />
+          <DetailBody detail={detail} onSettled={onSettled} />
         </div>
       </div>
     </div>
@@ -1137,6 +1199,12 @@ export function RunDetailDrawer({
 
   const xPostId = data?.publish?.x_post_id ?? null
 
+  // 判定用 `run_status`，**不用 `review_status`**：后者是"人做了什么决定"
+  // （approve / edit / reject，没人决定时是 null），前者才是"正等人决定"。
+  // 这与后端待审队列的谓词（`REVIEW_QUEUE_RUN_STATUS`）是同一个判断，所以
+  // 这里亮出来的入口和左栏队列里的条目永远对得上。
+  const canReview = data?.run_status === 'waiting_for_review'
+
   return (
     <Drawer
       onClose={onClose}
@@ -1157,16 +1225,36 @@ export function RunDetailDrawer({
         </div>
       }
       actions={
-        xPostId ? (
-          <a
-            className="btn btn--sm"
-            href={xPostUrl(xPostId)}
-            target="_blank"
-            rel="noreferrer noopener"
-          >
-            <IconExternal size={14} />
-            在 X 中打开
-          </a>
+        // **不许直接返回裸 fragment。** `Drawer` 那边是
+        // `{actions ? <div className="drawer__head-actions">…</div> : null}`，
+        // 而 fragment 恒为真：两个按钮都不该出现时会留下一个空的 flex 槽，
+        // 在关闭按钮前多出一段空隙。所以整支用一个条件守住。
+        canReview || xPostId ? (
+          <>
+            {/* 「去审核 →」：把"刚跑完"接成一条直路。这条 Run 正等人决定，
+                而抽屉是看它的地方 —— 没有这个入口，下一步只能自己回运行记录
+                再找一遍（这正是要修的那个断点）。文案与目的地跟总览页
+                `Overview.tsx` 那颗「审核 →」保持一致。 */}
+            {canReview ? (
+              <Link
+                className="btn btn--sm btn--primary"
+                to={`/review?run=${encodeURIComponent(runId)}`}
+              >
+                去审核 →
+              </Link>
+            ) : null}
+            {xPostId ? (
+              <a
+                className="btn btn--sm"
+                href={xPostUrl(xPostId)}
+                target="_blank"
+                rel="noreferrer noopener"
+              >
+                <IconExternal size={14} />
+                在 X 中打开
+              </a>
+            ) : null}
+          </>
         ) : null
       }
     >

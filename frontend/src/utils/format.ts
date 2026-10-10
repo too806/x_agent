@@ -154,6 +154,59 @@ export function runStatusLabel(status: string | null | undefined): string {
   return RUN_STATUS_LABELS[status as RunStatus] ?? status.toUpperCase()
 }
 
+/**
+ * 只读详情面板顶部那句说明。**由 `run_status` 决定，不是一句通用话。**
+ *
+ * 审核工作台现在可以深链到**任何**一条 Run（`/review?run=<id>`，运行记录抽屉的
+ * 「去审核 →」就是这么进来的），落点不再限于"刚决定完的那条"。所以原来那句
+ * 写死的"这个 Run 已经决定了，不再出现在左侧待审队列里"会对着一条 `running`
+ * 或 `failed` 的 Run 说谎 —— 它从没决定过，也从没进过待审队列。
+ *
+ * 每一句都只陈述**该状态本身确定能推出的事**：
+ *
+ * - `running` / `completed` / `failed` 说的是"没停到人工审核"。这是 `completed`
+ *   的确切含义，不是猜测：`app/main.py` 只在 `__interrupt__` 不在终态时才把它
+ *   标成 `completed`（`mark_run_completed` 的唯一调用点），也就是流程跑到底、
+ *   没停在 human_review。
+ * - 已决定的那一族（含发布中的三个状态）说的是"已经决定了"。这也是确定的：
+ *   发布的前置条件就是运行状态为 `approved` / `edited`
+ *   （`utils/publishAction.ts` 的 `PUBLISH_ELIGIBLE_RUN_STATUSES`）。
+ * - 认不出的状态照旧不编：走默认那一条，把真实状态值原样带出来，与
+ *   `runStatusLabel` 的立场一致。
+ *
+ * 纯函数，`node --test` 可直接跑（见 `frontend/tests/read-only-notice.test.ts`）。
+ */
+export function readOnlyNotice(status: string | null | undefined): string {
+  const label = runStatusLabel(status)
+
+  switch (status) {
+    // 正常路径上走不到这里（等待审核的那一支渲染的是决定界面，不是只读面板）。
+    // 留着是为了万一状态在两个请求之间被别处改了，文案也不会开始胡说。
+    case 'waiting_for_review':
+      return '这条 Run 正在等待人工审核。'
+
+    case 'approved':
+    case 'edited':
+    case 'rejected':
+    case 'publishing':
+    case 'publish_unknown':
+    case 'published':
+      return `这个 Run 已经决定了，不再出现在待审队列里（当前状态：${label}）。下面是它的完整记录。`
+
+    case 'running':
+      return '这条 Run 还在运行中，没有可审核的草稿。下面是它当前的记录。'
+
+    case 'completed':
+      return '这条 Run 跑完了，但没有停到人工审核，没有等待决定的草稿。下面是它的完整记录。'
+
+    case 'failed':
+      return '这条 Run 运行失败，没有停到人工审核。下面是它的完整记录。'
+
+    default:
+      return `这条 Run 当前不在等待审核（状态：${label}）。下面是它的完整记录。`
+  }
+}
+
 export function reviewStatusLabel(status: string | null | undefined): string {
   if (!status) return EMPTY
   const label = REVIEW_STATUS_LABELS[status as ReviewStatus]

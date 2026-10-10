@@ -23,8 +23,12 @@ frontend/src
 │   ├── ErrorBoundary.tsx  ★新增。渲染异常时给一块读得懂的兜底，而不是白屏
 │   ├── Pagination.tsx     页码。加了首/尾/当前±1 的省略、aria-current、步进按钮
 │   ├── PublishAction.tsx  发布与裁决。首次发布 / 重发 / 结果未知裁决三种确认强度
-│   ├── ReviewPane.tsx     审核工作台右栏。原始稿与编辑稿视觉分离 + 粘性操作区
-│   ├── RunDetailDrawer.tsx Run 详情（抽屉 / 内嵌两种壳，共用同一个 DetailBody）
+│   ├── ReviewPane.tsx     审核工作台右栏。原始稿与编辑稿视觉分离 + 粘性操作区；
+│   │                      不等待审核的 Run 在这里退化成只读详情 —— 判据是 Run
+│   │                      自己的 `run_status`，与后端待审队列用的是同一个谓词
+│   ├── RunDetailDrawer.tsx Run 详情（抽屉 / 内嵌两种壳，共用同一个 DetailBody）。
+│   │                      待审核的 Run 在抽屉里给出「去审核 →」，右栏那份只读详情
+│   │                      的说明文案由 `readOnlyNotice` 按状态生成
 │   ├── States.tsx         加载 / 空 / 错误三态。新增骨架屏
 │   ├── StatusBadge.tsx    状态徽标。彩色圆点 + 文字 + 悬停显示后端原始枚举
 │   ├── TrendChart.tsx     既有（未改）
@@ -40,7 +44,8 @@ frontend/src
 ├── types/api.ts           后端响应类型（与后端 schema 对应，本次只增不减）
 └── utils/
     ├── format.ts          唯一的文案字典与时间/空值格式化层
-    ├── queue.ts           既有。审核队列"决定之后选哪条"
+    ├── queue.ts           既有。审核队列"决定之后选哪条" + 排序开关取值的解析
+    │                      （`parseQueueOrder`，不认识的 URL 值一律落回默认）
     ├── lifecycle.ts       ★新增。Run 生命周期时间线（纯函数）
     └── trace.ts           ★新增。Agent 轨迹的展示逻辑（纯函数）
 ```

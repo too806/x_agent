@@ -24,3 +24,30 @@ export function nextSelection<T extends { run_id: string }>(
   // **没有下一条时保留当前这条**，而不是清空 —— 见文件头。
   return list[index + 1]?.run_id ?? selected
 }
+
+/**
+ * 待审队列的排序方向。
+ *
+ * `oldest` 是默认的先进先出：人工审核是工作队列，积压按到达顺序清。`newest` 服务的
+ * 是另一条路径——**刚跑完就想审这一条**。队列几十条深时，那一条在 FIFO 顺序里排在
+ * 最后一页，而"我刚跑的去哪了"是最常见的一问。
+ *
+ * 这是**两个正当需求**，所以做成开关而不是把默认改掉：默认一改，积压就再没人顺手
+ * 从头清。后端的 `order` 参数与这里的取值一一对应。
+ */
+export type QueueOrder = 'oldest' | 'newest'
+
+/**
+ * 把 URL 里的 `order` 解析成排序方向。
+ *
+ * **未知值一律落回 `oldest`**，与后端默认值一致。这条不是防御性编程：URL 是可以被
+ * 收藏、被贴进聊天、被手改的，一个拼错的 `?order=newestt` 不应该让审核页打不开，
+ * 而应该只是没生效——所以这里不抛错、不返回 undefined 让调用方去猜。
+ * 盘面上也因此**看不到 422**：前端永远只发这两个值之一（后端那道 `Literal` 是给
+ * 直接调 API 的人准备的）。
+ *
+ * 抽成纯函数是为了能被 `node --test` 直接覆盖，理由同 `nextSelection`（见文件头）。
+ */
+export function parseQueueOrder(raw: string | null | undefined): QueueOrder {
+  return raw === 'newest' ? 'newest' : 'oldest'
+}

@@ -645,6 +645,124 @@ async def test_review_queue_is_oldest_first_and_paginated(session_factory):
     assert [i["run_id"] for i in second["items"]] == ids[2:]
 
 
+async def test_review_queue_newest_order_reverses_and_paginates(session_factory):
+    """`order=newest` 是默认顺序的**反转**，而不是"另一种大概的排法"。
+
+    它服务的是"刚跑完就想审这一条"：待审队列 FIFO、每页 20，队列几十条深时新的那条
+    排在最后一页，翻过去要找半天。上面那个用例（`test_review_queue_is_oldest_first_...`）
+    是默认没被改掉的回归锁，这一个守的是开关真的反过来了。
+    """
+    ids = []
+    for index in range(3):
+        run_id = await _make_waiting_run(
+            session_factory,
+            f"待审 {index}",
+            at=datetime(2026, 9, 5, tzinfo=timezone.utc) + timedelta(hours=index),
+        )
+        ids.append(run_id)
+
+    async with admin_api(session_factory) as api:
+        newest = (await api.get("/api/admin/reviews?order=newest&page_size=2")).json()
+        still_oldest = (await api.get("/api/admin/reviews?order=oldest&page_size=2")).json()
+
+    assert [i["run_id"] for i in newest["items"]] == [ids[2], ids[1]]
+    assert newest["page"] == {"page": 1, "page_size": 2, "total": 3, "pages": 2}
+    # 同一个查询里显式传 oldest 仍是最老的在前——两个方向各自成立
+    assert [i["run_id"] for i in still_oldest["items"]] == ids[:2]
+
+    async with admin_api(session_factory) as api:
+        second = (await api.get("/api/admin/reviews?order=newest&page=2&page_size=2")).json()
+    assert [i["run_id"] for i in second["items"]] == [ids[0]]
+
+
+async def test_review_queue_topic_search_counts_and_selects_the_same_rows(session_factory):
+    """`topic` 必须**同时**作用于 COUNT 与 SELECT。
+
+    `page.total` 由 COUNT 出、条目由 SELECT 出。只给 SELECT 加谓词的话，界面会显示
+    "命中 3 条"却只列出 2 条、翻到第 2 页一片空白；只给 COUNT 加则相反。所以这里
+    特意用 `page_size=1` 逼出翻页：总数与实际能翻出的条目必须一致，且都等于命中数。
+    """
+    earlier = await _make_waiting_run(
+        session_factory, "agents in production", at=datetime(2026, 9, 5, tzinfo=timezone.utc)
+    )
+    later = await _make_waiting_run(
+        session_factory,
+        "agents at scale",
+        at=datetime(2026, 9, 6, tzinfo=timezone.utc),
+    )
+    unrelated = await _make_waiting_run(session_factory, "robot supply chain")
+
+    async with admin_api(session_factory) as api:
+        first = (await api.get("/api/admin/reviews?topic=agents&page_size=1")).json()
+        second = (await api.get("/api/admin/reviews?topic=agents&page=2&page_size=1")).json()
+        all_waiting = (await api.get("/api/admin/reviews?page_size=100")).json()
+
+    # 命中 2 条，不是全部 3 条待审
+    assert first["page"]["total"] == 2
+    assert first["page"]["pages"] == 2
+    assert [i["run_id"] for i in first["items"]] == [earlier]
+    assert [i["run_id"] for i in second["items"]] == [later]
+    # 没被搜到的只出现在不带筛选的那次里
+    assert unrelated in [i["run_id"] for i in all_waiting["items"]]
+    assert unrelated not in [i["run_id"] for i in first["items"]]
+
+
+async def test_review_queue_topic_search_escapes_like_wildcards(session_factory):
+    """待审队列的搜索与 `/runs` 的搜索同一套转义：`_` / `%` 按字面量匹配。
+
+    这是 `_review_queue_clauses` 这个新的调用点：转义漏了的话，搜索框里敲一个 `_`
+    会命中全部待审条目。
+    """
+    underscore = await _make_waiting_run(session_factory, "AI_agent")
+    await _make_waiting_run(session_factory, "AIXagent")
+
+    async with admin_api(session_factory) as api:
+        result = (await api.get("/api/admin/reviews?topic=AI_")).json()
+        percent = (await api.get("/api/admin/reviews?topic=%25")).json()
+
+    assert [i["run_id"] for i in result["items"]] == [underscore]
+    assert percent["items"] == [] and percent["page"]["total"] == 0
+
+
+async def test_review_queue_combines_topic_with_order(session_factory):
+    """两个参数是正交的：先筛后排，顺序作用在筛完的结果上。"""
+    earlier = await _make_waiting_run(
+        session_factory, "agents in production", at=datetime(2026, 9, 5, tzinfo=timezone.utc)
+    )
+    later = await _make_waiting_run(
+        session_factory, "agents at scale", at=datetime(2026, 9, 6, tzinfo=timezone.utc)
+    )
+    await _make_waiting_run(session_factory, "robot supply chain")
+
+    async with admin_api(session_factory) as api:
+        page = (await api.get("/api/admin/reviews?topic=agents&order=newest")).json()
+
+    assert [i["run_id"] for i in page["items"]] == [later, earlier]
+
+
+async def test_review_queue_unknown_topic_is_empty_not_422(session_factory):
+    """搜不到是**空页**，不是错误——与 `/runs` 的 topic 同一个立场（过滤是子串匹配）。"""
+    await _make_waiting_run(session_factory, "agents in production")
+
+    async with admin_api(session_factory) as api:
+        no_match = await api.get("/api/admin/reviews?topic=zzz")
+
+    assert no_match.status_code == 200
+    assert no_match.json()["items"] == [] and no_match.json()["page"]["total"] == 0
+
+
+async def test_review_queue_rejects_unknown_order(session_factory):
+    """`order` 是唯一的白名单参数：它的取值是这个接口自己的两种形状，没有第二个源头
+    需要同步，所以拼错时直接 422 比静默退回默认值更好——悄悄用一个和请求不符的顺序
+    返回结果，会让人以为"最新优先"就是这个样子。"""
+    await _make_waiting_run(session_factory, "agents in production")
+
+    async with admin_api(session_factory) as api:
+        bad = await api.get("/api/admin/reviews?order=asc")
+
+    assert bad.status_code == 422
+
+
 async def test_review_queue_reports_the_runtime_max_length(session_factory):
     """编辑字数上限必须来自当前 Runtime 的 persona，不能是写死的常量。
 

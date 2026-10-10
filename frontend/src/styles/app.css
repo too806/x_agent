@@ -432,6 +432,13 @@ h4 {
   padding: 0;
 }
 
+/* 但 flush 卡片里也可能有一段**不是**表格的内容（审核队列的筛选行就是）。
+   给它保留正常的内边距，否则它会贴着卡片边缘——筛选行不属于"自己带内边距"
+   的那一类，收在这里比在 JSX 上挂内联样式更容易被下一个改卡片的人看见。 */
+.card--flush .card__body--padded {
+  padding: var(--space-4);
+}
+
 /* 需要整块强调的卡片（系统健康、未知发布提醒）。用左侧色条而不是整块染色：
    整块染色会把卡片里的文字对比度一起拉低，而这几块恰恰是要人仔细读的。 */
 .card--alert {
@@ -1518,6 +1525,13 @@ h4 {
   margin-top: var(--space-4);
 }
 
+/* 块内的小标题（`<h4>`）。基准的 h1–h4 规则没有外边距，这里补上"它属于下面
+   那一小块"所需要的那一点距离；字号收到与正文同级，免得在一张卡里抢戏。 */
+.block__title {
+  margin-bottom: var(--space-2);
+  font-size: var(--text-base);
+}
+
 /* 卡片内的小标题行：左边标题、右边范围/hint。 */
 .block__head {
   display: flex;
@@ -2402,6 +2416,33 @@ p.scope-note {
   overflow-wrap: anywhere;
 }
 
+/* 来源标记（"自动调度"）。
+   刻意**不**复用 .badge：那个是**状态**徽标（有圆点、跟 StatusBadge 一一对应），
+   而这个是"这条从哪来"的标签，不是这条现在的状态。混用会让人以为它也是个可以
+   变化的字段。 */
+.tag {
+  display: inline-block;
+  margin-right: var(--space-2);
+  padding: 0 6px;
+  border: 1px solid var(--accent-border);
+  border-radius: var(--radius-pill);
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  white-space: nowrap;
+}
+
+/* 机器不通过的理由，直接列在队列条目里。
+   放在正文下方而不是折叠起来：这一列的全部意义是"扫一眼就知道机器拦了什么"，
+   要点开才看得到就等于逼人把每条都点一遍。 */
+.auto-reasons {
+  margin: var(--space-1) 0 0;
+  padding-left: 16px;
+  color: var(--danger-text);
+  font-size: var(--text-xs);
+}
+
 .queue-item__meta {
   margin-top: 2px;
   color: var(--text-muted);
@@ -2585,6 +2626,13 @@ p.scope-note {
 
 .review-head__note {
   margin-top: var(--space-2);
+}
+
+/* 选中项不在左栏当前页时的那句说明。它是**旁注**，不是内容：弱一档、给它一点点
+   下边距，免得贴着下面的详情卡片看起来像卡片的一部分。 */
+.review-offpage {
+  margin-bottom: var(--space-3);
+  font-size: var(--text-sm);
 }
 
 

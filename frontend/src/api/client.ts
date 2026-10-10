@@ -16,6 +16,9 @@
 import type {
   AdminRunDetail,
   AnalyticsResponse,
+  AutoPublishStatus,
+  CreateRunPayload,
+  CreatedRunResponse,
   FeedbackOverview,
   LearningOverview,
   LearningProposalRow,
@@ -31,6 +34,7 @@ import type {
   ReviewQueuePage,
   RunListPage,
 } from '../types/api'
+import type { QueueOrder } from '../utils/queue'
 
 /** 网络层或 HTTP 层失败。`status === 0` 表示请求根本没发出去（服务没起 / 断网）。 */
 export class ApiError extends Error {
@@ -167,6 +171,15 @@ export interface RunListParams {
   pageSize?: number
 }
 
+export interface ReviewQueueParams {
+  page?: number
+  pageSize?: number
+  /** topic 模糊匹配（服务端）。空串由 `query()` 丢掉，不会变成"按空串过滤"。 */
+  topic?: string
+  /** 排序方向。**默认 `'oldest'`**，与后端默认值一致；`'newest'` 只服务于"刚跑完就想审这一条"。 */
+  order?: QueueOrder
+}
+
 export interface PublishedListParams {
   status?: string
   /** 只看 publishing / publish_unknown（待人工裁决），按紧急程度排序。 */
@@ -179,6 +192,23 @@ export interface PublishedListParams {
 
 export const api = {
   // ---------- 只读 Admin API ----------
+
+  /**
+   * 定时无人值守自动发布的开关、额度、一致率与转正式门槛。
+   *
+   * **只读，而且控制台刻意不提供"暂停"按钮**：刹车是 `config/automation.yaml`
+   * 里的 `enabled: false`，每个 tick 重读一次，改完立即生效。它比一个 HTTP 端点
+   * 更可靠——后端没起来、页面打不开时它照样是刹车。所以这里读到的开关状态要
+   * **显眼地**显示出来并说明去哪里改，而不是递一个会写文件的按钮：写那份配置要
+   * 保住它整整一篇注释，那件事不该长在一个网页请求里。
+   *
+   * 后端另有 `POST /api/admin/auto-publish/tick`（供计划任务触发），需要单独的
+   * token，**不经过这个客户端**。
+   */
+  getAutoPublishStatus(): Promise<AutoPublishStatus> {
+    return request('/api/admin/auto-publish/status')
+  },
+
 
   getOverview(days = 7): Promise<OverviewResponse> {
     return request(`/api/admin/overview${query({ days })}`)
@@ -201,8 +231,15 @@ export const api = {
     return request(`/api/admin/runs/${encodeURIComponent(runId)}`)
   },
 
-  listReviews(page = 1, pageSize = 20): Promise<ReviewQueuePage> {
-    return request(`/api/admin/reviews${query({ page, page_size: pageSize })}`)
+  listReviews(params: ReviewQueueParams = {}): Promise<ReviewQueuePage> {
+    return request(
+      `/api/admin/reviews${query({
+        page: params.page,
+        page_size: params.pageSize,
+        topic: params.topic,
+        order: params.order,
+      })}`,
+    )
   },
 
   listPublished(params: PublishedListParams = {}): Promise<PublishedListPage> {
@@ -292,6 +329,23 @@ export const api = {
   },
 
   // ---------- 写操作：一律复用 Phase 3/4a 的既有端点 ----------
+
+  /**
+   * 新建一次运行。**只走既有的 `POST /api/runs`**，控制台不另造创建入口。
+   *
+   * 这是本客户端里**唯一会同步跑完整个 Agent**的请求：它返回时运行已经推进到
+   * 人工审核（或跑完），所以耗时可观。也正因为如此，创建之后就**没有第二步**了
+   * ——不要在它后面再去调一次"触发执行"，那会把同一条 Run 跑第二遍。
+   *
+   * 失败有两种形状，都由 `ApiError` 带出来：
+   *   - 请求体不合法 → 422 `{"detail": [...]}`（本控制台不会构造出来，输入在
+   *     前端就拦掉了）；
+   *   - 运行跑失败 → 5xx，**`RunResponse` 形状**（`{run_id, status:"failed",
+   *     error}`）。后者的 `error` 才是原因，见 `utils/newRun.ts`。
+   */
+  createRun(payload: CreateRunPayload): Promise<CreatedRunResponse> {
+    return request('/api/runs', { method: 'POST', body: payload })
+  },
 
   /**
    * 提交人工审核决定。**只走既有的 `/api/runs/{id}/review`**。

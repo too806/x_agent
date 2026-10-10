@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import { api } from '../api/client'
+import { NewRunDialog } from '../components/NewRunDialog'
 import { Pagination } from '../components/Pagination'
 import { RunDetailDrawer } from '../components/RunDetailDrawer'
 import { EmptyState, ErrorState, LoadingState } from '../components/States'
@@ -10,6 +11,7 @@ import { useAsync } from '../hooks/useAsync'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
 import { usePageClamp } from '../hooks/usePageClamp'
 import { RUN_STATUSES } from '../types/api'
+import { originLabel } from '../utils/autoReview'
 import {
   CUSTOM_RANGE_SEED_DAYS,
   TIME_RANGES,
@@ -82,6 +84,7 @@ export function Runs() {
   const [page, setPage] = useState(1)
   const [openRunId, setOpenRunId] = useState<string | null>(null)
   const [compact, setCompact] = useState(false)
+  const [creating, setCreating] = useState(false)
 
   const debouncedTopic = useDebouncedValue(filters.topic, TOPIC_DEBOUNCE_MS)
 
@@ -144,6 +147,17 @@ export function Runs() {
         <div className="section__head">
           <h2 className="section__title">运行记录</h2>
           <div className="row row--tight">
+            {/* 新建入口放在标题这一行，而不是页面别处：换主题（今天 AI、明天美股）
+                的动作就是"再建一条 Run"，它比这一页上任何操作都高频。
+                它是主按钮，其余控件保持次要——一眼能看出哪个是"开始一件事"。 */}
+            <button
+              type="button"
+              className="btn btn--sm btn--primary"
+              onClick={() => setCreating(true)}
+              title="用一个新的题目或目标开始一次运行。它不会修改任何已有的 Run。"
+            >
+              + 新建 Run
+            </button>
             {data ? (
               <span className="cell-muted">
                 {dirty ? `筛选结果 ${data.page.total} 条` : `共 ${data.page.total} 条`}
@@ -354,6 +368,19 @@ export function Runs() {
                             <div className="table__secondary mono" title={run.run_id}>
                               {shortId(run.run_id)}
                             </div>
+                            {/* 来源标记只给"自动调度"：当日额度、影子一致率的分母、
+                                reaper 该收谁，三件事都靠这个字段界定范围，而它们全都
+                                发生在**不在待审队列**的 Run 上（已发布的、被收走的），
+                                所以列表里也得看得到。给每条都挂"人工发起"等于把一个
+                                默认值印满整列，真正要找的那条反而淹没。
+
+                                单独一行、不塞进上面那个 div：那个 div 是 `max-width:
+                                14ch` 的等宽截断容器，塞进去会把 Run ID 挤到省略号。 */}
+                            {run.origin === 'scheduled' ? (
+                              <div className="table__secondary">
+                                <span className="tag">{originLabel(run.origin)}</span>
+                              </div>
+                            ) : null}
                           </td>
                           <td>
                             <StatusBadge status={run.run_status} kind="run" />
@@ -413,6 +440,29 @@ export function Runs() {
           runId={openRunId}
           onClose={() => setOpenRunId(null)}
           onSettled={reload}
+        />
+      ) : null}
+
+      {creating ? (
+        <NewRunDialog
+          onClose={() => setCreating(false)}
+          // 创建成功之后：关掉弹窗、回到第 1 页重取列表、把**新**那条 Run 打开。
+          //
+          // 回第 1 页是因为列表按创建时间倒序，新 Run 一定在那里；不回的话，用户
+          // 停在第 3 页会看不到刚才建的东西，以为没成功。
+          //
+          // **不动筛选条件**：清了筛选会让"我正在看什么"被悄悄换掉。极端情况下
+          // （筛选条件恰好排除了新 Run）列表里看不到它，但下面打开的抽屉是按 id
+          // 取的详情，照样能看——这比擅自改动用户的筛选条件好。
+          //
+          // 直接打开详情，而不是只发个提示：这条 Run 现在停在等待人工审核，
+          // 人要看的下一件事就是它的草稿。
+          onCreated={(runId) => {
+            setCreating(false)
+            setPage(1)
+            reload()
+            setOpenRunId(runId)
+          }}
         />
       ) : null}
     </>
